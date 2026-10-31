@@ -223,6 +223,7 @@ fn a_skill_five_profile_queued_before_connection_completes_after_login() {
     let (mut session, observer) = testing::start_probe(
         &host,
         ready_movie()
+            .combat_facts()
             .constant("world.isActionAvailable", json!(true))
             .constant("world.getAvailableMonsterMapIds", json!([2]))
             .constant("combat.getConsumableSkillItem", json!(null))

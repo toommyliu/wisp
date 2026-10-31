@@ -7,6 +7,8 @@ import type {
 
 import { completeOperation, startOperation, failOperations, setOperationResponsibility } from "./operations";
 
+import { prepareJob, failJob, failJobs } from "./jobs";
+
 import type { ScriptSource } from "../game/scripting/ScriptRunner";
 
 declare global {
@@ -19,6 +21,9 @@ declare global {
     prepareOperation(): string;
     operate(id: string, operationJson: string): void;
     cancelOperation(id: string): void;
+    startJob(requestJson: string): string;
+    engageJob(id: string, engaged: boolean): void;
+    cancelJob(id: string): void;
     now(): number;
     log(level: "info" | "warn" | "error" | "debug", text: string): void;
   };
@@ -42,6 +47,8 @@ declare global {
 }
 
 type ScriptEvent =
+  | { type: "jobprepared"; id: string; label: string; classNames: string[]; warnings: string[] }
+  | { type: "jobfailed"; id: string; error: string }
   | { type: "operationresponsibility"; id: string; responsible: boolean }
   | { type: "operationstarted" | "operationissued"; id: string }
   | {
@@ -120,7 +127,12 @@ export const turn = (itemsJson: string): string[] => {
     if (item.type === "eventslost") {
       const error = new Error("Host events were lost; pending requests failed");
       failOperations(error);
+      failJobs(error);
       invoke(() => window.onHostEventsLost?.());
+    } else if (item.type === "jobprepared") {
+      prepareJob(item.id, item.label, item.warnings, item.classNames);
+    } else if (item.type === "jobfailed") {
+      failJob(item.id, item.error);
     } else if (item.type === "operationresponsibility") {
       setOperationResponsibility(item.id, item.responsible);
     } else if (item.type === "operationstarted") {

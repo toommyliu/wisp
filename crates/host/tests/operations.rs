@@ -602,3 +602,116 @@ fn cancelling_an_issued_handle_suppresses_its_answer_until_the_next_operation() 
         .unwrap();
     assert!(!answer(&link, final_id));
 }
+
+fn equip_result(link: &ScriptLink, id: u64) -> Result<bool, lucent_host::bridge::Error> {
+    loop {
+        if let ScriptEvent::Operation {
+            id: current,
+            answer,
+        } = next(link)
+        {
+            assert_eq!(current, id);
+            return answer.map(|answer| match answer {
+                OperationAnswer::EquipConsumable(value) => value,
+                other => panic!("unexpected answer: {other:?}"),
+            });
+        }
+    }
+}
+
+#[test]
+fn malformed_claim_handles_are_invalid_requests() {
+    let host = testing::headless_host();
+    let (_session, link) = testing::start_probe(&host, ProbeMovie::new());
+    let id = link
+        .operate(Operation::PrepareConsumableClaim {
+            claim: "invalid".into(),
+        })
+        .unwrap();
+    assert!(
+        matches!(equip_result(&link, id), Err(lucent_host::bridge::Error::CommandDecode { reason, .. }) if reason.contains("invalid claim handle"))
+    );
+}
+
+#[test]
+fn ready_claims_recheck_the_slot_before_authorizing_a_shared_holder() {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        ProbeMovie::new()
+            .constant("auth.isLoggedIn", json!(true))
+            .constant("flash.getGameObjectS", json!("\"player-a\""))
+            .constant("flash.callGameFunction0", json!("true"))
+            .responding(
+                "combat.getConsumableSkillItem",
+                [
+                    (json!({"itemId":100}), vec![]),
+                    (json!({"itemId":101}), vec![]),
+                    (json!({"itemId":100}), vec![]),
+                ],
+            )
+            .responding(
+                "inventory.equip",
+                [(
+                    json!(true),
+                    vec![(
+                        "onExtensionResponse".into(),
+                        json!({"type":"json","dataObj":{"cmd":"seia","iRes":1,"o":{"id":400}}})
+                            .to_string(),
+                    )],
+                )],
+            ),
+    );
+    emit(&link, "onExtensionResponse", json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[{"ItemID":100,"sName":"Potion","sType":"Item","sLink":"potion","sMeta":"400","iQty":2}],"hitems":[]}}).to_string());
+    emit(&link, "onExtensionResponse", json!({"type":"json","dataObj":{"cmd":"moveToArea","areaId":1,"areaName":"test-1","uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intState":1}]}}).to_string());
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let first = link.acquire_consumable_claim(Some(100)).unwrap().unwrap();
+    let id = link
+        .operate(Operation::PrepareConsumableClaim {
+            claim: first.id.to_string(),
+        })
+        .unwrap();
+    assert_eq!(equip_result(&link, id), Ok(true));
+    let shared = link.acquire_consumable_claim(Some(100)).unwrap().unwrap();
+    let id = link
+        .operate(Operation::PrepareConsumableClaim {
+            claim: shared.id.to_string(),
+        })
+        .unwrap();
+    assert_eq!(equip_result(&link, id), Ok(true));
+    link.call_loader("probe.echo", vec![])
+        .recv_timeout(WAIT)
+        .unwrap();
+    let mut equips = 0;
+    while let Some(event) = observer.try_event().unwrap() {
+        if let ScriptEvent::Loader { event, .. } = event
+            && event.name == "onProbeCall"
+            && event.args.first() == Some(&Value::String("inventory.equip".into()))
+        {
+            equips += 1;
+        }
+    }
+    assert_eq!(equips, 1);
+}
+
+#[test]
+fn claimed_equipment_reports_combat_as_the_reason_for_rejection() {
+    let host = testing::headless_host();
+    let (_session, link) = testing::start_probe(
+        &host,
+        ProbeMovie::new()
+            .constant("combat.getConsumableSkillItem", json!({"itemId":101}))
+            .constant("flash.getGameObjectS", json!("\"player-a\""))
+            .constant("flash.callGameFunction0", json!("true")),
+    );
+    emit(&link, "onExtensionResponse", json!({"type":"json","dataObj":{"cmd":"moveToArea","areaId":1,"areaName":"test-1","uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intState":2}]}}).to_string());
+    let claim = link.acquire_consumable_claim(Some(100)).unwrap().unwrap();
+    let id = link
+        .operate(Operation::PrepareConsumableClaim {
+            claim: claim.id.to_string(),
+        })
+        .unwrap();
+    assert!(
+        matches!(equip_result(&link, id), Err(error) if error.to_string().contains("while you were in combat"))
+    );
+}

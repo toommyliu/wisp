@@ -36,6 +36,22 @@ impl Running {
             };
             let invalidated = projection.receipts.epoch() != epoch;
             let ready = projection.current_readiness().missing.is_empty();
+            if invalidated || event.as_ref().is_some_and(|event| matches!(event, ScriptEvent::Loader { projected, .. } if projected.iter().any(|event| matches!(event, ProjectionEvent::JoinMap { .. })))) { self.profile_area += 1; }
+            if let Some(ScriptEvent::Loader { projected, .. }) = &event {
+                for event in projected {
+                    if let ProjectionEvent::MonsterDeath { monster_map_id } = event
+                        && let Some(monster) = projection.world.get_monster(*monster_map_id)
+                    {
+                        self.publish(ScriptEvent::ProfileDeath {
+                            area: self.profile_area,
+                            key: crate::game::profile::TargetKey {
+                                monster_map_id: *monster_map_id,
+                                generation: monster.generation(),
+                            },
+                        });
+                    }
+                }
+            }
             drop(projection);
             if let Some(event) = event {
                 self.publish(event);
@@ -193,6 +209,7 @@ mod tests {
                 player: PlayerBuilder::new().build(),
                 tasks: Tasks::default(),
                 viewport: Viewport::new(1024.0, 768.0, 1.0).unwrap(),
+                profile_area: 0,
                 last_tick: now,
                 effects: vec![],
                 drawn: 0,
@@ -264,7 +281,8 @@ mod tests {
             .sender
             .send(Some(crate::sessions::operations::Request {
                 id: 42,
-                attachment: crate::sessions::AttachmentId(0),
+                owner: crate::sessions::claims::Owner::script(crate::sessions::AttachmentId(0)),
+                recipient: crate::sessions::AttachmentId(0),
                 detached: Default::default(),
                 operation: lucent_protocol::operation::Operation::AcceptDrop {
                     selector: lucent_protocol::query::ItemSelector::Id(70.0),

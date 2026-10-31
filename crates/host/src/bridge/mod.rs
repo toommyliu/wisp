@@ -17,6 +17,8 @@ use ruffle_core::external::{CallbackError, ExternalInterfaceProvider, Value as E
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    #[error("cannot equip while you were in combat")]
+    EquipInCombat,
     #[error("the player has stopped")]
     Stopped,
     #[error("the player has not received its first viewport")]
@@ -162,6 +164,20 @@ pub(crate) fn invoke(player: &mut Player, name: &str, args: Vec<Value>) -> Resul
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScriptEvent {
+    JobPrepared {
+        id: u64,
+        label: String,
+        class_names: Vec<String>,
+        warnings: Vec<String>,
+    },
+    JobFailed {
+        id: u64,
+        error: String,
+    },
+    ProfileDeath {
+        area: u64,
+        key: crate::game::profile::TargetKey,
+    },
     OperationResponsibility {
         id: u64,
         responsible: bool,

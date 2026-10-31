@@ -18,6 +18,19 @@ impl ProfileJob {
             return Some(ProfileEffects::default());
         }
         let pending = action.clone();
+        if let Reply::Abandoned { target_lost } = reply {
+            let lease = pending.target().filter(|_| target_lost);
+            if lease.is_some_and(|lease| lease.version == self.version) {
+                self.lose_target(false);
+            }
+            self.phase = Phase::Ready;
+            self.next_step = now.saturating_add(RETRY_MS);
+            return Some(ProfileEffects {
+                outcome: lease.map(Outcome::TargetLost),
+                next_deadline: Some(self.next_step),
+                ..Default::default()
+            });
+        }
         if let Reply::Failed(message) = reply {
             self.phase = if matches!(pending, Pending::Prepare) {
                 Phase::New
@@ -59,7 +72,11 @@ impl ProfileJob {
                         missing_since: None,
                     },
                 };
-                self.phase = Phase::Casting(lease);
+                self.phase = if self.engaged {
+                    Phase::Casting(lease)
+                } else {
+                    Phase::Ready
+                };
             }
             (Pending::Cast { cast, .. }, Reply::Accepted(succeeded)) => {
                 self.rotation.complete(&cast, succeeded);

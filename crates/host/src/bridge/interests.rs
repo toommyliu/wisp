@@ -3,6 +3,8 @@ use lucent_protocol::event::ProjectionEvent;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
+    Job,
+    ProfileDeath,
     Loader,
     Connection,
     Invalidated,
@@ -52,10 +54,15 @@ impl EventInterests {
     }
 
     pub(crate) fn accepts(self, event: &ScriptEvent) -> bool {
+        if matches!(event, ScriptEvent::ProfileDeath { .. }) {
+            return self != Self::ALL && self.contains(EventKind::ProfileDeath);
+        }
         if self == Self::ALL {
             return true;
         }
         let kind = match event {
+            ScriptEvent::ProfileDeath { .. } => EventKind::ProfileDeath,
+            ScriptEvent::JobPrepared { .. } | ScriptEvent::JobFailed { .. } => EventKind::Job,
             ScriptEvent::OperationResponsibility { .. } => EventKind::OperationResponsibility,
             ScriptEvent::OperationStarted { .. } => EventKind::OperationStarted,
             ScriptEvent::OperationIssued { .. } => EventKind::OperationIssued,

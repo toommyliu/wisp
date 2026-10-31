@@ -584,7 +584,17 @@ describe("CombatProfileRunner", () => {
       state.monsters = [fakeMonster({ monsterMapId: 2, name: "Slime" })];
       state.players = [fakePlayer({ entityId: 1, username: "Hero" })];
       state.selfEntityId = 1;
-      const api = yield* makeFakeApi(target, state);
+      const original = yield* makeFakeApi(target, state);
+      const api = {
+        ...original,
+        combat: {
+          ...original.combat,
+          prepareCombatProfile: () => Effect.succeed({
+            release: Effect.void,
+            warnings: Effect.succeed([]),
+          }),
+        },
+      };
 
       const runner = yield* makeCombatProfileRunner(api, {
         profile,

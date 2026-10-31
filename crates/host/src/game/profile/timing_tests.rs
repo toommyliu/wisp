@@ -36,17 +36,17 @@ fn waiting_cooldown_has_deadline_and_revalidates_generation() {
     let mut h = Harness::new(json!({"cooldownMode":"wait-for-cooldown","steps":[{"skill":1}]}));
     h.snapshot.skills[1] = SkillReadiness::CooldownUntil(800);
     let effect = h.cycle();
-    assert_eq!(effect.next_deadline, Some(800));
+    assert_eq!(effect.next_deadline, Some(850));
     assert!(h.casts.is_empty());
     h.snapshot.monsters[0].key.generation = 1;
     h.snapshot.skills[1] = SkillReadiness::Ready;
-    h.now = 800;
+    h.now = 850;
     let effect = h.advance(ProfileEvent::Tick);
     assert_eq!(
         effect.outcome,
         Some(Outcome::Cycle(Cycle::Attacked { cast: false }))
     );
-    assert_eq!(effect.next_deadline, Some(1050));
+    assert_eq!(effect.next_deadline, Some(1100));
     assert!(h.casts.is_empty());
 }
 
@@ -56,13 +56,19 @@ fn waiting_cooldown_dispatches_once_ready() {
     h.snapshot.skills[1] = SkillReadiness::CooldownUntil(800);
     h.cycle();
     h.now = 799;
-    assert_eq!(h.advance(ProfileEvent::Tick).next_deadline, Some(800));
-    h.now = 800;
+    assert_eq!(h.advance(ProfileEvent::Tick).next_deadline, Some(850));
+    h.now = 850;
     h.snapshot.skills[1] = SkillReadiness::Ready;
+    let effect = h.advance(ProfileEvent::Tick);
+    assert_eq!(effect.next_deadline, Some(1000));
+    assert!(h.casts.is_empty());
+    h.now = 999;
+    assert_eq!(h.advance(ProfileEvent::Tick).command, None);
+    h.now = 1000;
     let effect = h.advance(ProfileEvent::Tick);
     let effect = h.settle(effect);
     assert_eq!(h.casts, [1]);
-    assert_eq!(effect.next_deadline, Some(950));
+    assert_eq!(effect.next_deadline, Some(1150));
 }
 
 #[test]
@@ -140,7 +146,7 @@ fn failed_trigger_does_not_start_cooldown() {
     h.now = 100;
     h.cast_succeeds = false;
     h.emit(message(None));
-    h.now = 101;
+    h.now = 251;
     h.cast_succeeds = true;
     h.emit(message(None));
     assert_eq!(h.casts, [5, 5]);
@@ -194,79 +200,26 @@ fn profile_and_observation_limits_fail_explicitly() {
 }
 
 #[test]
-fn consumable_preparation_handles_equipment_and_claims() {
-    let p = profile(json!({"consumable":"Potion","steps":[{"skill":5}]}));
+fn consumable_validation_rejects_missing_and_unequippable_items() {
     let item = ConsumableItem {
         item_id: 100,
         name: "Potion".into(),
         category: "Item".into(),
         link: "potion".into(),
     };
+    assert_eq!(consumable_warning("Potion", Some(&item)), None);
     assert_eq!(
-        plan_consumable(&p, Some(&item), None, ConsumableClaim::First, true),
-        ConsumablePlan::Equip { item_id: 100 }
+        consumable_warning("Potion", None),
+        Some("Potion was not found.".into())
     );
-    assert_eq!(
-        plan_consumable(&p, Some(&item), Some(100), ConsumableClaim::First, false),
-        ConsumablePlan::Ready { item_id: 100 }
-    );
-    assert_eq!(
-        plan_consumable(&p, Some(&item), None, ConsumableClaim::Shared, false),
-        ConsumablePlan::Ready { item_id: 100 }
-    );
-    for (candidate, claim, idle, expected) in [
-        (None, ConsumableClaim::First, true, "Potion was not found."),
-        (
-            Some(&item),
-            ConsumableClaim::Conflict,
-            true,
-            "Could not equip Potion because another combat profile controls preflight equipment.",
-        ),
-        (
-            Some(&item),
-            ConsumableClaim::First,
-            false,
-            "Could not equip Potion while you were in combat.",
-        ),
-    ] {
-        assert_eq!(
-            plan_consumable(&p, candidate, None, claim, idle),
-            ConsumablePlan::Unavailable(format!(
-                "{expected} Skill 5 will use whichever consumable is equipped."
-            ))
-        );
-    }
     for link in ["", " none ", "elixir", "TONIC", "\u{feff}none\u{feff}"] {
         let mut invalid = item.clone();
         invalid.link = link.into();
         assert_eq!(
-            plan_consumable(&p, Some(&invalid), None, ConsumableClaim::First, true),
-            ConsumablePlan::Unavailable(
-                "Potion cannot be equipped. Skill 5 will use whichever consumable is equipped."
-                    .into()
-            )
+            consumable_warning("Potion", Some(&invalid)),
+            Some("Potion cannot be equipped.".into())
         );
     }
-    assert_eq!(
-        plan_consumable(
-            &profile(json!({"steps":[{"skill":5}]})),
-            None,
-            Some(200),
-            ConsumableClaim::First,
-            true
-        ),
-        ConsumablePlan::ClaimCurrent(Some(200))
-    );
-    assert_eq!(
-        plan_consumable(
-            &profile(json!({})),
-            None,
-            None,
-            ConsumableClaim::First,
-            true
-        ),
-        ConsumablePlan::Unused
-    );
 }
 
 #[test]
@@ -277,16 +230,22 @@ fn trigger_waits_for_cooldown_and_respects_timeout() {
     h.snapshot.skills[5] = SkillReadiness::CooldownUntil(800);
     let effect = h.emit(message(None));
     assert!(h.casts.is_empty());
-    assert_eq!(effect.next_deadline, Some(800));
-    h.now = 800;
+    assert_eq!(effect.next_deadline, Some(850));
+    h.now = 850;
     h.snapshot.skills[5] = SkillReadiness::Ready;
+    let effect = h.advance(ProfileEvent::Tick);
+    assert_eq!(effect.next_deadline, Some(1000));
+    assert!(h.casts.is_empty());
+    h.now = 999;
+    assert_eq!(h.advance(ProfileEvent::Tick).command, None);
+    h.now = 1000;
     let effect = h.advance(ProfileEvent::Tick);
     h.settle(effect);
     assert_eq!(h.casts, [5]);
     h.snapshot.skills[5] = SkillReadiness::Unavailable;
     let effect = h.emit(message(None));
-    assert_eq!(effect.next_deadline, Some(850));
-    h.now = 5800;
+    assert_eq!(effect.next_deadline, Some(1050));
+    h.now = 6000;
     let effect = h.advance(ProfileEvent::Tick);
     assert_eq!(effect.command, None);
     assert_eq!(h.casts, [5]);
@@ -306,19 +265,19 @@ fn stale_trigger_cooldown_finishes_before_target_reselection() {
     let effect = h.advance(ProfileEvent::Tick);
     assert_eq!(effect.command, None);
     assert_eq!(effect.outcome, None);
-    assert_eq!(effect.next_deadline, Some(800));
-    h.now = 800;
+    assert_eq!(effect.next_deadline, Some(850));
+    h.now = 850;
     h.snapshot.skills[5] = SkillReadiness::Ready;
     let effect = h.advance(ProfileEvent::Tick);
     assert_eq!(effect.command, None);
     assert_eq!(effect.outcome, None);
-    assert_eq!(effect.next_deadline, Some(800));
+    assert_eq!(effect.next_deadline, Some(850));
     h.advance(ProfileEvent::Tick);
     assert_eq!(
         h.advance(ProfileEvent::Tick).outcome,
         Some(Outcome::Cycle(Cycle::NoTarget))
     );
-    h.now = 1300;
+    h.now = 1350;
     let attack = h.advance(ProfileEvent::Tick).command.unwrap();
     assert!(matches!(attack.action, Action::Attack(_)));
     assert!(h.job.target_version() > observed_version);
@@ -331,4 +290,53 @@ fn stale_trigger_cooldown_finishes_before_target_reselection() {
         None
     );
     assert_eq!(h.casts, [1]);
+}
+
+#[test]
+fn ready_wait_cast_reconfirms_after_150_milliseconds() {
+    let mut h = Harness::new(json!({"cooldownMode":"wait-for-cooldown","steps":[{"skill":1}]}));
+    let effect = h.cycle();
+    assert!(h.casts.is_empty());
+    assert_eq!(effect.next_deadline, Some(150));
+    h.now = 149;
+    assert_eq!(h.advance(ProfileEvent::Tick).command, None);
+    h.now = 150;
+    let effect = h.advance(ProfileEvent::Tick);
+    h.settle(effect);
+    assert_eq!(h.casts, [1]);
+}
+
+#[test]
+fn cooldown_reconfirmation_retries_if_readiness_changes() {
+    let mut h = Harness::new(json!({"cooldownMode":"wait-for-cooldown","steps":[{"skill":1}]}));
+    assert_eq!(h.cycle().next_deadline, Some(150));
+    h.now = 150;
+    h.snapshot.skills[1] = SkillReadiness::CooldownUntil(200);
+    assert_eq!(h.advance(ProfileEvent::Tick).next_deadline, Some(250));
+    h.now = 250;
+    h.snapshot.skills[1] = SkillReadiness::Ready;
+    assert_eq!(h.advance(ProfileEvent::Tick).next_deadline, Some(400));
+    h.now = 399;
+    assert_eq!(h.advance(ProfileEvent::Tick).command, None);
+    h.now = 400;
+    let effects = h.advance(ProfileEvent::Tick);
+    h.settle(effects);
+    assert_eq!(h.casts, [1]);
+}
+
+#[test]
+fn cooldown_reconfirmation_does_not_extend_the_five_second_bound() {
+    let mut h = Harness::new(json!({"cooldownMode":"wait-for-cooldown","steps":[{"skill":1}]}));
+    h.snapshot.skills[1] = SkillReadiness::CooldownUntil(4990);
+    assert_eq!(h.cycle().next_deadline, Some(5000));
+    h.now = 4990;
+    h.snapshot.skills[1] = SkillReadiness::Ready;
+    assert_eq!(h.advance(ProfileEvent::Tick).next_deadline, Some(5000));
+    h.now = 5000;
+    let effect = h.advance(ProfileEvent::Tick);
+    assert_eq!(
+        effect.outcome,
+        Some(Outcome::Cycle(Cycle::Attacked { cast: false }))
+    );
+    assert!(h.casts.is_empty());
 }

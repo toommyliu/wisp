@@ -114,6 +114,17 @@ fn wait<T>(pending: Pending<T>, interrupt: &Interrupt) -> Result<T, String> {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum Item {
     EventsLost,
+    JobPrepared {
+        id: String,
+        label: String,
+        #[serde(rename = "classNames")]
+        class_names: Vec<String>,
+        warnings: Vec<String>,
+    },
+    JobFailed {
+        id: String,
+        error: String,
+    },
     OperationResponsibility {
         id: String,
         responsible: bool,
@@ -143,6 +154,24 @@ pub(crate) enum Item {
 impl From<ScriptEvent> for Item {
     fn from(event: ScriptEvent) -> Self {
         match event {
+            ScriptEvent::JobPrepared {
+                id,
+                label,
+                class_names,
+                warnings,
+            } => Item::JobPrepared {
+                id: id.to_string(),
+                label,
+                class_names,
+                warnings,
+            },
+            ScriptEvent::JobFailed { id, error } => Item::JobFailed {
+                id: id.to_string(),
+                error,
+            },
+            ScriptEvent::ProfileDeath { .. } => {
+                unreachable!("profile deaths only reach the controller")
+            }
             ScriptEvent::OperationResponsibility { id, responsible } => {
                 Item::OperationResponsibility {
                     id: id.to_string(),

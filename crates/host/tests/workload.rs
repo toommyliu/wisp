@@ -203,9 +203,14 @@ fn runtime_workload() {
         let host = testing::headless_host();
         let (mut session, link) = testing::start_probe(
             &host,
-            SETTINGS
-                .into_iter()
-                .fold(ready_movie(), |movie, name| movie.recording(name)),
+            SETTINGS.into_iter().fold(
+                ready_movie()
+                    .combat_facts()
+                    .constant("world.getAvailableMonsterMapIds", json!([2]))
+                    .constant("combat.attackMonster", json!(true))
+                    .constant("combat.useSkill", json!(true)),
+                |movie, name| movie.recording(name),
+            ),
         );
         log_in(&link);
         let command: Command = serde_json::from_value(json!({"kind":"updateSettings",
@@ -340,6 +345,42 @@ fn runtime_workload() {
         assert_eq!(latency.calls.len(), BATCHES);
         assert_eq!(latency.reads.len(), BATCHES);
 
+        let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let samples = observations.clone();
+        session.set_profile_observation_probe(move |elapsed| {
+            samples
+                .lock()
+                .unwrap()
+                .push(elapsed.as_secs_f64() * 1_000_000.0)
+        });
+        let cycles = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let attacks = cycles.clone();
+        session.set_profile_dispatch_probe(move |_, attack| {
+            if attack {
+                attacks.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        link.call_loader("probe.emit", vec![Value::String("onExtensionResponse".into()), Value::String(json!({"type":"json","dataObj":{
+            "cmd":"moveToArea","areaId":2,"areaName":"test-1",
+            "uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100,"intState":1}],
+            "monBranch":[{"MonID":1,"MonMapID":2,"strMonName":"Boss","intHP":50,"intHPMax":50,"intState":1}]
+        }}).to_string())]).recv_timeout(TIMEOUT).unwrap();
+        phases.push(phase("profile", || {
+            supervisor.start_script(&mut session, loose(&[("profile.js", r#"
+                import { Effect } from "effect";
+                import * as api from "lucent/api";
+                export default function* () {
+                    yield* Effect.raceFirst(api.combat.kill("Boss", {profile:{delayMs:50,steps:[{skill:1}]}}), Effect.sleep("10 seconds"));
+                }
+            "#)])).unwrap();
+            logs.wait_for(tracing::Level::INFO, "session 1: profile.js completed");
+            logs.wait_for_count(tracing::Level::DEBUG, "session 1: script worker reaped", 122);
+        }));
+        let observation_us = observations.lock().unwrap().clone();
+        let cycles = cycles.load(Ordering::Relaxed);
+        assert!(cycles >= 20, "profile did not fight: {cycles}");
+        let observations_per_cycle = observation_us.len() as f64 / cycles as f64;
+
         phases.push(phase("settle", || thread::sleep(Duration::from_secs(5))));
         stop.store(true, Ordering::Release);
         observer.thread().unpark();
@@ -359,6 +400,7 @@ fn runtime_workload() {
                 "explicit_kills": kill_summaries(explicit),
                 "latency": {"call_us": summary(latency.calls), "read_us": summary(latency.reads),
                     "call_batch": CALL_BATCH, "read_batch": READ_BATCH},
+                "profile": {"player_observation_us": summary(observation_us), "cycles": cycles, "observations_per_cycle": observations_per_cycle},
                 "peak_rss_mib": usage().map(|(_, peak)| peak)
             })
         );

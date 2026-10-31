@@ -1608,8 +1608,8 @@ ${ind(d)}}`;
   var succeed = /* @__PURE__ */ __name((success) => new SuccessImpl(success), "succeed");
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Order.js
-  function make(compare2) {
-    return (self, that) => self === that ? 0 : compare2(self, that);
+  function make(compare) {
+    return (self, that) => self === that ? 0 : compare(self, that);
   }
   __name(make, "make");
   var Number2 = /* @__PURE__ */ make((self, that) => {
@@ -3552,7 +3552,6 @@ ${prefix}}`;
     return catchIf(self, pred, f, orElse);
   });
   var mapError = /* @__PURE__ */ dual(2, (self, f) => catch_(self, (error) => failSync(() => f(error))));
-  var orDie = /* @__PURE__ */ __name((self) => catch_(self, die), "orDie");
   var result = /* @__PURE__ */ __name((self) => matchEager(self, {
     onFailure: fail2,
     onSuccess: succeed2
@@ -3732,6 +3731,7 @@ ${prefix}}`;
   var constScopeEmpty = {
     _tag: "Empty"
   };
+  var scopeMake = /* @__PURE__ */ __name((finalizerStrategy) => sync(() => scopeMakeUnsafe(finalizerStrategy)), "scopeMake");
   var scope = scopeTag;
   var provideScope = /* @__PURE__ */ provideService(scopeTag);
   var scoped = /* @__PURE__ */ __name((self) => withFiber((fiber2) => {
@@ -4719,6 +4719,7 @@ ${prefix}}`;
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Scope.js
   var Scope = scopeTag;
+  var make6 = scopeMake;
   var makeUnsafe3 = scopeMakeUnsafe;
   var provide = provideScope;
   var addFinalizerExit = scopeAddFinalizerExit;
@@ -5128,6 +5129,7 @@ ${prefix}}`;
   var sync2 = sync;
   var void_3 = void_;
   var callback2 = callback;
+  var never2 = never;
   var gen2 = gen;
   var fail5 = fail3;
   var failCause4 = failCause;
@@ -5150,7 +5152,6 @@ ${prefix}}`;
   var catchTag2 = catchTag;
   var catchCause2 = catchCause;
   var mapError2 = mapError;
-  var orDie2 = orDie;
   var retry2 = retry;
   var timeoutOption2 = timeoutOption;
   var sleep2 = sleep;
@@ -5161,6 +5162,7 @@ ${prefix}}`;
   var context2 = context;
   var contextWith2 = contextWith;
   var provideContext2 = provideContext;
+  var provideService2 = provideService;
   var scope2 = scope;
   var scoped2 = scoped;
   var acquireRelease2 = acquireRelease;
@@ -5280,6 +5282,73 @@ ${prefix}}`;
     }
   }, "failOperations");
 
+  // packages/runtime/src/host/jobs.ts
+  var profileJobHost = globalThis.__host;
+  var jobs = /* @__PURE__ */ new Map();
+  var startProfileJob = /* @__PURE__ */ __name((request, host3) => gen2(function* () {
+    const id = yield* acquireRelease2(
+      sync2(() => {
+        const id2 = host3.startJob(JSON.stringify(request));
+        jobs.set(id2, { listeners: /* @__PURE__ */ new Set() });
+        return id2;
+      }),
+      (id2) => sync2(() => {
+        host3.cancelJob(id2);
+        jobs.delete(id2);
+      })
+    );
+    const failed = callback2((resume) => {
+      const pending = jobs.get(id);
+      if (pending?.error !== void 0) {
+        resume(die3(pending.error));
+        return;
+      }
+      const fail7 = /* @__PURE__ */ __name((error) => resume(die3(error)), "fail");
+      pending?.listeners.add(fail7);
+      return sync2(() => {
+        pending?.listeners.delete(fail7);
+      });
+    });
+    return yield* callback2((resume) => {
+      const pending = jobs.get(id);
+      if (pending === void 0) {
+        resume(die3(new Error("Combat profile job was cancelled")));
+        return;
+      }
+      pending.prepared = (answer) => {
+        pending.preparation = void 0;
+        resume(succeed7({ id, ...answer, failed }));
+      };
+      const fail7 = /* @__PURE__ */ __name((error) => resume(die3(error)), "fail");
+      pending.listeners.add(fail7);
+      if (pending.error !== void 0) fail7(pending.error);
+      else if (pending.preparation !== void 0) {
+        pending.prepared(pending.preparation);
+      }
+      return sync2(() => {
+        pending.prepared = void 0;
+        pending.listeners.delete(fail7);
+      });
+    });
+  }), "startProfileJob");
+  var prepareJob = /* @__PURE__ */ __name((id, label, warnings, classNames) => {
+    const pending = jobs.get(id);
+    if (pending === void 0 || pending.error !== void 0) return;
+    const answer = { label, warnings, classNames };
+    pending.preparation = answer;
+    pending.prepared?.(answer);
+  }, "prepareJob");
+  var failJob = /* @__PURE__ */ __name((id, error) => {
+    const pending = jobs.get(id);
+    if (pending === void 0) return;
+    pending.preparation = void 0;
+    pending.error = new Error(error);
+    for (const fail7 of pending.listeners) fail7(pending.error);
+  }, "failJob");
+  var failJobs = /* @__PURE__ */ __name((error) => {
+    for (const id of jobs.keys()) failJob(id, error.message);
+  }, "failJobs");
+
   // packages/runtime/src/host/loop.ts
   var host2 = __host;
   var timers = /* @__PURE__ */ new Map();
@@ -5322,7 +5391,12 @@ ${prefix}}`;
       if (item.type === "eventslost") {
         const error = new Error("Host events were lost; pending requests failed");
         failOperations(error);
+        failJobs(error);
         invoke(() => window.onHostEventsLost?.());
+      } else if (item.type === "jobprepared") {
+        prepareJob(item.id, item.label, item.warnings, item.classNames);
+      } else if (item.type === "jobfailed") {
+        failJob(item.id, item.error);
       } else if (item.type === "operationresponsibility") {
         setOperationResponsibility(item.id, item.responsible);
       } else if (item.type === "operationstarted") {
@@ -5395,7 +5469,7 @@ ${prefix}}`;
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/ManagedRuntime.js
   var TypeId8 = "~effect/ManagedRuntime";
-  var make6 = /* @__PURE__ */ __name((layer8, options) => {
+  var make7 = /* @__PURE__ */ __name((layer8, options) => {
     const memoMap = options?.memoMap ?? makeMemoMapUnsafe();
     const scope3 = makeUnsafe3("sequential");
     const layerScope = forkUnsafe2(scope3, "sequential");
@@ -6248,7 +6322,7 @@ ${prefix}}`;
       return "never";
     }
   };
-  var never2 = /* @__PURE__ */ new Never();
+  var never3 = /* @__PURE__ */ new Never();
   var Unknown = class extends ASTNodeImpl {
     static {
       __name(this, "Unknown");
@@ -8170,10 +8244,10 @@ ${prefix}}`;
     };
   }
   __name(makeOption, "makeOption");
-  function make7(schema) {
+  function make8(schema) {
     return makeConstructorSync(toType(schema.ast));
   }
-  __name(make7, "make");
+  __name(make8, "make");
   function is(schema) {
     return _is(schema.ast);
   }
@@ -8320,11 +8394,11 @@ ${prefix}}`;
       } : {
         disableChecks: true
       } : options?.parseOptions ?? defaultParseOptions;
-      const make17 = entry.make;
-      if (make17 !== void 0 && input !== missing) {
+      const make18 = entry.make;
+      if (make18 !== void 0 && input !== missing) {
         let output;
         try {
-          output = make17(input, parseOptions);
+          output = make18(input, parseOptions);
         } catch (error) {
           getSchemaIssueOrThrow(die2(error), "Constructor adapter can only throw schema issues");
           throw error;
@@ -8345,7 +8419,7 @@ ${prefix}}`;
   var SchemaProto = {
     [TypeId12]: TypeId12,
     get make() {
-      const value = make7(this);
+      const value = make8(this);
       Object.defineProperty(this, "make", {
         value,
         enumerable: true
@@ -8381,10 +8455,10 @@ ${prefix}}`;
       return this.rebuild(appendChecks(this.ast, checks));
     },
     rebuild(ast) {
-      return make8(ast, this[RebuildOptions]);
+      return make9(ast, this[RebuildOptions]);
     }
   };
-  function make8(ast, options) {
+  function make9(ast, options) {
     function Schema() {
     }
     __name(Schema, "Schema");
@@ -8400,7 +8474,7 @@ ${prefix}}`;
     self.ast = ast;
     return self;
   }
-  __name(make8, "make");
+  __name(make9, "make");
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Struct.js
   var lambda = /* @__PURE__ */ __name((f) => f, "lambda");
@@ -8412,7 +8486,7 @@ ${prefix}}`;
   var TypeId13 = TypeId12;
   function declareConstructor() {
     return (typeParameters, run2, annotations) => {
-      return make9(new Declaration(typeParameters.map(getAST), (typeParameters2) => run2(typeParameters2.map((ast) => make9(ast))), annotations));
+      return make10(new Declaration(typeParameters.map(getAST), (typeParameters2) => run2(typeParameters2.map((ast) => make10(ast))), annotations));
     };
   }
   __name(declareConstructor, "declareConstructor");
@@ -8472,16 +8546,16 @@ ${prefix}}`;
   }
   __name(decodeUnknownEffect2, "decodeUnknownEffect");
   var decodeUnknownOption2 = decodeUnknownOption;
-  var make9 = make8;
+  var make10 = make9;
   function isSchema(u) {
     return hasProperty(u, TypeId13) && u[TypeId13] === TypeId13;
   }
   __name(isSchema, "isSchema");
-  var optionalKey2 = /* @__PURE__ */ lambda((schema) => make9(optionalKey(schema.ast), {
+  var optionalKey2 = /* @__PURE__ */ lambda((schema) => make10(optionalKey(schema.ast), {
     schema
   }));
   function Literal2(literal2) {
-    const out = make9(new Literal(literal2), {
+    const out = make10(new Literal(literal2), {
       literal: literal2,
       transform(to) {
         return out.pipe(decodeTo2(Literal2(to), {
@@ -8493,16 +8567,16 @@ ${prefix}}`;
     return out;
   }
   __name(Literal2, "Literal");
-  var Never2 = /* @__PURE__ */ make9(never2);
-  var Unknown2 = /* @__PURE__ */ make9(unknown);
-  var Null2 = /* @__PURE__ */ make9(null_);
-  var Undefined2 = /* @__PURE__ */ make9(undefined_2);
-  var String4 = /* @__PURE__ */ make9(string2);
-  var Number6 = /* @__PURE__ */ make9(number2);
-  var Boolean3 = /* @__PURE__ */ make9(boolean);
-  var Void2 = /* @__PURE__ */ make9(void_4);
+  var Never2 = /* @__PURE__ */ make10(never3);
+  var Unknown2 = /* @__PURE__ */ make10(unknown);
+  var Null2 = /* @__PURE__ */ make10(null_);
+  var Undefined2 = /* @__PURE__ */ make10(undefined_2);
+  var String4 = /* @__PURE__ */ make10(string2);
+  var Number6 = /* @__PURE__ */ make10(number2);
+  var Boolean3 = /* @__PURE__ */ make10(boolean);
+  var Void2 = /* @__PURE__ */ make10(void_4);
   function makeStruct(ast, fields) {
-    return make9(ast, {
+    return make10(ast, {
       fields,
       mapFields(f, options) {
         const fields2 = f(this.fields);
@@ -8516,14 +8590,14 @@ ${prefix}}`;
   }
   __name(Struct, "Struct");
   function Record(key, value) {
-    return make9(record(key.ast, value.ast), {
+    return make10(record(key.ast, value.ast), {
       key,
       value
     });
   }
   __name(Record, "Record");
   function makeTuple(ast, elements) {
-    return make9(ast, {
+    return make10(ast, {
       elements,
       mapElements(f, options) {
         const elements2 = f(this.elements);
@@ -8536,11 +8610,11 @@ ${prefix}}`;
     return makeTuple(tuple(elements), elements);
   }
   __name(Tuple, "Tuple");
-  var ArraySchema = /* @__PURE__ */ lambda((schema) => make9(new Arrays(false, [], [schema.ast]), {
+  var ArraySchema = /* @__PURE__ */ lambda((schema) => make10(new Arrays(false, [], [schema.ast]), {
     value: schema
   }));
   function makeUnion(ast, members) {
-    return make9(ast, {
+    return make10(ast, {
       members,
       mapMembers(f, options) {
         const members2 = f(this.members);
@@ -8555,7 +8629,7 @@ ${prefix}}`;
   __name(Union2, "Union");
   function Literals(literals) {
     const members = literals.map(Literal2);
-    return make9(union(members, void 0, void 0), {
+    return make10(union(members, void 0, void 0), {
       literals,
       members,
       mapMembers(f) {
@@ -8573,7 +8647,7 @@ ${prefix}}`;
   var NullOr = /* @__PURE__ */ lambda((self) => Union2([self, Null2]));
   function decodeTo2(to, transformation) {
     return (from) => {
-      return make9(decodeTo(from.ast, to.ast, transformation ? makeTransformation(transformation) : passthrough3()), {
+      return make10(decodeTo(from.ast, to.ast, transformation ? makeTransformation(transformation) : passthrough3()), {
         from,
         to
       });
@@ -8581,7 +8655,7 @@ ${prefix}}`;
   }
   __name(decodeTo2, "decodeTo");
   function withConstructorDefault2(defaultValue) {
-    return (schema) => make9(withConstructorDefault(schema.ast, defaultValue), {
+    return (schema) => make10(withConstructorDefault(schema.ast, defaultValue), {
       schema
     });
   }
@@ -8642,7 +8716,7 @@ ${prefix}}`;
     });
   }
   __name(isBase64, "isBase64");
-  var Finite = /* @__PURE__ */ make9(finite);
+  var Finite = /* @__PURE__ */ make10(finite);
   function makeIsGreaterThan(options) {
     const gt = isGreaterThan(options.order);
     const formatter = options.formatter ?? format2;
@@ -9086,7 +9160,7 @@ ${prefix}}`;
         return getClassSchema(this).rebuild(ast);
       }
       static make(input, options) {
-        return make7(getClassSchema(this))(input ?? {}, options);
+        return make8(getClassSchema(this))(input ?? {}, options);
       }
       static makeOption(input, options) {
         return makeOption(getClassSchema(this))(input ?? {}, options);
@@ -9148,7 +9222,7 @@ ${prefix}}`;
       const ClassTypeId = getClassTypeId(identifier2);
       const isClassValue = /* @__PURE__ */ __name((input) => input instanceof self || hasProperty(input, ClassTypeId), "isClassValue");
       const transformation = getClassTransformation(self);
-      const to = make9(new Declaration([from.ast], () => (input, ast, options) => {
+      const to = make10(new Declaration([from.ast], () => (input, ast, options) => {
         return isClassValue(input) ? succeed7(input) : fail5(new InvalidType(ast, input, options));
       }, {
         identifier: identifier2,
@@ -9188,7 +9262,7 @@ ${prefix}}`;
       return Error3(identifier2 ?? tagValue)(struct2, annotations);
     };
   }, "TaggedError");
-  var Json2 = /* @__PURE__ */ make9(/* @__PURE__ */ annotate(Json, {
+  var Json2 = /* @__PURE__ */ make10(/* @__PURE__ */ annotate(Json, {
     toCode: /* @__PURE__ */ __name(() => ({
       runtime: "Schema.Json",
       Type: "Schema.Json"
@@ -9302,7 +9376,7 @@ ${prefix}}`;
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/MutableList.js
   var Empty = /* @__PURE__ */ Symbol.for("effect/MutableList/Empty");
-  var make10 = /* @__PURE__ */ __name(() => ({
+  var make11 = /* @__PURE__ */ __name(() => ({
     head: void 0,
     tail: void 0,
     length: 0
@@ -9434,7 +9508,7 @@ ${prefix}}`;
       };
     }
   };
-  var make11 = /* @__PURE__ */ __name((value) => {
+  var make12 = /* @__PURE__ */ __name((value) => {
     const ref = Object.create(MutableRefProto);
     ref.current = value;
     return ref;
@@ -9447,8 +9521,8 @@ ${prefix}}`;
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/PubSub.js
   var TypeId15 = "~effect/PubSub";
   var SubscriptionTypeId = "~effect/PubSub/Subscription";
-  var make12 = /* @__PURE__ */ __name((options) => sync2(() => makePubSubUnsafe(options.atomicPubSub(), /* @__PURE__ */ new Map(), makeUnsafe3(), makeUnsafe4(false), make11(false), options.strategy(), make11(none2()))), "make");
-  var unbounded = /* @__PURE__ */ __name((options) => make12({
+  var make13 = /* @__PURE__ */ __name((options) => sync2(() => makePubSubUnsafe(options.atomicPubSub(), /* @__PURE__ */ new Map(), makeUnsafe3(), makeUnsafe4(false), make12(false), options.strategy(), make12(none2()))), "make");
+  var unbounded = /* @__PURE__ */ __name((options) => make13({
     atomicPubSub: /* @__PURE__ */ __name(() => makeAtomicUnbounded(options), "atomicPubSub"),
     strategy: /* @__PURE__ */ __name(() => new DroppingStrategy(), "strategy")
   }), "unbounded");
@@ -9569,7 +9643,7 @@ ${prefix}}`;
       subscribers.delete(subscription);
     }
   }, "removeSubscribers");
-  var makeSubscriptionUnsafe = /* @__PURE__ */ __name((pubsub, subscribers, strategy, ended) => new SubscriptionImpl(pubsub, subscribers, pubsub.subscribe(), make10(), makeUnsafe4(false), make11(false), strategy, pubsub.replayWindow(), ended), "makeSubscriptionUnsafe");
+  var makeSubscriptionUnsafe = /* @__PURE__ */ __name((pubsub, subscribers, strategy, ended) => new SubscriptionImpl(pubsub, subscribers, pubsub.subscribe(), make11(), makeUnsafe4(false), make12(false), strategy, pubsub.replayWindow(), ended), "makeSubscriptionUnsafe");
   var UnboundedPubSub = class {
     static {
       __name(this, "UnboundedPubSub");
@@ -9996,12 +10070,12 @@ ${prefix}}`;
       };
     }
   };
-  var make13 = /* @__PURE__ */ __name((options) => withFiber((fiber2) => {
+  var make14 = /* @__PURE__ */ __name((options) => withFiber((fiber2) => {
     const self = Object.create(QueueProto);
     self.dispatcher = fiber2.currentDispatcher;
     self.capacity = options?.capacity ?? Number.POSITIVE_INFINITY;
     self.strategy = options?.strategy ?? "suspend";
-    self.messages = make10();
+    self.messages = make11();
     self.scheduleRunning = false;
     self.state = {
       _tag: "Open",
@@ -10011,10 +10085,10 @@ ${prefix}}`;
     };
     return succeed3(self);
   }), "make");
-  var bounded = /* @__PURE__ */ __name((capacity) => make13({
+  var bounded = /* @__PURE__ */ __name((capacity) => make14({
     capacity
   }), "bounded");
-  var unbounded2 = /* @__PURE__ */ __name(() => make13(), "unbounded");
+  var unbounded2 = /* @__PURE__ */ __name(() => make14(), "unbounded");
   var offer = /* @__PURE__ */ dual(2, (self, message2) => suspend(() => offerUnsafe(self, message2) ? exitTrue : self.state._tag === "Open" && self.strategy === "suspend" ? offerOrWait(self, message2) : exitFalse));
   var offerUnsafe = /* @__PURE__ */ __name((self, message2) => {
     if (self.state._tag !== "Open") {
@@ -10331,7 +10405,7 @@ ${prefix}}`;
       });
     }
   };
-  var make14 = /* @__PURE__ */ __name((permits) => sync(() => new SemaphoreImpl(permits)), "make");
+  var make15 = /* @__PURE__ */ __name((permits) => sync(() => new SemaphoreImpl(permits)), "make");
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Channel.js
   var TypeId17 = "~effect/Channel";
@@ -12409,8 +12483,8 @@ ${prefix}}`;
     )
   ), "houseCanAccept");
   var makeBank = fnUntraced2(function* (bridge, host3, auth, inventory, house, wait) {
-    const loads = yield* make14(1);
-    const opens = yield* make14(1);
+    const loads = yield* make15(1);
+    const opens = yield* make15(1);
     const isOpen = /* @__PURE__ */ __name(() => bridge.invoke("bank.isOpen", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isOpen");
     const getAll = /* @__PURE__ */ __name(() => isHydrated(host3, "bank").pipe(
       flatMap3(
@@ -12613,943 +12687,6 @@ ${prefix}}`;
     };
   });
 
-  // packages/schemas/src/baseSchemas.ts
-  var TrimmedString = String4.pipe(
-    decodeTo2(
-      String4,
-      transformEffect2({
-        decode: /* @__PURE__ */ __name((value) => succeed7(value.trim()), "decode"),
-        encode: /* @__PURE__ */ __name((value) => succeed7(value.trim()), "encode")
-      })
-    )
-  );
-  var TrimmedNonEmptyString = TrimmedString.check(isNonEmpty());
-  var NonNegativeInt = Int.check(
-    isGreaterThanOrEqualTo2(0)
-  );
-  var PositiveInt = Int.check(isGreaterThanOrEqualTo2(1));
-  var boundedInt = /* @__PURE__ */ __name((minimum, maximum) => Int.check(isBetween2({ minimum, maximum })), "boundedInt");
-
-  // packages/schemas/src/combatProfiles.ts
-  var COMBAT_PROFILE_LIBRARY_VERSION = 1;
-  var DEFAULT_COMBAT_PROFILE_ID = "generic-base";
-  var DEFAULT_COMBAT_PROFILE_DELAY_MS = 150;
-  var MAX_DELAY_MS = 6e4;
-  var MAX_WAIT_MS = 6e4;
-  var MAX_ID_LENGTH = 80;
-  var MAX_LABEL_LENGTH = 80;
-  var MAX_CLASS_NAME_LENGTH = 80;
-  var MAX_CONSUMABLE_NAME_LENGTH = 80;
-  var MAX_AURA_NAME_LENGTH = 80;
-  var MAX_MESSAGE_TRIGGER_TEXT_LENGTH = 160;
-  var structuredCloneValue = globalThis.structuredClone;
-  var SkillSlotSchema = Literals([
-    0,
-    1,
-    2,
-    3,
-    4,
-    5
-  ]);
-  var CombatProfileCooldownModeSchema = Literals([
-    "use-if-ready",
-    "wait-for-cooldown"
-  ]);
-  var CombatProfileThresholdUnitSchema = Literals([
-    "percent",
-    "value"
-  ]);
-  var CombatProfileComparisonSchema = Literals(["<=", ">="]);
-  var CombatProfileStatConditionSchema = Struct({
-    type: Literals(["self-hp", "self-mp", "ally-hp"]),
-    op: CombatProfileComparisonSchema,
-    value: boundedInt(0, 999999),
-    unit: CombatProfileThresholdUnitSchema
-  });
-  var CombatProfileAuraConditionSchema = Struct({
-    type: Literals(["self-aura", "target-aura"]),
-    auraName: TrimmedNonEmptyString,
-    op: CombatProfileComparisonSchema,
-    value: boundedInt(0, 999)
-  });
-  var CombatProfileConditionSchema = Union2([
-    CombatProfileStatConditionSchema,
-    CombatProfileAuraConditionSchema
-  ]);
-  var CombatProfileStepSchema = Struct({
-    skill: SkillSlotSchema,
-    conditions: ArraySchema(CombatProfileConditionSchema),
-    priority: optionalKey2(Boolean3),
-    cooldownMode: optionalKey2(CombatProfileCooldownModeSchema),
-    waitMs: optionalKey2(boundedInt(0, MAX_WAIT_MS))
-  });
-  var CombatProfileMessageTriggerSourceSchema = Literals([
-    "any",
-    "animation",
-    "aura"
-  ]);
-  var CombatProfileMessageTriggerSchema = Struct({
-    messageIncludes: TrimmedNonEmptyString,
-    skill: SkillSlotSchema,
-    source: CombatProfileMessageTriggerSourceSchema,
-    cooldownMs: optionalKey2(boundedInt(0, MAX_WAIT_MS))
-  });
-  var CombatProfileSchema = Struct({
-    id: TrimmedNonEmptyString,
-    label: TrimmedNonEmptyString,
-    classNames: optionalKey2(ArraySchema(TrimmedNonEmptyString)),
-    consumable: optionalKey2(TrimmedNonEmptyString),
-    delayMs: boundedInt(0, MAX_DELAY_MS),
-    cooldownMode: CombatProfileCooldownModeSchema,
-    resetSkillIndexOnTargetDeath: optionalKey2(Boolean3),
-    steps: ArraySchema(CombatProfileStepSchema),
-    messageTriggers: optionalKey2(
-      ArraySchema(CombatProfileMessageTriggerSchema)
-    )
-  });
-  var CombatProfileLibrarySchema = Struct({
-    version: Literal2(COMBAT_PROFILE_LIBRARY_VERSION),
-    profiles: ArraySchema(CombatProfileSchema)
-  });
-  var UnknownRecordSchema = Record(String4, Unknown2);
-  var CombatProfileDefinitionInputSchema = Struct({
-    steps: ArraySchema(Unknown2)
-  });
-  var decodeArray = decodeUnknownOption2(ArraySchema(Unknown2));
-  var decodeBoolean = decodeUnknownOption2(Boolean3);
-  var decodeCombatProfileComparison = decodeUnknownOption2(
-    CombatProfileComparisonSchema
-  );
-  var decodeCombatProfileCooldownMode = decodeUnknownOption2(
-    CombatProfileCooldownModeSchema
-  );
-  var decodeCombatProfileDefinitionInput = decodeUnknownOption2(
-    CombatProfileDefinitionInputSchema
-  );
-  var decodeCombatProfileMessageTriggerSource = decodeUnknownOption2(
-    CombatProfileMessageTriggerSourceSchema
-  );
-  var decodeCombatProfileThresholdUnit = decodeUnknownOption2(
-    CombatProfileThresholdUnitSchema
-  );
-  var decodeFinite = decodeUnknownOption2(Finite);
-  var decodeRecord2 = decodeUnknownOption2(UnknownRecordSchema);
-  var decodeString2 = decodeUnknownOption2(String4);
-  var decodeSkillSlot = decodeUnknownOption2(SkillSlotSchema);
-  var fromOption4 = /* @__PURE__ */ __name((decode3, value) => {
-    const decoded = decode3(value);
-    return isSome2(decoded) ? decoded.value : void 0;
-  }, "fromOption");
-  var asRecord = /* @__PURE__ */ __name((value) => fromOption4(decodeRecord2, value), "asRecord");
-  var asArray = /* @__PURE__ */ __name((value) => fromOption4(decodeArray, value) ?? [], "asArray");
-  var normalizeArray = /* @__PURE__ */ __name((value, normalize3) => asArray(value).map(normalize3).filter((value2) => value2 !== void 0), "normalizeArray");
-  var clampInt = /* @__PURE__ */ __name((value, fallback, min3, max3) => {
-    const parsed = fromOption4(decodeFinite, value);
-    return parsed === void 0 ? fallback : Math.min(max3, Math.max(min3, Math.trunc(parsed)));
-  }, "clampInt");
-  var truncateUtf16 = /* @__PURE__ */ __name((value, maxLength) => {
-    const truncated = value.slice(0, maxLength);
-    const last = truncated.charCodeAt(truncated.length - 1);
-    return last >= 55296 && last <= 56319 ? truncated.slice(0, -1) : truncated;
-  }, "truncateUtf16");
-  var trimString = /* @__PURE__ */ __name((value, maxLength) => {
-    const decoded = fromOption4(decodeString2, value);
-    if (decoded === void 0) {
-      return void 0;
-    }
-    const trimmed = decoded.trim();
-    const truncated = truncateUtf16(trimmed, maxLength);
-    return truncated === "" ? void 0 : truncated;
-  }, "trimString");
-  var genericProfile = /* @__PURE__ */ __name(() => ({
-    id: DEFAULT_COMBAT_PROFILE_ID,
-    label: "Generic",
-    delayMs: DEFAULT_COMBAT_PROFILE_DELAY_MS,
-    cooldownMode: "use-if-ready",
-    steps: [1, 2, 3, 4].map((skill) => ({
-      skill,
-      conditions: []
-    }))
-  }), "genericProfile");
-  var normalizeCondition = /* @__PURE__ */ __name((value) => {
-    const record3 = asRecord(value);
-    if (record3 === void 0) {
-      return void 0;
-    }
-    const type = record3["type"];
-    if (type === "self-hp" || type === "self-mp" || type === "ally-hp") {
-      const unit = fromOption4(decodeCombatProfileThresholdUnit, record3["unit"]) ?? "percent";
-      return {
-        type,
-        op: fromOption4(decodeCombatProfileComparison, record3["op"]) ?? "<=",
-        value: clampInt(
-          record3["value"],
-          0,
-          0,
-          unit === "percent" ? 100 : 999999
-        ),
-        unit
-      };
-    }
-    if (type !== "self-aura" && type !== "target-aura") {
-      return void 0;
-    }
-    const auraName = trimString(record3["auraName"], MAX_AURA_NAME_LENGTH);
-    return auraName === void 0 ? void 0 : {
-      type,
-      auraName,
-      op: fromOption4(decodeCombatProfileComparison, record3["op"]) ?? "<=",
-      value: clampInt(record3["value"], 0, 0, 999)
-    };
-  }, "normalizeCondition");
-  var normalizeStep = /* @__PURE__ */ __name((value) => {
-    const record3 = asRecord(value);
-    if (record3 === void 0) {
-      return void 0;
-    }
-    const skill = clampInt(record3["skill"], Number.NaN, 0, 5);
-    const skillSlot = fromOption4(decodeSkillSlot, skill);
-    if (skillSlot === void 0) {
-      return void 0;
-    }
-    const cooldownMode = fromOption4(
-      decodeCombatProfileCooldownMode,
-      record3["cooldownMode"]
-    );
-    const waitMs = clampInt(record3["waitMs"], 0, 0, MAX_WAIT_MS);
-    return {
-      skill: skillSlot,
-      conditions: normalizeArray(record3["conditions"], normalizeCondition),
-      ...fromOption4(decodeBoolean, record3["priority"]) ? { priority: true } : {},
-      ...cooldownMode === void 0 ? {} : { cooldownMode },
-      ...waitMs > 0 ? { waitMs } : {}
-    };
-  }, "normalizeStep");
-  var normalizeMessageTrigger = /* @__PURE__ */ __name((value) => {
-    const record3 = asRecord(value);
-    if (record3 === void 0) {
-      return void 0;
-    }
-    const messageIncludes = trimString(
-      record3["messageIncludes"],
-      MAX_MESSAGE_TRIGGER_TEXT_LENGTH
-    );
-    const skill = clampInt(record3["skill"], Number.NaN, 0, 5);
-    const skillSlot = fromOption4(decodeSkillSlot, skill);
-    if (messageIncludes === void 0 || skillSlot === void 0) {
-      return void 0;
-    }
-    const cooldownMs = clampInt(record3["cooldownMs"], 0, 0, MAX_WAIT_MS);
-    return {
-      messageIncludes,
-      skill: skillSlot,
-      source: fromOption4(decodeCombatProfileMessageTriggerSource, record3["source"]) ?? "any",
-      ...cooldownMs > 0 ? { cooldownMs } : {}
-    };
-  }, "normalizeMessageTrigger");
-  var normalizeProfile = /* @__PURE__ */ __name((value, fallbackId) => {
-    const record3 = asRecord(value);
-    if (record3 === void 0) {
-      return void 0;
-    }
-    const id = trimString(record3["id"], MAX_ID_LENGTH) ?? fallbackId;
-    if (id === void 0) {
-      return void 0;
-    }
-    const label = trimString(record3["label"], MAX_LABEL_LENGTH) ?? "Profile";
-    const classNames = normalizeArray(
-      record3["classNames"],
-      (className) => trimString(className, MAX_CLASS_NAME_LENGTH)
-    );
-    const consumable = trimString(
-      record3["consumable"],
-      MAX_CONSUMABLE_NAME_LENGTH
-    );
-    const messageTriggers = normalizeArray(
-      record3["messageTriggers"],
-      normalizeMessageTrigger
-    );
-    const steps = normalizeArray(record3["steps"], normalizeStep);
-    return {
-      id,
-      label,
-      ...classNames.length === 0 ? {} : { classNames },
-      ...consumable === void 0 ? {} : { consumable },
-      delayMs: clampInt(
-        record3["delayMs"],
-        DEFAULT_COMBAT_PROFILE_DELAY_MS,
-        0,
-        MAX_DELAY_MS
-      ),
-      cooldownMode: fromOption4(decodeCombatProfileCooldownMode, record3["cooldownMode"]) ?? "use-if-ready",
-      ...fromOption4(decodeBoolean, record3["resetSkillIndexOnTargetDeath"]) ? { resetSkillIndexOnTargetDeath: true } : {},
-      steps,
-      ...messageTriggers.length === 0 ? {} : { messageTriggers }
-    };
-  }, "normalizeProfile");
-  var DEFAULT_COMBAT_PROFILE_LIBRARY = {
-    version: COMBAT_PROFILE_LIBRARY_VERSION,
-    profiles: [genericProfile()]
-  };
-  var normalizeCombatProfile = /* @__PURE__ */ __name((value) => normalizeProfile(value, DEFAULT_COMBAT_PROFILE_ID) ?? genericProfile(), "normalizeCombatProfile");
-
-  // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Ref.js
-  var TypeId20 = "~effect/Ref";
-  var RefProto = {
-    [TypeId20]: {
-      _A: identity
-    },
-    ...PipeInspectableProto,
-    toJSON() {
-      return {
-        _id: "Ref",
-        ref: this.ref
-      };
-    }
-  };
-  var makeUnsafe6 = /* @__PURE__ */ __name((value) => {
-    const self = Object.create(RefProto);
-    self.ref = make11(value);
-    return self;
-  }, "makeUnsafe");
-  var make15 = /* @__PURE__ */ __name((value) => sync2(() => makeUnsafe6(value)), "make");
-  var get3 = /* @__PURE__ */ __name((self) => sync2(() => self.ref.current), "get");
-  var set2 = /* @__PURE__ */ dual(2, (self, value) => sync2(() => set(self.ref, value)));
-  var getAndSet = /* @__PURE__ */ dual(2, (self, value) => sync2(() => {
-    const current = self.ref.current;
-    self.ref.current = value;
-    return current;
-  }));
-  var modify = /* @__PURE__ */ dual(2, (self, f) => sync2(() => {
-    const [b, a] = f(self.ref.current);
-    self.ref.current = a;
-    return b;
-  }));
-  var update = /* @__PURE__ */ dual(2, (self, f) => sync2(() => {
-    self.ref.current = f(self.ref.current);
-  }));
-  var updateAndGet = /* @__PURE__ */ dual(2, (self, f) => sync2(() => self.ref.current = f(self.ref.current)));
-
-  // packages/runtime/src/game/combatProfiles.ts
-  var makeCombatProfileRuntimeDeps = /* @__PURE__ */ __name((combat, player, players, skill5ItemId) => ({
-    combat,
-    player,
-    players,
-    ...skill5ItemId === void 0 ? {} : { skill5ItemId }
-  }), "makeCombatProfileRuntimeDeps");
-  var makeCombatProfileCursor = /* @__PURE__ */ __name(() => map5(make15({ index: 0, resetVersion: 0 }), (state) => ({ state })), "makeCombatProfileCursor");
-  var resetCombatProfileCursor = /* @__PURE__ */ __name((cursor) => update(cursor.state, (state) => ({
-    index: 0,
-    resetVersion: state.resetVersion + 1
-  })), "resetCombatProfileCursor");
-  var makeCombatProfileMessageTriggerState = /* @__PURE__ */ __name(() => gen2(function* () {
-    const state = yield* make15(/* @__PURE__ */ new Map());
-    const semaphore = yield* make14(1);
-    return {
-      semaphore,
-      state
-    };
-  }), "makeCombatProfileMessageTriggerState");
-  var compare = /* @__PURE__ */ __name((actual, op, expected) => op === ">=" ? actual >= expected : actual <= expected, "compare");
-  var statValue = /* @__PURE__ */ __name((current, max3, unit) => unit === "value" ? current : max3 > 0 ? current / max3 * 100 : 0, "statValue");
-  var auraValue = /* @__PURE__ */ __name((aura) => aura === null ? 0 : aura.stack ?? aura.value ?? 1, "auraValue");
-  var matchesStatCondition = /* @__PURE__ */ __name((deps, condition) => gen2(function* () {
-    if (condition.type === "self-hp") {
-      const hp = yield* deps.player.getHp();
-      const maxHp = yield* deps.player.getMaxHp();
-      return compare(
-        statValue(hp, maxHp, condition.unit),
-        condition.op,
-        condition.value
-      );
-    }
-    if (condition.type === "self-mp") {
-      const mp = yield* deps.player.getMp();
-      const maxMp = yield* deps.player.getMaxMp();
-      return compare(
-        statValue(mp, maxMp, condition.unit),
-        condition.op,
-        condition.value
-      );
-    }
-    const matchesPlayerHp = /* @__PURE__ */ __name((hp, maxHp) => compare(
-      statValue(hp, maxHp, condition.unit),
-      condition.op,
-      condition.value
-    ), "matchesPlayerHp");
-    const self = yield* deps.players.getMe();
-    if (self !== null && matchesPlayerHp(self.hp, self.maxHp)) {
-      return true;
-    }
-    const selfEntityId = self?.entityId;
-    const selfUsername = self?.username.trim().toLowerCase();
-    for (const roomPlayer of yield* deps.players.getAll()) {
-      if (selfEntityId !== void 0 && roomPlayer.entityId === selfEntityId || selfUsername !== void 0 && roomPlayer.username.trim().toLowerCase() === selfUsername) {
-        continue;
-      }
-      if (matchesPlayerHp(roomPlayer.hp, roomPlayer.maxHp)) {
-        return true;
-      }
-    }
-    return false;
-  }), "matchesStatCondition");
-  var getTargetAura = /* @__PURE__ */ __name((deps, condition, castTarget) => gen2(function* () {
-    if (castTarget !== void 0) {
-      return auraValue(castTarget.getAura(condition.auraName));
-    }
-    const target = yield* deps.combat.target.get();
-    if (target === null) {
-      return 0;
-    }
-    const aura = target.type === "monster" ? yield* deps.combat.target.auras.get(condition.auraName) : yield* deps.player.auras.get(condition.auraName);
-    return auraValue(aura);
-  }), "getTargetAura");
-  var matchesAuraCondition = /* @__PURE__ */ __name((deps, condition, castTarget) => gen2(function* () {
-    if (condition.type === "target-aura") {
-      const actual = yield* getTargetAura(deps, condition, castTarget);
-      return compare(actual, condition.op, condition.value);
-    }
-    return compare(
-      auraValue(yield* deps.player.auras.get(condition.auraName)),
-      condition.op,
-      condition.value
-    );
-  }), "matchesAuraCondition");
-  var matchesCondition = /* @__PURE__ */ __name((deps, condition, castTarget) => {
-    switch (condition.type) {
-      case "self-aura":
-      case "target-aura":
-        return matchesAuraCondition(deps, condition, castTarget);
-      case "self-hp":
-      case "self-mp":
-      case "ally-hp":
-        return matchesStatCondition(deps, condition);
-    }
-  }, "matchesCondition");
-  var isCombatProfileSkillAvailable = /* @__PURE__ */ __name((deps, skill) => {
-    if (skill !== 5) {
-      return succeed7(true);
-    }
-    if (deps.skill5ItemId === void 0) return succeed7(true);
-    return deps.combat.getConsumableSkillItem().pipe(
-      map5(
-        (item) => item !== null && item.itemId === deps.skill5ItemId && item.ready === true
-      )
-    );
-  }, "isCombatProfileSkillAvailable");
-  var matchesCombatProfileStep = /* @__PURE__ */ __name((deps, step, castTarget) => gen2(function* () {
-    for (const condition of step.conditions) {
-      if (!(yield* matchesCondition(deps, condition, castTarget))) {
-        return false;
-      }
-    }
-    return true;
-  }), "matchesCombatProfileStep");
-  var prepareCombatProfileStep = fn2("prepareCombatProfileStep")(
-    function* (deps, profile, step, castTarget) {
-      if (!(yield* matchesCombatProfileStep(deps, step, castTarget))) {
-        return null;
-      }
-      if (!(yield* isCombatProfileSkillAvailable(deps, step.skill))) {
-        return null;
-      }
-      const cooldownMode = step.cooldownMode ?? profile.cooldownMode;
-      const waitForCooldown = cooldownMode === "wait-for-cooldown";
-      if (!waitForCooldown && !(yield* deps.combat.canUseSkill(step.skill))) {
-        return null;
-      }
-      return { waitForCooldown };
-    }
-  );
-  var castPreparedCombatProfileStep = fn2(
-    "castPreparedCombatProfileStep"
-  )(function* (deps, step, prepared, castTarget) {
-    const cast = yield* deps.combat.useSkill(step.skill, {
-      ...castTarget === void 0 ? {} : { target: castTarget.monsterMapId },
-      waitUntilReady: prepared.waitForCooldown
-    });
-    if (cast && step.waitMs !== void 0 && step.waitMs > 0) {
-      yield* sleep2(`${step.waitMs} millis`);
-    }
-    return cast;
-  });
-  var castNextCombatProfileStep = fn2("castNextCombatProfileStep")(
-    function* (deps, profile, cursor, castTarget) {
-      const steps = profile.steps;
-      if (steps.length === 0) {
-        return false;
-      }
-      for (const step of steps) {
-        if (step.priority !== true) {
-          continue;
-        }
-        const prepared = yield* prepareCombatProfileStep(
-          deps,
-          profile,
-          step,
-          castTarget
-        );
-        if (prepared === null) {
-          continue;
-        }
-        return yield* castPreparedCombatProfileStep(
-          deps,
-          step,
-          prepared,
-          castTarget
-        );
-      }
-      const startState = yield* get3(cursor.state);
-      for (let offset = 0; offset < steps.length; offset += 1) {
-        const stepIndex = (startState.index + offset) % steps.length;
-        const step = steps[stepIndex];
-        if (step === void 0) {
-          continue;
-        }
-        const prepared = yield* prepareCombatProfileStep(
-          deps,
-          profile,
-          step,
-          castTarget
-        );
-        if (prepared === null) {
-          continue;
-        }
-        const resetVersionBeforeCast = (yield* get3(cursor.state)).resetVersion;
-        const cast = yield* castPreparedCombatProfileStep(
-          deps,
-          step,
-          prepared,
-          castTarget
-        );
-        const nextIndex = (stepIndex + 1) % steps.length;
-        yield* update(
-          cursor.state,
-          (state) => state.resetVersion === resetVersionBeforeCast ? { ...state, index: nextIndex } : state
-        );
-        return cast;
-      }
-      return false;
-    }
-  );
-  var normalizeMessageTriggerText = /* @__PURE__ */ __name((value) => value.trim().replace(/\s+/gu, " ").toLowerCase(), "normalizeMessageTriggerText");
-  var matchesCombatProfileMessageTriggerMessage = /* @__PURE__ */ __name((configuredMessage, message2) => {
-    const normalizedConfigured = normalizeMessageTriggerText(configuredMessage);
-    return normalizedConfigured !== "" && normalizeMessageTriggerText(message2).includes(normalizedConfigured);
-  }, "matchesCombatProfileMessageTriggerMessage");
-  var matchesCombatProfileMessageTrigger = /* @__PURE__ */ __name((trigger, event) => (trigger.source === "any" || trigger.source === event.source) && matchesCombatProfileMessageTriggerMessage(
-    trigger.messageIncludes,
-    event.message
-  ), "matchesCombatProfileMessageTrigger");
-  var castCombatProfileMessageTrigger = /* @__PURE__ */ __name((deps, trigger, triggerIndex, event, state, now = Date.now()) => state.semaphore.withPermits(1)(
-    gen2(function* () {
-      const cooldownMs = trigger.cooldownMs ?? 0;
-      const lastCast = (yield* get3(state.state)).get(triggerIndex);
-      if (lastCast !== void 0 && now - lastCast < cooldownMs) {
-        return false;
-      }
-      if (!(yield* isCombatProfileSkillAvailable(deps, trigger.skill))) {
-        return false;
-      }
-      const cast = yield* deps.combat.useSkill(trigger.skill, {
-        force: true,
-        ...event.monsterMapId === void 0 ? {} : { target: event.monsterMapId },
-        waitUntilReady: true
-      });
-      if (!cast) {
-        return false;
-      }
-      yield* update(state.state, (previous) => {
-        const next = new Map(previous);
-        next.set(triggerIndex, now);
-        return next;
-      });
-      return true;
-    })
-  ), "castCombatProfileMessageTrigger");
-  var castCombatProfileMessageTriggers = /* @__PURE__ */ __name((deps, profile, event, state) => gen2(function* () {
-    for (const [triggerIndex, trigger] of (profile.messageTriggers ?? []).entries()) {
-      if (!matchesCombatProfileMessageTrigger(trigger, event)) continue;
-      yield* castCombatProfileMessageTrigger(
-        deps,
-        trigger,
-        triggerIndex,
-        event,
-        state
-      );
-    }
-  }), "castCombatProfileMessageTriggers");
-
-  // packages/runtime/src/game/combatProfileSession.ts
-  var COMBAT_PROFILE_RETRY_DELAY_MS = 250;
-  var COMBAT_PROFILE_TARGET_ABSENCE_GRACE_MS = 500;
-  var idleCycle = {
-    delayMs: COMBAT_PROFILE_RETRY_DELAY_MS,
-    kind: "idle"
-  };
-  var failureMessage = /* @__PURE__ */ __name((stage, cause) => {
-    const squashed = squash(cause);
-    if (squashed instanceof Error && squashed.message !== "") {
-      return squashed.message;
-    }
-    if (typeof squashed === "string" && squashed !== "") {
-      return squashed;
-    }
-    const pretty2 = pretty(cause).split("\n")[0];
-    return pretty2 === void 0 || pretty2 === "" ? `Combat profile ${stage} failed` : pretty2;
-  }, "failureMessage");
-  var CombatProfileRunError = class extends Error {
-    constructor(stage, failureCause) {
-      super(failureMessage(stage, failureCause));
-      this.stage = stage;
-      this.failureCause = failureCause;
-      this.name = "CombatProfileRunError";
-    }
-    stage;
-    failureCause;
-    static {
-      __name(this, "CombatProfileRunError");
-    }
-    _tag = "CombatProfileRunError";
-  };
-  var withFailureStage = /* @__PURE__ */ __name((stage, effect2) => effect2.pipe(
-    catchCause2(
-      (cause) => hasInterruptsOnly2(cause) ? failCause4(cause) : fail5(new CombatProfileRunError(stage, cause))
-    )
-  ), "withFailureStage");
-  var isLiving = /* @__PURE__ */ __name((monster) => monster.hp > 0 && monster.state !== EntityState.Dead, "isLiving");
-  var targetRank = /* @__PURE__ */ __name((monster, priorities, allowFallback) => {
-    const rank = priorities.findIndex((query) => monster.matches(query));
-    if (rank >= 0) return rank;
-    return allowFallback ? priorities.length : void 0;
-  }, "targetRank");
-  var selectCombatProfileTarget = /* @__PURE__ */ __name((monsters, priorities, options = {}) => {
-    const allowFallback = options.allowFallback ?? true;
-    const ranked = monsters.filter(
-      (monster) => isLiving(monster) && options.blockedMonsterMapIds?.has(monster.monsterMapId) !== true
-    ).map((monster) => ({
-      monster,
-      rank: targetRank(monster, priorities, allowFallback)
-    })).filter(
-      (candidate) => candidate.rank !== void 0
-    );
-    const best = ranked.reduce(
-      (current2, candidate) => current2 === void 0 || candidate.rank < current2.rank ? candidate : current2,
-      void 0
-    );
-    if (best === void 0) return void 0;
-    const current = ranked.find(
-      (candidate) => candidate.monster.monsterMapId === options.currentMonsterMapId
-    );
-    return current !== void 0 && current.rank <= best.rank ? current.monster : best.monster;
-  }, "selectCombatProfileTarget");
-  var makeCombatProfileSession = fn2("makeCombatProfileSession")(
-    function* (dependencies, options) {
-      if (options.profile.steps.length === 0 && (options.profile.messageTriggers?.length ?? 0) === 0) {
-        return {
-          runCycle: /* @__PURE__ */ __name(() => succeed7(idleCycle), "runCycle"),
-          warnings: succeed7([])
-        };
-      }
-      const cursor = yield* makeCombatProfileCursor();
-      const messageState = yield* makeCombatProfileMessageTriggerState();
-      const actionGate = yield* make14(1);
-      const state = yield* make15({
-        generation: 0,
-        resetPending: false,
-        target: void 0
-      });
-      const prepared = yield* acquireRelease2(
-        dependencies.prepare(options.profile),
-        (result2) => result2.release
-      );
-      const handleMonsterDeath = fn2(
-        "CombatProfileSession.handleMonsterDeath"
-      )(function* (monsterMapId) {
-        const action = yield* modify(
-          state,
-          (current) => {
-            if (current.target?.monsterMapId !== monsterMapId) {
-              return [void 0, current];
-            }
-            const generation = current.generation + 1;
-            const reset = current.target.confirmed && options.profile.resetSkillIndexOnTargetDeath === true;
-            return [
-              { generation, reset },
-              {
-                generation,
-                resetPending: reset,
-                target: void 0
-              }
-            ];
-          }
-        );
-        if (action === void 0 || !action.reset) return;
-        yield* resetCombatProfileCursor(cursor);
-        yield* update(
-          state,
-          (current) => current.generation === action.generation ? { ...current, resetPending: false } : current
-        );
-      });
-      const disposeMonsterDeath = yield* dependencies.onMonsterDeath(handleMonsterDeath);
-      yield* addFinalizer3(() => sync2(disposeMonsterDeath));
-      if ((options.profile.messageTriggers?.length ?? 0) > 0) {
-        const disposeMessages = yield* dependencies.onMessage(
-          (event) => withFailureStage(
-            "message-trigger",
-            gen2(function* () {
-              if (!options.profile.messageTriggers?.some(
-                (trigger) => matchesCombatProfileMessageTrigger(trigger, event)
-              )) {
-                return;
-              }
-              const observed = yield* get3(state);
-              if (observed.resetPending) return;
-              yield* actionGate.withPermits(1)(
-                gen2(function* () {
-                  const current = yield* get3(state);
-                  if (current.resetPending || current.generation !== observed.generation) {
-                    return;
-                  }
-                  if (!(yield* dependencies.isPlayerAlive())) return;
-                  const selected = yield* prepared.dependencies.combat.target.get();
-                  const selectedIsAlive = selected !== null && selected.hp > 0 && selected.state !== EntityState.Dead;
-                  const ownedMonsterMapId = current.target?.confirmed ? current.target.monsterMapId : void 0;
-                  if (event.monsterMapId !== void 0 && (ownedMonsterMapId !== void 0 && event.monsterMapId !== ownedMonsterMapId || selectedIsAlive && (selected.type !== "monster" || selected.monsterMapId !== event.monsterMapId))) {
-                    return;
-                  }
-                  const monsterMapId = event.monsterMapId ?? (selectedIsAlive && selected.type === "monster" ? selected.monsterMapId : ownedMonsterMapId);
-                  if (monsterMapId !== void 0) {
-                    const monsters = yield* dependencies.getAvailableMonsters();
-                    const monster = monsters.find(
-                      (candidate) => candidate.monsterMapId === monsterMapId
-                    );
-                    if (monster === void 0 || !isLiving(monster) || targetRank(
-                      monster,
-                      options.targetPriority,
-                      options.allowTargetFallback ?? true
-                    ) === void 0 || (yield* dependencies.isAttackBlocked(monsterMapId))) {
-                      return;
-                    }
-                  }
-                  const beforeCast = yield* get3(state);
-                  if (beforeCast.resetPending || beforeCast.generation !== observed.generation) {
-                    return;
-                  }
-                  yield* castCombatProfileMessageTriggers(
-                    prepared.dependencies,
-                    options.profile,
-                    event,
-                    messageState
-                  );
-                })
-              );
-            })
-          ).pipe(
-            catch_2(
-              (failure2) => options.onAsyncFailure === void 0 ? logError(
-                "Combat profile message trigger failed",
-                failure2.failureCause
-              ).pipe(annotateLogs({ component: "combat" })) : options.onAsyncFailure(failure2)
-            )
-          )
-        );
-        yield* addFinalizer3(() => sync2(disposeMessages));
-      }
-      const resolveTarget = fn2("CombatProfileSession.resolveTarget")(
-        function* (monsters) {
-          const initial = yield* get3(state);
-          if (initial.resetPending) return void 0;
-          const allowFallback = options.allowTargetFallback ?? true;
-          const active = initial.target;
-          const projected = active === void 0 ? void 0 : monsters.find(
-            (monster) => monster.monsterMapId === active.monsterMapId
-          );
-          const projectedRank = projected === void 0 ? void 0 : targetRank(projected, options.targetPriority, allowFallback);
-          const activeIsEligible = projected !== void 0 && isLiving(projected) && projectedRank !== void 0;
-          const activeHasAffinity = activeIsEligible && active?.confirmed === true;
-          if (active !== void 0 && projected === void 0 && active.confirmed) {
-            const now = yield* currentTimeMillis2;
-            if (active.missingSinceMs === void 0) {
-              yield* update(
-                state,
-                (current) => current.generation === initial.generation && current.target?.monsterMapId === active.monsterMapId ? {
-                  ...current,
-                  target: { ...current.target, missingSinceMs: now }
-                } : current
-              );
-              return void 0;
-            }
-            if (now - active.missingSinceMs < COMBAT_PROFILE_TARGET_ABSENCE_GRACE_MS) {
-              return void 0;
-            }
-          }
-          const eligible = monsters.filter(
-            (monster) => isLiving(monster) && targetRank(monster, options.targetPriority, allowFallback) !== void 0
-          );
-          const blocked = /* @__PURE__ */ new Set();
-          for (const monster of eligible) {
-            if (yield* dependencies.isAttackBlocked(monster.monsterMapId)) {
-              blocked.add(monster.monsterMapId);
-            }
-          }
-          const selected = selectCombatProfileTarget(
-            eligible,
-            options.targetPriority,
-            {
-              allowFallback,
-              blockedMonsterMapIds: blocked,
-              ...activeHasAffinity && active !== void 0 ? { currentMonsterMapId: active.monsterMapId } : {}
-            }
-          );
-          if (selected === void 0) {
-            if (active !== void 0 && !activeIsEligible) {
-              yield* update(
-                state,
-                (current) => current.generation === initial.generation ? {
-                  generation: current.generation + 1,
-                  resetPending: current.resetPending,
-                  target: void 0
-                } : current
-              );
-            }
-            return void 0;
-          }
-          return yield* modify(
-            state,
-            (current) => {
-              if (current.generation !== initial.generation || current.resetPending) {
-                return [void 0, current];
-              }
-              if (current.target?.monsterMapId === selected.monsterMapId) {
-                return [
-                  { generation: current.generation, monster: selected },
-                  {
-                    ...current,
-                    target: {
-                      ...current.target,
-                      missingSinceMs: void 0
-                    }
-                  }
-                ];
-              }
-              const generation = current.generation + 1;
-              return [
-                { generation, monster: selected },
-                {
-                  generation,
-                  resetPending: false,
-                  target: {
-                    confirmed: false,
-                    missingSinceMs: void 0,
-                    monsterMapId: selected.monsterMapId
-                  }
-                }
-              ];
-            }
-          );
-        }
-      );
-      const leaseIsCurrent = /* @__PURE__ */ __name((lease) => get3(state).pipe(
-        map5(
-          (current) => !current.resetPending && current.generation === lease.generation && current.target?.monsterMapId === lease.monster.monsterMapId
-        )
-      ), "leaseIsCurrent");
-      const confirmLease = /* @__PURE__ */ __name((lease) => modify(state, (current) => {
-        if (current.resetPending || current.generation !== lease.generation || current.target?.monsterMapId !== lease.monster.monsterMapId) {
-          return [false, current];
-        }
-        return [
-          true,
-          {
-            ...current,
-            target: {
-              ...current.target,
-              confirmed: true,
-              missingSinceMs: void 0
-            }
-          }
-        ];
-      }), "confirmLease");
-      const runCycle = fn2("CombatProfileSession.runCycle")(function* (cycleOptions = {}) {
-        return yield* actionGate.withPermits(1)(
-          gen2(function* () {
-            if (options.profile.steps.length === 0) {
-              return idleCycle;
-            }
-            const alive = yield* withFailureStage(
-              "target-selection",
-              dependencies.isPlayerAlive()
-            );
-            if (!alive) {
-              return {
-                delayMs: COMBAT_PROFILE_RETRY_DELAY_MS,
-                kind: "player-dead"
-              };
-            }
-            const monsters = yield* withFailureStage(
-              "target-selection",
-              dependencies.getAvailableMonsters()
-            );
-            const lease = yield* withFailureStage(
-              "target-selection",
-              resolveTarget(monsters)
-            );
-            if (lease === void 0) {
-              return {
-                delayMs: COMBAT_PROFILE_RETRY_DELAY_MS,
-                kind: "no-target"
-              };
-            }
-            if (cycleOptions.beforeAttack !== void 0) {
-              yield* withFailureStage(
-                "target-selection",
-                cycleOptions.beforeAttack(lease.monster)
-              );
-            }
-            if (!(yield* leaseIsCurrent(lease))) {
-              return {
-                delayMs: COMBAT_PROFILE_RETRY_DELAY_MS,
-                kind: "no-target"
-              };
-            }
-            const attacked = yield* withFailureStage(
-              "attack",
-              dependencies.attack(lease.monster.monsterMapId)
-            );
-            if (!attacked) {
-              return {
-                delayMs: COMBAT_PROFILE_RETRY_DELAY_MS,
-                kind: "attack-rejected"
-              };
-            }
-            if (!(yield* confirmLease(lease)) || !(yield* leaseIsCurrent(lease))) {
-              return {
-                delayMs: COMBAT_PROFILE_RETRY_DELAY_MS,
-                kind: "no-target"
-              };
-            }
-            const cast = yield* withFailureStage(
-              "profile-cast",
-              castNextCombatProfileStep(
-                prepared.dependencies,
-                options.profile,
-                cursor,
-                lease.monster
-              )
-            );
-            return {
-              cast,
-              delayMs: cast ? Math.max(50, options.profile.delayMs) : COMBAT_PROFILE_RETRY_DELAY_MS,
-              kind: "attacked"
-            };
-          })
-        );
-      });
-      return { runCycle, warnings: prepared.warnings };
-    }
-  );
-
   // packages/runtime/src/game/flash/contract/payload/Combat.ts
   var ActionDetailsPayload = Struct({
     actID: optionalKey2(NonNegativeWireInt),
@@ -13674,17 +12811,560 @@ ${prefix}}`;
     return equipped === "" ? void 0 : `This profile is for ${classList.format(classNames)}, but ${equipped} is equipped.`;
   });
 
-  // packages/runtime/src/host/claims.ts
-  var acquireConsumableClaim = /* @__PURE__ */ __name((itemId, host3) => sync2(() => {
-    const grant = JSON.parse(
-      host3.acquireConsumableClaim(JSON.stringify(itemId ?? null))
+  // packages/runtime/src/game/flash/api/Combat.ts
+  var CONSUMABLE_CAST_CONFIRMATION_TIMEOUT_MS = 5e3;
+  var ConsumableCastDispatchDeadline = Reference("lucent/game/combat/ConsumableCastDispatchDeadline", {
+    defaultValue: /* @__PURE__ */ __name(() => void 0, "defaultValue")
+  });
+  var Consumable = NullOr(
+    Struct({
+      itemId: optionalKey2(WireInt),
+      ItemID: optionalKey2(WireInt),
+      ready: optionalKey2(Boolean3)
+    })
+  );
+  var ConsumableCastDispatch = NullOr(
+    Struct({
+      actionId: NonNegativeWireInt,
+      itemId: PositiveWireInt,
+      monsterMapId: PositiveWireInt
+    })
+  );
+  var skillIndex = /* @__PURE__ */ __name((skill) => {
+    return Number.isInteger(skill) && skill >= 0 && skill <= 5 ? skill : null;
+  }, "skillIndex");
+  var DEFAULT_SKILLS = [1, 2, 3, 4];
+  var normalizeSkills = /* @__PURE__ */ __name((input) => {
+    const skills = (input ?? []).filter((skill) => skillIndex(skill) !== null);
+    return skills.length === 0 ? DEFAULT_SKILLS : skills;
+  }, "normalizeSkills");
+  var normalizeSkillInterval = /* @__PURE__ */ __name((interval) => {
+    if (interval === void 0) return 150;
+    return match(fromInput(interval), {
+      onNone: /* @__PURE__ */ __name(() => 150, "onNone"),
+      onSome: /* @__PURE__ */ __name((duration) => {
+        const milliseconds = toMillis(duration);
+        return Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : 150;
+      }, "onSome")
+    });
+  }, "normalizeSkillInterval");
+  var makeCombat = /* @__PURE__ */ __name((bridge, antiCounter, host3, drops, _events, inventory, map8, monsters, player, _players, settings, temporary, wait) => {
+    const consumableCasts = makeUnsafe5(1);
+    const targetValue = readCombatTarget(bridge);
+    const targetAuras = /* @__PURE__ */ __name((options) => targetValue.pipe(
+      flatMap3((target2) => {
+        if (target2 === null) return succeed7([]);
+        return (target2.type === "monster" ? host3.read({
+          kind: "monsterAuras",
+          monsterMapId: target2.monsterMapId,
+          auraKind: options?.kind ?? null
+        }) : host3.read({
+          kind: "playerAuras",
+          entityId: target2.entityId,
+          auraKind: options?.kind ?? null
+        })).pipe(map5((auras) => auras.map(toLiveAura)));
+      })
+    ), "targetAuras");
+    const getConsumableSkillItem = /* @__PURE__ */ __name(() => bridge.invoke("combat.getConsumableSkillItem", void 0, Consumable).pipe(
+      map5(
+        match({
+          onNone: /* @__PURE__ */ __name(() => null, "onNone"),
+          onSome: /* @__PURE__ */ __name((item) => {
+            const itemId = item?.itemId ?? item?.ItemID;
+            return itemId === void 0 ? null : { itemId, ready: item?.ready === true };
+          }, "onSome")
+        })
+      )
+    ), "getConsumableSkillItem");
+    const prepareCombatProfile = fn2("Combat.prepareCombatProfile")(
+      function* (profile) {
+        const scope3 = yield* make6();
+        return yield* gen2(function* () {
+          const job = yield* startProfileJob(
+            { profile, targetPriority: [] },
+            profileJobHost
+          ).pipe(provideService2(Scope, scope3));
+          const slot = yield* getConsumableSkillItem();
+          const classWarning = yield* getCombatProfileClassWarning(
+            { inventory, player },
+            { classNames: job.classNames }
+          );
+          const prepared = {
+            ...slot === null ? {} : { skill5ItemId: slot.itemId },
+            release: close(scope3, void_2),
+            warnings: succeed7(
+              [classWarning, ...job.warnings].filter((warning) => warning !== void 0)
+            )
+          };
+          return prepared;
+        }).pipe(
+          onExit2(
+            (exit3) => isFailure3(exit3) ? close(scope3, exit3) : void_3
+          )
+        );
+      }
     );
-    return grant === null ? { acquired: false, release: void_3 } : {
-      acquired: true,
-      id: grant.id,
-      release: sync2(() => host3.releaseClaim(grant.id))
+    const getSkillCooldownRemainingMs = /* @__PURE__ */ __name((skill) => bridge.invoke("combat.getSkillCooldownRemaining", [skill], WireInt).pipe(
+      map5(
+        match({
+          onNone: /* @__PURE__ */ __name(() => null, "onNone"),
+          onSome: /* @__PURE__ */ __name((remaining) => Math.max(0, Math.trunc(remaining)), "onSome")
+        })
+      )
+    ), "getSkillCooldownRemainingMs");
+    const castConsumableOnMonster = /* @__PURE__ */ __name((selector, expectedItemId) => consumableCasts.withPermit(
+      gen2(function* () {
+        if (!Number.isInteger(expectedItemId) || expectedItemId <= 0) {
+          return null;
+        }
+        let dispatch;
+        let confirmation = null;
+        const projectedSourceId = yield* host3.read({ kind: "selfEntityId" });
+        const sourceId = projectedSourceId ?? (yield* bridge.invoke("player.getUserId", void 0, PositiveWireInt).pipe(map5(getOrNull)));
+        if (sourceId === null) return null;
+        yield* wait.forPacket(
+          {
+            command: "ct",
+            direction: "server",
+            predicate: /* @__PURE__ */ __name((candidate) => {
+              if (dispatch === void 0) return false;
+              const expectedActionId = dispatch.actionId;
+              const matched = decodeCombatActionAcknowledgements(
+                packetData(candidate)
+              ).find(
+                (candidate2) => candidate2.actionId === expectedActionId && candidate2.source.type === "player" && candidate2.source.id === sourceId
+              );
+              if (matched === void 0) return false;
+              confirmation = {
+                actionId: dispatch.actionId,
+                monsterMapId: dispatch.monsterMapId,
+                success: matched.outcome === 1
+              };
+              return true;
+            }, "predicate"),
+            encoding: "json"
+          },
+          {
+            timeout: `${CONSUMABLE_CAST_CONFIRMATION_TIMEOUT_MS} millis`,
+            trigger: gen2(function* () {
+              const dispatchDeadline = yield* ConsumableCastDispatchDeadline;
+              if (dispatchDeadline !== void 0 && (yield* currentTimeMillis2) > dispatchDeadline) {
+                return false;
+              }
+              const result2 = yield* bridge.invoke(
+                "combat.castConsumableOnMonster",
+                [toMonsterSelector(selector), expectedItemId],
+                ConsumableCastDispatch
+              ).pipe(map5(getOrNull));
+              if (result2 === null || result2.itemId !== expectedItemId) {
+                return false;
+              }
+              dispatch = result2;
+              return true;
+            })
+          }
+        );
+        return confirmation;
+      })
+    ), "castConsumableOnMonster");
+    const canUseSkill = /* @__PURE__ */ __name((skill) => {
+      const index = skillIndex(skill);
+      return index === null ? succeed7(false) : getSkillCooldownRemainingMs(index).pipe(
+        map5((remaining) => remaining === 0)
+      );
+    }, "canUseSkill");
+    const waitForSkillReady = /* @__PURE__ */ __name((index) => wait.until(
+      getSkillCooldownRemainingMs(index).pipe(
+        flatMap3(
+          (remaining) => remaining === null ? succeed7(false) : remaining > 0 ? sleep2(remaining).pipe(as2(false)) : sleep2("150 millis").pipe(
+            andThen2(getSkillCooldownRemainingMs(index)),
+            map5((confirmed) => confirmed === 0)
+          )
+        )
+      ),
+      { interval: "50 millis", timeout: "5 seconds" }
+    ), "waitForSkillReady");
+    const antiCounterActive = /* @__PURE__ */ __name((monsterMapId) => settings.isAntiCounterEnabled().pipe(
+      flatMap3(
+        (enabled) => enabled ? antiCounter.isActive(monsterMapId) : succeed7(false)
+      )
+    ), "antiCounterActive");
+    const stopCombat2 = stopCombat(bridge);
+    const resolveMonsterMapId = /* @__PURE__ */ __name((query) => monsters.getAvailable().pipe(
+      map5(
+        (available) => available.find((monster) => monster.matches(query))?.monsterMapId
+      )
+    ), "resolveMonsterMapId");
+    const useSkill = /* @__PURE__ */ __name((skill, options) => {
+      const index = skillIndex(skill);
+      if (index === null) return succeed7(false);
+      return gen2(function* () {
+        const requestedTarget = options?.target;
+        if (!(yield* player.isAlive())) return false;
+        const selectedTarget = requestedTarget === void 0 ? yield* targetValue : null;
+        const initialMonsterMapId = requestedTarget !== void 0 ? yield* resolveMonsterMapId(requestedTarget) : selectedTarget?.type === "monster" ? selectedTarget.monsterMapId : void 0;
+        if (requestedTarget !== void 0 && initialMonsterMapId === void 0) {
+          return false;
+        }
+        if (initialMonsterMapId !== void 0 && (yield* antiCounterActive(initialMonsterMapId))) {
+          yield* stopCombat2;
+          return false;
+        }
+        const ready = options?.waitUntilReady === true ? yield* waitForSkillReady(index) : yield* canUseSkill(index);
+        if (!ready || !(yield* player.isAlive())) return false;
+        const selectedTargetBeforeCast = requestedTarget === void 0 ? yield* targetValue : null;
+        const guardedMonsterMapId = requestedTarget !== void 0 ? yield* resolveMonsterMapId(requestedTarget) : selectedTargetBeforeCast?.type === "monster" ? selectedTargetBeforeCast.monsterMapId : selectedTargetBeforeCast === null ? initialMonsterMapId : void 0;
+        if (requestedTarget !== void 0 && guardedMonsterMapId === void 0) {
+          return false;
+        }
+        if (guardedMonsterMapId !== void 0 && (yield* antiCounterActive(guardedMonsterMapId))) {
+          if (requestedTarget !== void 0 || selectedTargetBeforeCast?.type === "monster") {
+            yield* stopCombat2;
+          }
+          return false;
+        }
+        return yield* bridge.invoke(
+          "combat.useSkill",
+          [
+            String(index),
+            requestedTarget === void 0 || guardedMonsterMapId === void 0 ? null : toMonsterSelector(guardedMonsterMapId),
+            options?.force === true
+          ],
+          Boolean3
+        ).pipe(map5(getOrElse(() => false)));
+      });
+    }, "useSkill");
+    const attack = /* @__PURE__ */ __name((selector) => {
+      return gen2(function* () {
+        if (!(yield* player.isAlive())) return false;
+        const monster = yield* monsters.get(selector);
+        if (monster !== null && (yield* antiCounterActive(monster.monsterMapId))) {
+          yield* stopCombat2;
+          return false;
+        }
+        return yield* bridge.invoke(
+          "combat.attackMonster",
+          [toMonsterSelector(selector)],
+          Boolean3
+        ).pipe(map5(getOrElse(() => false)));
+      });
+    }, "attack");
+    const reachHuntTarget = /* @__PURE__ */ __name((target2) => {
+      if (target2 === null || target2.cell === "") return succeed7(null);
+      return player.jumpToCell(target2.cell).pipe(map5((reached) => reached ? target2 : null));
+    }, "reachHuntTarget");
+    const hunt = /* @__PURE__ */ __name((selector, options) => {
+      return monsters.getAll().pipe(
+        flatMap3((all3) => {
+          const matches = all3.filter((monster) => monster.matches(selector));
+          if (options?.preferMostMatches !== true || matches.length < 2) {
+            return reachHuntTarget(matches[0] ?? null);
+          }
+          const cells = /* @__PURE__ */ new Map();
+          for (const monster of matches) {
+            cells.set(monster.cell, (cells.get(monster.cell) ?? 0) + 1);
+          }
+          const target2 = matches.reduce(
+            (best, candidate) => (cells.get(candidate.cell) ?? 0) > (cells.get(best.cell) ?? 0) ? candidate : best
+          );
+          return reachHuntTarget(target2);
+        })
+      );
+    }, "hunt");
+    const makeKillProfileRuntime = /* @__PURE__ */ __name((selector, options) => {
+      const profile = options?.profile;
+      if (profile === void 0) return succeed7(null);
+      return gen2(function* () {
+        const job = yield* startProfileJob(
+          { profile, targetPriority: [...options?.targetPriority ?? [], selector] },
+          profileJobHost
+        );
+        const classWarning = yield* getCombatProfileClassWarning(
+          { inventory, player },
+          { classNames: job.classNames }
+        );
+        for (const warning of [classWarning, ...job.warnings].filter(
+          (warning2) => warning2 !== void 0
+        )) {
+          yield* logWarning("Combat profile session degraded").pipe(
+            annotateLogs({
+              component: "combat",
+              data: { profile: job.label, warning }
+            })
+          );
+        }
+        return job;
+      });
+    }, "makeKillProfileRuntime");
+    const fight = /* @__PURE__ */ __name((selector, options, runtime2) => {
+      if (runtime2 !== null) {
+        return scoped2(
+          acquireRelease2(
+            sync2(() => profileJobHost.engageJob(runtime2.id, true)),
+            () => sync2(() => profileJobHost.engageJob(runtime2.id, false))
+          ).pipe(andThen2(never2))
+        );
+      }
+      const skills = normalizeSkills(options?.skills);
+      const skillInterval = normalizeSkillInterval(options?.skillInterval);
+      const attackOrder = [...options?.targetPriority ?? [], selector];
+      const selectTarget = gen2(function* () {
+        const available = yield* monsters.getAvailable();
+        const candidates = orderMonstersByPriority(available, attackOrder);
+        for (const candidate of candidates) {
+          if (!(yield* antiCounterActive(candidate.monsterMapId)))
+            return candidate;
+        }
+        return null;
+      });
+      return forever3(
+        gen2(function* () {
+          if (!(yield* player.isAlive())) {
+            yield* sleep2("250 millis");
+            return;
+          }
+          const target2 = yield* selectTarget;
+          if (target2 === null) {
+            yield* stopCombat2;
+            yield* sleep2("100 millis");
+            return;
+          }
+          if (!(yield* attack(target2.monsterMapId))) {
+            yield* sleep2("250 millis");
+            return;
+          }
+          for (const skill of skills) {
+            yield* useSkill(skill);
+            yield* sleep2(skillInterval);
+          }
+        })
+      );
+    }, "fight");
+    const killWithRuntime = /* @__PURE__ */ __name((selector, options, runtime2) => gen2(function* () {
+      const startMap = yield* host3.read({ kind: "map" });
+      const available = yield* monsters.getAvailable();
+      const monster = available.find(
+        (candidate) => candidate.matches(selector)
+      );
+      if (monster === void 0) return false;
+      yield* map8.setSpawnPoint();
+      const death = wait.forEvent(
+        {
+          monsterMapId: monster.monsterMapId,
+          type: "monster-death"
+        },
+        {
+          trigger: forkScoped2(fight(selector, options, runtime2)).pipe(
+            as2(true)
+          )
+        }
+      ).pipe(map5((event) => event !== null));
+      const projectedEnd = wait.untilSome(
+        all2([
+          host3.read({
+            kind: "monster",
+            selector: { monsterMapId: monster.monsterMapId }
+          }),
+          host3.read({ kind: "map" })
+        ]).pipe(
+          map5(
+            ([current, currentMap]) => current === null || currentMap.id !== startMap.id || currentMap.name !== startMap.name || currentMap.roomNumber !== startMap.roomNumber ? some2(false) : current.dead ? some2(true) : none2()
+          )
+        ),
+        { interval: "250 millis" }
+      );
+      const result2 = raceFirst2(
+        death,
+        projectedEnd.pipe(map5((dead) => dead === true))
+      );
+      return yield* runtime2 === null ? result2 : raceFirst2(result2, runtime2.failed);
+    }), "killWithRuntime");
+    const kill = /* @__PURE__ */ __name((selector, options) => scoped2(
+      gen2(function* () {
+        const runtime2 = yield* makeKillProfileRuntime(selector, options);
+        return yield* killWithRuntime(selector, options, runtime2);
+      })
+    ).pipe(ensuring2(stopCombat2)), "kill");
+    const killFor = /* @__PURE__ */ __name((selector, item, requested, source, options) => {
+      const wanted = Math.max(1, Math.trunc(requested ?? 1));
+      return scoped2(
+        gen2(function* () {
+          const runtime2 = yield* makeKillProfileRuntime(selector, options);
+          const loop = gen2(function* () {
+            while (true) {
+              if (yield* source.contains(item, wanted)) return true;
+              if (yield* drops.contains(item)) {
+                yield* drops.accept(item);
+                if (yield* source.contains(item, wanted)) return true;
+              }
+              if (!(yield* killWithRuntime(selector, options, runtime2))) {
+                yield* sleep2("100 millis");
+              }
+            }
+          });
+          return yield* runtime2 === null ? loop : raceFirst2(loop, runtime2.failed);
+        })
+      ).pipe(ensuring2(stopCombat2));
+    }, "killFor");
+    const cancelAutoAttack = /* @__PURE__ */ __name(() => bridge.invoke("combat.cancelAutoAttack", void 0, Void2).pipe(asVoid2), "cancelAutoAttack");
+    const cancelTarget = /* @__PURE__ */ __name(() => bridge.invoke("combat.cancelTarget", void 0, Void2).pipe(asVoid2), "cancelTarget");
+    const killForItem = /* @__PURE__ */ __name((selector, item, quantity, options) => killFor(selector, item, quantity, inventory, options), "killForItem");
+    const killForTempItem = /* @__PURE__ */ __name((selector, item, quantity, options) => killFor(selector, item, quantity, temporary, options), "killForTempItem");
+    const getTargetAura = /* @__PURE__ */ __name((name, options) => targetAuras(options).pipe(
+      map5(
+        (auras) => auras.find(
+          (aura) => aura.name.localeCompare(name, void 0, {
+            sensitivity: "accent"
+          }) === 0
+        ) ?? null
+      )
+    ), "getTargetAura");
+    const hasTargetAura = /* @__PURE__ */ __name((name, options) => getTargetAura(name, options).pipe(map5((aura) => aura !== null)), "hasTargetAura");
+    const getTarget = /* @__PURE__ */ __name(() => targetValue, "getTarget");
+    const target = {
+      auras: {
+        get: getTargetAura,
+        getAll: targetAuras,
+        has: hasTargetAura
+      },
+      get: getTarget
     };
-  }), "acquireConsumableClaim");
+    return {
+      attack,
+      cancelAutoAttack,
+      cancelTarget,
+      canUseSkill,
+      castConsumableOnMonster,
+      exit: player.exitCombat,
+      getConsumableSkillItem,
+      getSkillCooldownRemainingMs,
+      hunt,
+      isAttackBlocked: antiCounterActive,
+      kill,
+      killForItem,
+      killForTempItem,
+      prepareCombatProfile,
+      target,
+      useSkill
+    };
+  }, "makeCombat");
+
+  // packages/runtime/src/game/flash/api/Drops.ts
+  var makeDrops = fnUntraced2(function* (bridge, host3, auth) {
+    const operationHost = globalThis.__host;
+    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "drop", selector), "get");
+    const accept = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? operate({ kind: "acceptDrop", selector }, operationHost).pipe(
+      map5((answer) => answer.value),
+      catch_2(() => succeed7(false))
+    ) : succeed7(false), "accept");
+    const contains = /* @__PURE__ */ __name((selector) => get5(selector).pipe(map5((drop) => drop !== null)), "contains");
+    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "drop"), "getAll");
+    const isCustomUiEnabled = /* @__PURE__ */ __name(() => bridge.invoke("drops.isUsingCustomDrops", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isCustomUiEnabled");
+    const reject2 = /* @__PURE__ */ __name((selector) => gen2(function* () {
+      if (!(yield* auth.isLoggedIn())) return false;
+      if (!isSelectable(selector)) return false;
+      const rejected2 = yield* host3.command({ kind: "rejectDrop", selector });
+      return getOrElse(rejected2, () => false);
+    }), "reject");
+    const toggleUi = /* @__PURE__ */ __name(() => bridge.invoke("drops.toggleUi", void 0, Void2).pipe(asVoid2), "toggleUi");
+    return {
+      accept,
+      contains,
+      get: get5,
+      getAll,
+      isCustomUiEnabled,
+      reject: reject2,
+      toggleUi
+    };
+  });
+
+  // packages/runtime/src/game/flash/contract/Event.ts
+  var isProjectionEvent = /* @__PURE__ */ __name((event) => event.type !== "connection" && event.type !== "debug", "isProjectionEvent");
+  var isScalar = /* @__PURE__ */ __name((value) => typeof value === "boolean" || typeof value === "number" || typeof value === "string", "isScalar");
+  var matchesEvent = /* @__PURE__ */ __name((event, selector) => {
+    if (selector === void 0) return true;
+    if (selector === null || typeof selector !== "object" || Array.isArray(selector)) {
+      return false;
+    }
+    const fields = Object.entries(selector);
+    if (!fields.some(([key]) => key === "type")) return false;
+    const record3 = event;
+    return fields.every(
+      ([key, value]) => isScalar(value) && record3[key] === value
+    );
+  }, "matchesEvent");
+
+  // packages/runtime/src/game/flash/api/Events.ts
+  var makeEvents = fnUntraced2(function* (gateway, wait) {
+    const scope3 = yield* scope2;
+    const runFork3 = runForkWith2(yield* context2());
+    const stream = /* @__PURE__ */ __name((selector) => gateway.events.pipe(
+      filter6(
+        (event) => matchesEvent(event, selector)
+      )
+    ), "stream");
+    const on = /* @__PURE__ */ __name(((selector, handler) => stream(selector).pipe(
+      runForEach2(handler),
+      forkIn2(scope3),
+      map5((fiber2) => () => {
+        runFork3(interrupt4(fiber2));
+      })
+    )), "on");
+    const onProjection = /* @__PURE__ */ __name(((selector, handler) => on(
+      selector,
+      (event) => isProjectionEvent(event) ? handler(event) : void_3
+    )), "onProjection");
+    const once = wait.forEvent;
+    const onceProjection = wait.forProjectionEvent;
+    return {
+      on,
+      onProjection,
+      once,
+      onceProjection,
+      stream
+    };
+  });
+
+  // packages/runtime/src/game/flash/api/House.ts
+  var makeHouse = /* @__PURE__ */ __name((bridge, host3) => {
+    const contains = /* @__PURE__ */ __name((selector, quantity) => itemQuantity(host3, "house", selector).pipe(
+      map5((owned) => owned >= normalizeItemQuantity(quantity))
+    ), "contains");
+    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "house"), "getAll");
+    const getSlots = /* @__PURE__ */ __name(() => bridge.invoke("house.getSlots", void 0, WireInt).pipe(map5(getOrElse(() => 0))), "getSlots");
+    const getUsedSlots = /* @__PURE__ */ __name(() => host3.read({ kind: "items", container: "house" }).pipe(map5((items) => items.length)), "getUsedSlots");
+    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "house", selector), "get");
+    const getAvailableSlots = /* @__PURE__ */ __name(() => zipWith2(
+      getSlots(),
+      getUsedSlots(),
+      (slots, used) => Math.max(0, slots - used)
+    ), "getAvailableSlots");
+    return {
+      contains,
+      get: get5,
+      getAll,
+      getAvailableSlots,
+      getSlots,
+      getUsedSlots
+    };
+  }, "makeHouse");
+
+  // packages/schemas/src/baseSchemas.ts
+  var TrimmedString = String4.pipe(
+    decodeTo2(
+      String4,
+      transformEffect2({
+        decode: /* @__PURE__ */ __name((value) => succeed7(value.trim()), "decode"),
+        encode: /* @__PURE__ */ __name((value) => succeed7(value.trim()), "encode")
+      })
+    )
+  );
+  var TrimmedNonEmptyString = TrimmedString.check(isNonEmpty());
+  var NonNegativeInt = Int.check(
+    isGreaterThanOrEqualTo2(0)
+  );
+  var PositiveInt = Int.check(isGreaterThanOrEqualTo2(1));
+  var boundedInt = /* @__PURE__ */ __name((minimum, maximum) => Int.check(isBetween2({ minimum, maximum })), "boundedInt");
 
   // packages/schemas/src/scriptPath.ts
   var windowsReservedPathSegment = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
@@ -14173,9 +13853,9 @@ ${prefix}}`;
       safeStartStop: true
     }
   };
-  var UnknownRecordSchema2 = Record(String4, Unknown2);
-  var decodeRecord3 = decodeUnknownOption2(UnknownRecordSchema2);
-  var decodeBoolean2 = decodeUnknownOption2(Boolean3);
+  var UnknownRecordSchema = Record(String4, Unknown2);
+  var decodeRecord2 = decodeUnknownOption2(UnknownRecordSchema);
+  var decodeBoolean = decodeUnknownOption2(Boolean3);
   var decodeRoomPolicy = decodeUnknownOption2(RoomPolicySchema);
 
   // packages/schemas/src/environment.ts
@@ -14586,633 +14266,6 @@ ${prefix}}`;
       wear
     };
   }, "makeInventory");
-
-  // packages/runtime/src/game/flash/api/internal/CombatProfileConsumables.ts
-  var profileUsesSkill5 = /* @__PURE__ */ __name((profile) => profile.consumable !== void 0 || profile.steps.some((step) => step.skill === 5) || (profile.messageTriggers ?? []).some((trigger) => trigger.skill === 5), "profileUsesSkill5");
-  var unavailable = /* @__PURE__ */ __name((warning) => ({
-    release: void_3,
-    warning
-  }), "unavailable");
-  var makeCombatProfileConsumables = /* @__PURE__ */ __name((deps) => {
-    const host3 = globalThis.__host;
-    const prepare = fn2("CombatProfileConsumables.prepare")(
-      function* (profile) {
-        if (!profileUsesSkill5(profile)) {
-          return { release: void_3 };
-        }
-        if (profile.consumable === void 0) {
-          const current = yield* deps.getConsumableSkillItem();
-          if (current === null) {
-            const claim2 = yield* acquireConsumableClaim(void 0, host3);
-            return { release: claim2.release };
-          }
-          const claim = yield* acquireConsumableClaim(current.itemId, host3);
-          return {
-            release: claim.release,
-            skill5ItemId: current.itemId
-          };
-        }
-        const item = yield* deps.inventory.get(profile.consumable);
-        if (item === null) {
-          return unavailable(
-            `${profile.consumable} was not found. Skill 5 will use whichever consumable is equipped.`
-          );
-        }
-        if (item.category !== "Item" || item.link.trim() === "" || item.link.trim().toLowerCase() === "none" || isDirectInventoryConsumable(item.link)) {
-          return unavailable(
-            `${item.name} cannot be equipped. Skill 5 will use whichever consumable is equipped.`
-          );
-        }
-        return yield* acquireUseRelease2(
-          acquireConsumableClaim(item.itemId, host3),
-          (claim) => gen2(function* () {
-            if (!claim.acquired) {
-              return unavailable(
-                `Could not equip ${item.name} because another combat profile controls preflight equipment. Skill 5 will use whichever consumable is equipped.`
-              );
-            }
-            if (!(yield* deps.inventory.equipClaimedConsumable(item.itemId, claim.id))) {
-              yield* claim.release;
-              return unavailable(
-                `Could not equip ${item.name}. Check its requirements. Skill 5 will use whichever consumable is equipped.`
-              );
-            }
-            return {
-              release: claim.release,
-              skill5ItemId: item.itemId
-            };
-          }),
-          (claim, exit3) => isFailure3(exit3) ? claim.release : void_3
-        );
-      }
-    );
-    return { prepare };
-  }, "makeCombatProfileConsumables");
-
-  // packages/runtime/src/game/flash/api/Combat.ts
-  var CONSUMABLE_CAST_CONFIRMATION_TIMEOUT_MS = 5e3;
-  var ConsumableCastDispatchDeadline = Reference("lucent/game/combat/ConsumableCastDispatchDeadline", {
-    defaultValue: /* @__PURE__ */ __name(() => void 0, "defaultValue")
-  });
-  var Consumable = NullOr(
-    Struct({
-      itemId: optionalKey2(WireInt),
-      ItemID: optionalKey2(WireInt),
-      ready: optionalKey2(Boolean3)
-    })
-  );
-  var ConsumableCastDispatch = NullOr(
-    Struct({
-      actionId: NonNegativeWireInt,
-      itemId: PositiveWireInt,
-      monsterMapId: PositiveWireInt
-    })
-  );
-  var skillIndex = /* @__PURE__ */ __name((skill) => {
-    return Number.isInteger(skill) && skill >= 0 && skill <= 5 ? skill : null;
-  }, "skillIndex");
-  var DEFAULT_SKILLS = [1, 2, 3, 4];
-  var normalizeSkills = /* @__PURE__ */ __name((input) => {
-    const skills = (input ?? []).filter((skill) => skillIndex(skill) !== null);
-    return skills.length === 0 ? DEFAULT_SKILLS : skills;
-  }, "normalizeSkills");
-  var normalizeSkillInterval = /* @__PURE__ */ __name((interval) => {
-    if (interval === void 0) return 150;
-    return match(fromInput(interval), {
-      onNone: /* @__PURE__ */ __name(() => 150, "onNone"),
-      onSome: /* @__PURE__ */ __name((duration) => {
-        const milliseconds = toMillis(duration);
-        return Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : 150;
-      }, "onSome")
-    });
-  }, "normalizeSkillInterval");
-  var makeCombat = /* @__PURE__ */ __name((bridge, antiCounter, host3, drops, events, inventory, map8, monsters, player, players, settings, temporary, wait) => {
-    const consumableCasts = makeUnsafe5(1);
-    const targetValue = readCombatTarget(bridge);
-    const targetAuras = /* @__PURE__ */ __name((options) => targetValue.pipe(
-      flatMap3((target2) => {
-        if (target2 === null) return succeed7([]);
-        return (target2.type === "monster" ? host3.read({
-          kind: "monsterAuras",
-          monsterMapId: target2.monsterMapId,
-          auraKind: options?.kind ?? null
-        }) : host3.read({
-          kind: "playerAuras",
-          entityId: target2.entityId,
-          auraKind: options?.kind ?? null
-        })).pipe(map5((auras) => auras.map(toLiveAura)));
-      })
-    ), "targetAuras");
-    const getConsumableSkillItem = /* @__PURE__ */ __name(() => bridge.invoke("combat.getConsumableSkillItem", void 0, Consumable).pipe(
-      map5(
-        match({
-          onNone: /* @__PURE__ */ __name(() => null, "onNone"),
-          onSome: /* @__PURE__ */ __name((item) => {
-            const itemId = item?.itemId ?? item?.ItemID;
-            return itemId === void 0 ? null : { itemId, ready: item?.ready === true };
-          }, "onSome")
-        })
-      )
-    ), "getConsumableSkillItem");
-    const prepareCombatProfileConsumable = makeCombatProfileConsumables({
-      getConsumableSkillItem,
-      inventory
-    }).prepare;
-    const prepareCombatProfile = fn2("Combat.prepareCombatProfile")(
-      function* (profile) {
-        const { warning, ...prepared } = yield* prepareCombatProfileConsumable(profile);
-        return {
-          ...prepared,
-          warnings: getCombatProfileClassWarning(
-            { inventory, player },
-            profile
-          ).pipe(
-            map5(
-              (classWarning) => [classWarning, warning].filter((message2) => message2 !== void 0)
-            )
-          )
-        };
-      }
-    );
-    const getSkillCooldownRemainingMs = /* @__PURE__ */ __name((skill) => bridge.invoke("combat.getSkillCooldownRemaining", [skill], WireInt).pipe(
-      map5(
-        match({
-          onNone: /* @__PURE__ */ __name(() => null, "onNone"),
-          onSome: /* @__PURE__ */ __name((remaining) => Math.max(0, Math.trunc(remaining)), "onSome")
-        })
-      )
-    ), "getSkillCooldownRemainingMs");
-    const castConsumableOnMonster = /* @__PURE__ */ __name((selector, expectedItemId) => consumableCasts.withPermit(
-      gen2(function* () {
-        if (!Number.isInteger(expectedItemId) || expectedItemId <= 0) {
-          return null;
-        }
-        let dispatch;
-        let confirmation = null;
-        const projectedSourceId = yield* host3.read({ kind: "selfEntityId" });
-        const sourceId = projectedSourceId ?? (yield* bridge.invoke("player.getUserId", void 0, PositiveWireInt).pipe(map5(getOrNull)));
-        if (sourceId === null) return null;
-        yield* wait.forPacket(
-          {
-            command: "ct",
-            direction: "server",
-            predicate: /* @__PURE__ */ __name((candidate) => {
-              if (dispatch === void 0) return false;
-              const expectedActionId = dispatch.actionId;
-              const matched = decodeCombatActionAcknowledgements(
-                packetData(candidate)
-              ).find(
-                (candidate2) => candidate2.actionId === expectedActionId && candidate2.source.type === "player" && candidate2.source.id === sourceId
-              );
-              if (matched === void 0) return false;
-              confirmation = {
-                actionId: dispatch.actionId,
-                monsterMapId: dispatch.monsterMapId,
-                success: matched.outcome === 1
-              };
-              return true;
-            }, "predicate"),
-            encoding: "json"
-          },
-          {
-            timeout: `${CONSUMABLE_CAST_CONFIRMATION_TIMEOUT_MS} millis`,
-            trigger: gen2(function* () {
-              const dispatchDeadline = yield* ConsumableCastDispatchDeadline;
-              if (dispatchDeadline !== void 0 && (yield* currentTimeMillis2) > dispatchDeadline) {
-                return false;
-              }
-              const result2 = yield* bridge.invoke(
-                "combat.castConsumableOnMonster",
-                [toMonsterSelector(selector), expectedItemId],
-                ConsumableCastDispatch
-              ).pipe(map5(getOrNull));
-              if (result2 === null || result2.itemId !== expectedItemId) {
-                return false;
-              }
-              dispatch = result2;
-              return true;
-            })
-          }
-        );
-        return confirmation;
-      })
-    ), "castConsumableOnMonster");
-    const canUseSkill = /* @__PURE__ */ __name((skill) => {
-      const index = skillIndex(skill);
-      return index === null ? succeed7(false) : getSkillCooldownRemainingMs(index).pipe(
-        map5((remaining) => remaining === 0)
-      );
-    }, "canUseSkill");
-    const waitForSkillReady = /* @__PURE__ */ __name((index) => wait.until(
-      getSkillCooldownRemainingMs(index).pipe(
-        flatMap3(
-          (remaining) => remaining === null ? succeed7(false) : remaining > 0 ? sleep2(remaining).pipe(as2(false)) : sleep2("150 millis").pipe(
-            andThen2(getSkillCooldownRemainingMs(index)),
-            map5((confirmed) => confirmed === 0)
-          )
-        )
-      ),
-      { interval: "50 millis", timeout: "5 seconds" }
-    ), "waitForSkillReady");
-    const antiCounterActive = /* @__PURE__ */ __name((monsterMapId) => settings.isAntiCounterEnabled().pipe(
-      flatMap3(
-        (enabled) => enabled ? antiCounter.isActive(monsterMapId) : succeed7(false)
-      )
-    ), "antiCounterActive");
-    const stopCombat2 = stopCombat(bridge);
-    const resolveMonsterMapId = /* @__PURE__ */ __name((query) => monsters.getAvailable().pipe(
-      map5(
-        (available) => available.find((monster) => monster.matches(query))?.monsterMapId
-      )
-    ), "resolveMonsterMapId");
-    const useSkill = /* @__PURE__ */ __name((skill, options) => {
-      const index = skillIndex(skill);
-      if (index === null) return succeed7(false);
-      return gen2(function* () {
-        const requestedTarget = options?.target;
-        if (!(yield* player.isAlive())) return false;
-        const selectedTarget = requestedTarget === void 0 ? yield* targetValue : null;
-        const initialMonsterMapId = requestedTarget !== void 0 ? yield* resolveMonsterMapId(requestedTarget) : selectedTarget?.type === "monster" ? selectedTarget.monsterMapId : void 0;
-        if (requestedTarget !== void 0 && initialMonsterMapId === void 0) {
-          return false;
-        }
-        if (initialMonsterMapId !== void 0 && (yield* antiCounterActive(initialMonsterMapId))) {
-          yield* stopCombat2;
-          return false;
-        }
-        const ready = options?.waitUntilReady === true ? yield* waitForSkillReady(index) : yield* canUseSkill(index);
-        if (!ready || !(yield* player.isAlive())) return false;
-        const selectedTargetBeforeCast = requestedTarget === void 0 ? yield* targetValue : null;
-        const guardedMonsterMapId = requestedTarget !== void 0 ? yield* resolveMonsterMapId(requestedTarget) : selectedTargetBeforeCast?.type === "monster" ? selectedTargetBeforeCast.monsterMapId : selectedTargetBeforeCast === null ? initialMonsterMapId : void 0;
-        if (requestedTarget !== void 0 && guardedMonsterMapId === void 0) {
-          return false;
-        }
-        if (guardedMonsterMapId !== void 0 && (yield* antiCounterActive(guardedMonsterMapId))) {
-          if (requestedTarget !== void 0 || selectedTargetBeforeCast?.type === "monster") {
-            yield* stopCombat2;
-          }
-          return false;
-        }
-        return yield* bridge.invoke(
-          "combat.useSkill",
-          [
-            String(index),
-            requestedTarget === void 0 || guardedMonsterMapId === void 0 ? null : toMonsterSelector(guardedMonsterMapId),
-            options?.force === true
-          ],
-          Boolean3
-        ).pipe(map5(getOrElse(() => false)));
-      });
-    }, "useSkill");
-    const attack = /* @__PURE__ */ __name((selector) => {
-      return gen2(function* () {
-        if (!(yield* player.isAlive())) return false;
-        const monster = yield* monsters.get(selector);
-        if (monster !== null && (yield* antiCounterActive(monster.monsterMapId))) {
-          yield* stopCombat2;
-          return false;
-        }
-        return yield* bridge.invoke(
-          "combat.attackMonster",
-          [toMonsterSelector(selector)],
-          Boolean3
-        ).pipe(map5(getOrElse(() => false)));
-      });
-    }, "attack");
-    const reachHuntTarget = /* @__PURE__ */ __name((target2) => {
-      if (target2 === null || target2.cell === "") return succeed7(null);
-      return player.jumpToCell(target2.cell).pipe(map5((reached) => reached ? target2 : null));
-    }, "reachHuntTarget");
-    const hunt = /* @__PURE__ */ __name((selector, options) => {
-      return monsters.getAll().pipe(
-        flatMap3((all3) => {
-          const matches = all3.filter((monster) => monster.matches(selector));
-          if (options?.preferMostMatches !== true || matches.length < 2) {
-            return reachHuntTarget(matches[0] ?? null);
-          }
-          const cells = /* @__PURE__ */ new Map();
-          for (const monster of matches) {
-            cells.set(monster.cell, (cells.get(monster.cell) ?? 0) + 1);
-          }
-          const target2 = matches.reduce(
-            (best, candidate) => (cells.get(candidate.cell) ?? 0) > (cells.get(best.cell) ?? 0) ? candidate : best
-          );
-          return reachHuntTarget(target2);
-        })
-      );
-    }, "hunt");
-    const makeKillProfileRuntime = /* @__PURE__ */ __name((selector, options) => {
-      const definition = options?.profile;
-      if (definition === void 0) {
-        return succeed7(null);
-      }
-      const profile = normalizeCombatProfile(definition);
-      return gen2(function* () {
-        const session = yield* makeCombatProfileSession(
-          {
-            attack,
-            getAvailableMonsters: monsters.getAvailable,
-            isAttackBlocked: antiCounterActive,
-            isPlayerAlive: player.isAlive,
-            onMessage: /* @__PURE__ */ __name((handler) => events.on(
-              { type: "update-message" },
-              (event) => handler({
-                message: event.message,
-                ...event.monsterMapId === void 0 ? {} : { monsterMapId: event.monsterMapId },
-                source: event.source
-              })
-            ), "onMessage"),
-            onMonsterDeath: /* @__PURE__ */ __name((handler) => events.on(
-              { type: "monster-death" },
-              (event) => handler(event.monsterMapId)
-            ), "onMonsterDeath"),
-            prepare: /* @__PURE__ */ __name((sessionProfile) => gen2(function* () {
-              const prepared = yield* prepareCombatProfile(sessionProfile);
-              return {
-                dependencies: makeCombatProfileRuntimeDeps(
-                  {
-                    canUseSkill,
-                    getConsumableSkillItem,
-                    target,
-                    useSkill
-                  },
-                  player,
-                  players,
-                  prepared.skill5ItemId
-                ),
-                release: prepared.release,
-                warnings: prepared.warnings
-              };
-            }), "prepare")
-          },
-          {
-            allowTargetFallback: false,
-            profile,
-            targetPriority: [...options?.targetPriority ?? [], selector]
-          }
-        );
-        for (const warning of yield* session.warnings) {
-          yield* logWarning("Combat profile session degraded").pipe(
-            annotateLogs({
-              component: "combat",
-              data: { profile: profile.label, warning }
-            })
-          );
-        }
-        return session;
-      });
-    }, "makeKillProfileRuntime");
-    const fight = /* @__PURE__ */ __name((selector, options, runtime2) => {
-      const skills = normalizeSkills(options?.skills);
-      const skillInterval = normalizeSkillInterval(options?.skillInterval);
-      const attackOrder = [...options?.targetPriority ?? [], selector];
-      const selectTarget = gen2(function* () {
-        const available = yield* monsters.getAvailable();
-        const candidates = orderMonstersByPriority(available, attackOrder);
-        for (const candidate of candidates) {
-          if (!(yield* antiCounterActive(candidate.monsterMapId)))
-            return candidate;
-        }
-        return null;
-      });
-      return forever3(
-        gen2(function* () {
-          if (runtime2 !== null) {
-            const result2 = yield* runtime2.runCycle().pipe(orDie2);
-            if (result2.kind === "no-target") {
-              yield* stopCombat2;
-            }
-            yield* sleep2(result2.delayMs);
-            return;
-          }
-          if (!(yield* player.isAlive())) {
-            yield* sleep2("250 millis");
-            return;
-          }
-          const target2 = yield* selectTarget;
-          if (target2 === null) {
-            yield* stopCombat2;
-            yield* sleep2("100 millis");
-            return;
-          }
-          if (!(yield* attack(target2.monsterMapId))) {
-            yield* sleep2("250 millis");
-            return;
-          }
-          for (const skill of skills) {
-            yield* useSkill(skill);
-            yield* sleep2(skillInterval);
-          }
-        })
-      );
-    }, "fight");
-    const killWithRuntime = /* @__PURE__ */ __name((selector, options, runtime2) => gen2(function* () {
-      const startMap = yield* host3.read({ kind: "map" });
-      const available = yield* monsters.getAvailable();
-      const monster = available.find(
-        (candidate) => candidate.matches(selector)
-      );
-      if (monster === void 0) return false;
-      yield* map8.setSpawnPoint();
-      const death = wait.forEvent(
-        {
-          monsterMapId: monster.monsterMapId,
-          type: "monster-death"
-        },
-        {
-          trigger: forkScoped2(fight(selector, options, runtime2)).pipe(
-            as2(true)
-          )
-        }
-      ).pipe(map5((event) => event !== null));
-      const projectedEnd = wait.untilSome(
-        all2([
-          host3.read({
-            kind: "monster",
-            selector: { monsterMapId: monster.monsterMapId }
-          }),
-          host3.read({ kind: "map" })
-        ]).pipe(
-          map5(
-            ([current, currentMap]) => current === null || currentMap.id !== startMap.id || currentMap.name !== startMap.name || currentMap.roomNumber !== startMap.roomNumber ? some2(false) : current.dead ? some2(true) : none2()
-          )
-        ),
-        { interval: "250 millis" }
-      );
-      return yield* raceFirst2(
-        death,
-        projectedEnd.pipe(map5((dead) => dead === true))
-      );
-    }), "killWithRuntime");
-    const kill = /* @__PURE__ */ __name((selector, options) => scoped2(
-      gen2(function* () {
-        const runtime2 = yield* makeKillProfileRuntime(selector, options);
-        return yield* killWithRuntime(selector, options, runtime2);
-      })
-    ).pipe(ensuring2(stopCombat2)), "kill");
-    const killFor = /* @__PURE__ */ __name((selector, item, requested, source, options) => {
-      const wanted = Math.max(1, Math.trunc(requested ?? 1));
-      return scoped2(
-        gen2(function* () {
-          const runtime2 = yield* makeKillProfileRuntime(selector, options);
-          const loop = gen2(function* () {
-            while (true) {
-              if (yield* source.contains(item, wanted)) return true;
-              if (yield* drops.contains(item)) {
-                yield* drops.accept(item);
-                if (yield* source.contains(item, wanted)) return true;
-              }
-              if (!(yield* killWithRuntime(selector, options, runtime2))) {
-                yield* sleep2("100 millis");
-              }
-            }
-          });
-          return yield* loop;
-        })
-      ).pipe(ensuring2(stopCombat2));
-    }, "killFor");
-    const cancelAutoAttack = /* @__PURE__ */ __name(() => bridge.invoke("combat.cancelAutoAttack", void 0, Void2).pipe(asVoid2), "cancelAutoAttack");
-    const cancelTarget = /* @__PURE__ */ __name(() => bridge.invoke("combat.cancelTarget", void 0, Void2).pipe(asVoid2), "cancelTarget");
-    const killForItem = /* @__PURE__ */ __name((selector, item, quantity, options) => killFor(selector, item, quantity, inventory, options), "killForItem");
-    const killForTempItem = /* @__PURE__ */ __name((selector, item, quantity, options) => killFor(selector, item, quantity, temporary, options), "killForTempItem");
-    const getTargetAura2 = /* @__PURE__ */ __name((name, options) => targetAuras(options).pipe(
-      map5(
-        (auras) => auras.find(
-          (aura) => aura.name.localeCompare(name, void 0, {
-            sensitivity: "accent"
-          }) === 0
-        ) ?? null
-      )
-    ), "getTargetAura");
-    const hasTargetAura = /* @__PURE__ */ __name((name, options) => getTargetAura2(name, options).pipe(map5((aura) => aura !== null)), "hasTargetAura");
-    const getTarget = /* @__PURE__ */ __name(() => targetValue, "getTarget");
-    const target = {
-      auras: {
-        get: getTargetAura2,
-        getAll: targetAuras,
-        has: hasTargetAura
-      },
-      get: getTarget
-    };
-    return {
-      attack,
-      cancelAutoAttack,
-      cancelTarget,
-      canUseSkill,
-      castConsumableOnMonster,
-      exit: player.exitCombat,
-      getConsumableSkillItem,
-      getSkillCooldownRemainingMs,
-      hunt,
-      isAttackBlocked: antiCounterActive,
-      kill,
-      killForItem,
-      killForTempItem,
-      prepareCombatProfile,
-      target,
-      useSkill
-    };
-  }, "makeCombat");
-
-  // packages/runtime/src/game/flash/api/Drops.ts
-  var makeDrops = fnUntraced2(function* (bridge, host3, auth) {
-    const operationHost = globalThis.__host;
-    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "drop", selector), "get");
-    const accept = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? operate({ kind: "acceptDrop", selector }, operationHost).pipe(
-      map5((answer) => answer.value),
-      catch_2(() => succeed7(false))
-    ) : succeed7(false), "accept");
-    const contains = /* @__PURE__ */ __name((selector) => get5(selector).pipe(map5((drop) => drop !== null)), "contains");
-    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "drop"), "getAll");
-    const isCustomUiEnabled = /* @__PURE__ */ __name(() => bridge.invoke("drops.isUsingCustomDrops", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isCustomUiEnabled");
-    const reject2 = /* @__PURE__ */ __name((selector) => gen2(function* () {
-      if (!(yield* auth.isLoggedIn())) return false;
-      if (!isSelectable(selector)) return false;
-      const rejected2 = yield* host3.command({ kind: "rejectDrop", selector });
-      return getOrElse(rejected2, () => false);
-    }), "reject");
-    const toggleUi = /* @__PURE__ */ __name(() => bridge.invoke("drops.toggleUi", void 0, Void2).pipe(asVoid2), "toggleUi");
-    return {
-      accept,
-      contains,
-      get: get5,
-      getAll,
-      isCustomUiEnabled,
-      reject: reject2,
-      toggleUi
-    };
-  });
-
-  // packages/runtime/src/game/flash/contract/Event.ts
-  var isProjectionEvent = /* @__PURE__ */ __name((event) => event.type !== "connection" && event.type !== "debug", "isProjectionEvent");
-  var isScalar = /* @__PURE__ */ __name((value) => typeof value === "boolean" || typeof value === "number" || typeof value === "string", "isScalar");
-  var matchesEvent = /* @__PURE__ */ __name((event, selector) => {
-    if (selector === void 0) return true;
-    if (selector === null || typeof selector !== "object" || Array.isArray(selector)) {
-      return false;
-    }
-    const fields = Object.entries(selector);
-    if (!fields.some(([key]) => key === "type")) return false;
-    const record3 = event;
-    return fields.every(
-      ([key, value]) => isScalar(value) && record3[key] === value
-    );
-  }, "matchesEvent");
-
-  // packages/runtime/src/game/flash/api/Events.ts
-  var makeEvents = fnUntraced2(function* (gateway, wait) {
-    const scope3 = yield* scope2;
-    const runFork3 = runForkWith2(yield* context2());
-    const stream = /* @__PURE__ */ __name((selector) => gateway.events.pipe(
-      filter6(
-        (event) => matchesEvent(event, selector)
-      )
-    ), "stream");
-    const on = /* @__PURE__ */ __name(((selector, handler) => stream(selector).pipe(
-      runForEach2(handler),
-      forkIn2(scope3),
-      map5((fiber2) => () => {
-        runFork3(interrupt4(fiber2));
-      })
-    )), "on");
-    const onProjection = /* @__PURE__ */ __name(((selector, handler) => on(
-      selector,
-      (event) => isProjectionEvent(event) ? handler(event) : void_3
-    )), "onProjection");
-    const once = wait.forEvent;
-    const onceProjection = wait.forProjectionEvent;
-    return {
-      on,
-      onProjection,
-      once,
-      onceProjection,
-      stream
-    };
-  });
-
-  // packages/runtime/src/game/flash/api/House.ts
-  var makeHouse = /* @__PURE__ */ __name((bridge, host3) => {
-    const contains = /* @__PURE__ */ __name((selector, quantity) => itemQuantity(host3, "house", selector).pipe(
-      map5((owned) => owned >= normalizeItemQuantity(quantity))
-    ), "contains");
-    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "house"), "getAll");
-    const getSlots = /* @__PURE__ */ __name(() => bridge.invoke("house.getSlots", void 0, WireInt).pipe(map5(getOrElse(() => 0))), "getSlots");
-    const getUsedSlots = /* @__PURE__ */ __name(() => host3.read({ kind: "items", container: "house" }).pipe(map5((items) => items.length)), "getUsedSlots");
-    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "house", selector), "get");
-    const getAvailableSlots = /* @__PURE__ */ __name(() => zipWith2(
-      getSlots(),
-      getUsedSlots(),
-      (slots, used) => Math.max(0, slots - used)
-    ), "getAvailableSlots");
-    return {
-      contains,
-      get: get5,
-      getAll,
-      getAvailableSlots,
-      getSlots,
-      getUsedSlots
-    };
-  }, "makeHouse");
 
   // packages/runtime/src/game/flash/api/Map.ts
   var makeMap = /* @__PURE__ */ __name((bridge, host3, wait) => {
@@ -16681,6 +15734,38 @@ ${prefix}}`;
     provideMerge(servicesLayer)
   );
 
+  // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Ref.js
+  var TypeId20 = "~effect/Ref";
+  var RefProto = {
+    [TypeId20]: {
+      _A: identity
+    },
+    ...PipeInspectableProto,
+    toJSON() {
+      return {
+        _id: "Ref",
+        ref: this.ref
+      };
+    }
+  };
+  var makeUnsafe6 = /* @__PURE__ */ __name((value) => {
+    const self = Object.create(RefProto);
+    self.ref = make12(value);
+    return self;
+  }, "makeUnsafe");
+  var make16 = /* @__PURE__ */ __name((value) => sync2(() => makeUnsafe6(value)), "make");
+  var get3 = /* @__PURE__ */ __name((self) => sync2(() => self.ref.current), "get");
+  var set2 = /* @__PURE__ */ dual(2, (self, value) => sync2(() => set(self.ref, value)));
+  var getAndSet = /* @__PURE__ */ dual(2, (self, value) => sync2(() => {
+    const current = self.ref.current;
+    self.ref.current = value;
+    return current;
+  }));
+  var update = /* @__PURE__ */ dual(2, (self, f) => sync2(() => {
+    self.ref.current = f(self.ref.current);
+  }));
+  var updateAndGet = /* @__PURE__ */ dual(2, (self, f) => sync2(() => self.ref.current = f(self.ref.current)));
+
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/SubscriptionRef.js
   var TypeId21 = "~effect/SubscriptionRef";
   var Proto2 = {
@@ -16695,7 +15780,7 @@ ${prefix}}`;
       };
     }
   };
-  var make16 = /* @__PURE__ */ __name((value) => map5(unbounded({
+  var make17 = /* @__PURE__ */ __name((value) => map5(unbounded({
     replay: 1
   }), (pubsub) => {
     const self = Object.create(Proto2);
@@ -16838,11 +15923,11 @@ ${prefix}}`;
     const scope3 = yield* scope2;
     const runFork3 = runForkWith2(yield* context2());
     const queue = yield* unbounded2();
-    const activeRef = yield* make15(null);
-    const currentRef = yield* make16(
+    const activeRef = yield* make16(null);
+    const currentRef = yield* make17(
       null
     );
-    const nextIdRef = yield* make15(0);
+    const nextIdRef = yield* make16(0);
     const clearActive = /* @__PURE__ */ __name((pending) => gen2(function* () {
       const active = yield* get3(activeRef);
       if (active !== pending) return;
@@ -20007,10 +19092,10 @@ ${prefix}}`;
   }), "logScriptFailureCause");
   var isConnectionLoss = /* @__PURE__ */ __name((event) => event.type === "connection" && (event.status === "OnConnectionLost" || event.status === "OnConnectionFailed"), "isConnectionLoss");
   var makeScriptOptions = fnUntraced2(function* () {
-    const optionsRef = yield* make16(
+    const optionsRef = yield* make17(
       snapshotScriptRuntimeOptions(DEFAULT_SCRIPT_RUNTIME_OPTIONS)
     );
-    const accountUsernameRef = yield* make15("");
+    const accountUsernameRef = yield* make16("");
     const getOptions = /* @__PURE__ */ __name(() => get4(optionsRef).pipe(
       map5(snapshotScriptRuntimeOptions)
     ), "getOptions");
@@ -20054,17 +19139,17 @@ ${prefix}}`;
         wait
       });
       const services = makeScriptRuntimeServices(api2, army, environment);
-      const activeRef = yield* make15(null);
-      const lifecycleGate = yield* make14(1);
-      const latestCommandIdRef = yield* make15(0);
-      const nextIdRef = yield* make15(0);
-      const pendingFinalizationRef = yield* make15(
+      const activeRef = yield* make16(null);
+      const lifecycleGate = yield* make15(1);
+      const latestCommandIdRef = yield* make16(0);
+      const nextIdRef = yield* make16(0);
+      const pendingFinalizationRef = yield* make16(
         null
       );
-      const pendingRestartRef = yield* make15(null);
-      const startingRef = yield* make15(null);
+      const pendingRestartRef = yield* make16(null);
+      const startingRef = yield* make16(null);
       const { optionsRef, bindAccount, getOptions, setOptions } = yield* makeScriptOptions();
-      const statusRef = yield* make16({
+      const statusRef = yield* make17({
         state: "idle"
       });
       const getStatus = /* @__PURE__ */ __name(() => get4(statusRef).pipe(map5(snapshotStatus)), "getStatus");
@@ -20925,7 +20010,7 @@ ${prefix}}`;
   }, "makeAutoZoneService");
 
   // packages/runtime/src/host/environment.ts
-  var makeEnvironmentService = /* @__PURE__ */ __name((host3, unavailable2) => {
+  var makeEnvironmentService = /* @__PURE__ */ __name((host3, unavailable) => {
     const identifier2 = /* @__PURE__ */ __name((value) => Number.isFinite(value) ? value : 0, "identifier");
     const getState = /* @__PURE__ */ __name(() => sync2(() => JSON.parse(host3.read('{"kind":"environment"}'))), "getState");
     const set4 = /* @__PURE__ */ __name((edit) => try_2(() => JSON.parse(host3.command(JSON.stringify({ kind: "updateEnvironment", edit })))), "set");
@@ -20933,7 +20018,7 @@ ${prefix}}`;
     const setDropPolicy = /* @__PURE__ */ __name((patch) => set4({ kind: "updateDropPolicy", patch }), "setDropPolicy");
     const setQuestAutoRegister = /* @__PURE__ */ __name((options) => set4({ kind: "setQuestAutoRegister", ...options }), "setQuestAutoRegister");
     return {
-      ...unavailable2,
+      ...unavailable,
       getState,
       clear: /* @__PURE__ */ __name(() => set4({ kind: "clear" }), "clear"),
       addQuest: /* @__PURE__ */ __name((questId, rewardItemId) => set4({ kind: "addQuest", questId: identifier2(questId), ...rewardItemId === void 0 ? {} : { rewardItemId: identifier2(rewardItemId) } }), "addQuest"),
@@ -21092,9 +20177,9 @@ ${prefix}}`;
   };
 
   // packages/runtime/src/host/scripts.ts
-  var api = make6(scriptApiLayer);
+  var api = make7(scriptApiLayer);
   api.runSync(void_3);
-  var runtime = make6(
+  var runtime = make7(
     layer7.pipe(
       provide2(
         mergeAll2(

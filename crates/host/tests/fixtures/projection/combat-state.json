@@ -154,7 +154,7 @@
     "skills": [
       {
         "status": "cooldown",
-        "remainingMs": 99
+        "remainingMs": 100
       },
       {
         "status": "ready"
@@ -169,7 +169,8 @@
         "status": "ready"
       },
       {
-        "status": "ready"
+        "status": "cooldown",
+        "remainingMs": 1
       }
     ],
     "consumable": {

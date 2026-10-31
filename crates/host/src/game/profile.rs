@@ -106,6 +106,11 @@ enum Phase {
     Waiting {
         until: u64,
     },
+    Reconfirm {
+        pending: Pending,
+        expires_at: u64,
+        until: u64,
+    },
     Cancelled,
 }
 
@@ -122,6 +127,7 @@ pub struct ProfileJob {
     fallback_rank: Option<usize>,
     skill5_item_id: Option<i64>,
     warnings: Vec<String>,
+    engaged: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,7 +165,61 @@ impl ProfileJob {
             fallback_rank,
             skill5_item_id: None,
             warnings: Vec::new(),
+            engaged: true,
         })
+    }
+
+    pub fn profile(&self) -> &CombatProfile {
+        &self.profile
+    }
+
+    pub fn set_engaged(&mut self, engaged: bool) {
+        self.engaged = engaged;
+        if !engaged
+            && matches!(
+                self.phase,
+                Phase::Casting(_)
+                    | Phase::Cooldown { .. }
+                    | Phase::Waiting { .. }
+                    | Phase::Reconfirm {
+                        pending: Pending::Cast { .. },
+                        ..
+                    }
+            )
+        {
+            self.phase = Phase::Ready;
+        }
+    }
+
+    pub(crate) fn invalidate(&mut self, prepare: bool, now: u64) {
+        self.lose_target(false);
+        self.phase = if prepare
+            || matches!(
+                self.phase,
+                Phase::New
+                    | Phase::Pending {
+                        action: Pending::Prepare,
+                        ..
+                    }
+            ) {
+            self.skill5_item_id = None;
+            Phase::New
+        } else {
+            Phase::Ready
+        };
+        self.next_step = now;
+    }
+
+    pub fn ready(&self) -> bool {
+        matches!(self.phase, Phase::Ready)
+    }
+
+    pub fn needs_observation(&self) -> bool {
+        match self.phase {
+            Phase::New | Phase::Pending { .. } | Phase::Waiting { .. } | Phase::Cancelled => false,
+            Phase::Ready => !self.profile.steps.is_empty(),
+            _ => true,
+        }
     }
 
     pub fn target_version(&self) -> u64 {
