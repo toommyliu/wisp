@@ -7,6 +7,8 @@ import type {
 
 import { completeOperation, startOperation, failOperations, setOperationResponsibility } from "./operations";
 
+import { completeIo } from "./io";
+
 import { prepareJob, failJob, failJobs } from "./jobs";
 
 import type { ScriptSource } from "../game/scripting/ScriptRunner";
@@ -24,6 +26,8 @@ declare global {
     startJob(requestJson: string): string;
     engageJob(id: string, engaged: boolean): void;
     cancelJob(id: string): void;
+    requestIo(requestJson: string): string;
+    cancelIo(id: string): void;
     now(): number;
     log(level: "info" | "warn" | "error" | "debug", text: string): void;
   };
@@ -47,6 +51,7 @@ declare global {
 }
 
 type ScriptEvent =
+  | { type: "io"; id: string; result: unknown }
   | { type: "jobprepared"; id: string; label: string; classNames: string[]; warnings: string[] }
   | { type: "jobfailed"; id: string; error: string }
   | { type: "operationresponsibility"; id: string; responsible: boolean }
@@ -124,7 +129,9 @@ export const turn = (itemsJson: string): string[] => {
   const items = JSON.parse(itemsJson) as ScriptEvent[];
   const lost = items.some((item) => item.type === "eventslost");
   for (const item of items) {
-    if (item.type === "eventslost") {
+    if (item.type === "io") {
+      completeIo(item.id, item.result);
+    } else if (item.type === "eventslost") {
       const error = new Error("Host events were lost; pending requests failed");
       failOperations(error);
       failJobs(error);

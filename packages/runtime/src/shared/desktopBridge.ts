@@ -273,24 +273,29 @@ export type DesktopFileSystemResult<A> =
   | { readonly error: FileSystemFailure; readonly ok: false };
 
 export interface DesktopFileSystemBridge {
-  readonly exists: (path: string) => Promise<DesktopFileSystemResult<boolean>>;
+  readonly exists: (path: string, signal?: AbortSignal) => Promise<DesktopFileSystemResult<boolean>>;
   readonly list: (
     path?: string,
+    signal?: AbortSignal,
   ) => Promise<DesktopFileSystemResult<readonly FileSystemEntry[]>>;
   readonly readJson: (
     path: string,
+    signal?: AbortSignal,
   ) => Promise<DesktopFileSystemResult<unknown | undefined>>;
   readonly readText: (
     path: string,
+    signal?: AbortSignal,
   ) => Promise<DesktopFileSystemResult<string | undefined>>;
-  readonly remove: (path: string) => Promise<DesktopFileSystemResult<void>>;
+  readonly remove: (path: string, signal?: AbortSignal) => Promise<DesktopFileSystemResult<void>>;
   readonly writeJson: (
     path: string,
     value: unknown,
+    signal?: AbortSignal,
   ) => Promise<DesktopFileSystemResult<void>>;
   readonly writeText: (
     path: string,
     contents: string,
+    signal?: AbortSignal,
   ) => Promise<DesktopFileSystemResult<void>>;
 }
 

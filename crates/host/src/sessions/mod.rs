@@ -16,6 +16,7 @@ use lucent_protocol::settings::GameSettings;
 use parking_lot::RwLock;
 
 pub(crate) struct Records {
+    pub(crate) files: Arc<crate::data::Files>,
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
@@ -41,6 +42,7 @@ pub struct Host {
 }
 
 struct Shared {
+    files: Arc<crate::data::Files>,
     net: tokio::runtime::Runtime,
     clipboard: Clipboard,
     audio: Audio,
@@ -49,6 +51,8 @@ struct Shared {
 
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
+    #[error("couldn't start the files service: {0}")]
+    Files(std::io::Error),
     #[error("couldn't start the net runtime: {0}")]
     NetRuntime(std::io::Error),
     #[error("couldn't start a player thread: {0}")]
@@ -68,6 +72,20 @@ impl Host {
     }
 
     pub(crate) fn with_services(clipboard: Clipboard, audio: Audio) -> Result<Host, HostError> {
+        let documents = dirs::document_dir().ok_or_else(|| {
+            HostError::Files(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Documents directory is unavailable",
+            ))
+        })?;
+        Self::with_services_and_data_root(clipboard, audio, documents.join("Lucent/data"))
+    }
+
+    pub(crate) fn with_services_and_data_root(
+        clipboard: Clipboard,
+        audio: Audio,
+        root: std::path::PathBuf,
+    ) -> Result<Host, HostError> {
         let net = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("lucent-net")
@@ -76,6 +94,7 @@ impl Host {
             .map_err(HostError::NetRuntime)?;
         Ok(Host {
             shared: Arc::new(Shared {
+                files: Arc::new(crate::data::Files::start(root).map_err(HostError::Files)?),
                 net,
                 clipboard,
                 audio,
@@ -251,6 +270,7 @@ impl Session {
             attachment,
             events,
             Records {
+                files: self.host.shared.files.clone(),
                 jobs: self.jobs.clone(),
                 environment: self.environment.clone(),
                 settings: self.settings.clone(),
@@ -298,5 +318,19 @@ impl Session {
         if let Some(player) = &self.player {
             player.set_muted(muted);
         }
+    }
+}
+
+impl Host {
+    pub fn data_root(&self) -> &std::path::Path {
+        self.shared.files.root()
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn set_file_probe(
+        &self,
+        probe: impl Fn(crate::testing::FileStage, &str) + Send + Sync + 'static,
+    ) {
+        self.shared.files.set_probe(Arc::new(probe));
     }
 }

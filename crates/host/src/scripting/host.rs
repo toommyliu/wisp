@@ -113,6 +113,10 @@ fn wait<T>(pending: Pending<T>, interrupt: &Interrupt) -> Result<T, String> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum Item {
+    Io {
+        id: String,
+        result: Box<serde_json::value::RawValue>,
+    },
     EventsLost,
     JobPrepared {
         id: String,

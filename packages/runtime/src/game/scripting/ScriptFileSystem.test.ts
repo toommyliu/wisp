@@ -28,7 +28,7 @@ describe("script filesystem API", () => {
         const write = api.writeText("note.txt", "saved");
         expect(bridge.writeText).not.toHaveBeenCalled();
         yield* write;
-        expect(bridge.writeText.mock.calls).toEqual([["note.txt", "saved"]]);
+        expect(bridge.writeText.mock.calls).toEqual([["note.txt", "saved", expect.any(AbortSignal)]]);
         const pending: Effect.Effect<unknown, FileSystemError>[] = [
           api.exists("note.txt"),
           api.list(),
@@ -117,9 +117,9 @@ describe("script filesystem API", () => {
           .pipe(Effect.flip),
       ).toMatchObject({ reason: "too-large" });
       expect(bridge.writeJson.mock.calls).toEqual([
-        ["state.json", { count: 3 }],
+        ["state.json", { count: 3 }, expect.any(AbortSignal)],
       ]);
-      expect(bridge.writeText.mock.calls).toEqual([["note.txt", "saved"]]);
+      expect(bridge.writeText.mock.calls).toEqual([["note.txt", "saved", expect.any(AbortSignal)]]);
     }),
   );
 });

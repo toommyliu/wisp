@@ -35,7 +35,11 @@ pub(crate) struct Engine {
 }
 
 impl Engine {
-    pub(crate) fn new(link: ScriptLink, interrupt: Arc<Interrupt>) -> Result<Self, RuntimeError> {
+    pub(crate) fn new(
+        link: ScriptLink,
+        interrupt: Arc<Interrupt>,
+        wake: std::task::Waker,
+    ) -> Result<Self, RuntimeError> {
         static PLATFORM: Once = Once::new();
         PLATFORM.call_once(|| {
             let platform = v8::new_default_platform(0, false).make_shared();
@@ -49,6 +53,7 @@ impl Engine {
         );
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         isolate.set_slot(interrupt.clone());
+        isolate.set_slot(super::io::Io::new(link.records.files.clone(), wake));
         isolate.set_slot(link);
         isolate.set_slot(Instant::now());
         isolate.set_slot(Rejections::new());
@@ -80,6 +85,8 @@ impl Engine {
                 ("startJob", v8::Function::new(scope, host_start_job)),
                 ("engageJob", v8::Function::new(scope, host_engage_job)),
                 ("cancelJob", v8::Function::new(scope, host_cancel_job)),
+                ("requestIo", v8::Function::new(scope, host_request_io)),
+                ("cancelIo", v8::Function::new(scope, host_cancel_io)),
                 ("now", v8::Function::new(scope, host_now)),
                 ("log", v8::Function::new(scope, host_log)),
             ] {
@@ -110,6 +117,13 @@ impl Engine {
         for active in self.active.drain(..) {
             let _ = active.reply.send(Err(RuntimeError::Killed(kill)));
         }
+    }
+
+    pub(crate) fn take_io(&self) -> Vec<host::Item> {
+        self.isolate
+            .get_slot::<Arc<super::io::Io>>()
+            .unwrap()
+            .take()
     }
 
     pub(crate) fn is_idle(&self) -> bool {
@@ -298,6 +312,10 @@ impl Engine {
                 match settled {
                     Ok(Some(result)) if !self.overflowed() => {
                         if let Some(id) = active.run {
+                            self.isolate
+                                .get_slot::<Arc<super::io::Io>>()
+                                .unwrap()
+                                .close();
                             self.isolate.get_slot_mut::<Scripts>().unwrap().remove(id);
                         }
                         let _ = active.reply.send(if active.lost {
@@ -788,5 +806,51 @@ fn host_cancel_job(
         && let Ok(id) = id.to_rust_string_lossy(scope).parse()
     {
         scope.get_slot::<ScriptLink>().unwrap().jobs.cancel(id);
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        self.isolate
+            .get_slot::<Arc<super::io::Io>>()
+            .unwrap()
+            .close();
+    }
+}
+
+fn host_request_io(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    reply: v8::ReturnValue<v8::Value>,
+) {
+    let Some(json) = args.get(0).to_string(scope) else {
+        return;
+    };
+    let json = json.to_rust_string_lossy(scope);
+    if scope
+        .get_slot::<ScriptLink>()
+        .unwrap()
+        .player_status()
+        .is_stopped()
+    {
+        scope.get_slot::<Arc<super::io::Io>>().unwrap().close();
+    }
+    let result = scope
+        .get_slot::<Arc<super::io::Io>>()
+        .unwrap()
+        .submit(&json)
+        .map(Some);
+    return_reply(scope, reply, result);
+}
+
+fn host_cancel_io(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _reply: v8::ReturnValue<v8::Value>,
+) {
+    if let Some(id) = args.get(0).to_string(scope)
+        && let Ok(id) = id.to_rust_string_lossy(scope).parse()
+    {
+        scope.get_slot::<Arc<super::io::Io>>().unwrap().cancel(id);
     }
 }
