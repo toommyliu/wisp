@@ -104,9 +104,14 @@ fn compile<'s>(
     tc: &mut v8::PinnedRef<'s, v8::TryCatch<'_, '_, v8::HandleScope<'_>>>,
     script: &Script,
     path: &ModulePath,
+    total: &mut usize,
 ) -> Result<v8::Local<'s, v8::Module>, String> {
-    let source =
-        v8::String::new(tc, script.source(path).unwrap()).ok_or("Script source is too large")?;
+    let source = script.source(path).unwrap();
+    if source.len() > crate::library::SNAPSHOT_MAX_BYTES - *total {
+        return Err("Script sources exceed the 16 MiB execution limit.".into());
+    }
+    *total += source.len();
+    let source = v8::String::new(tc, source).ok_or("Script source is too large")?;
     let name = v8::String::new(tc, &resource(path)).unwrap();
     let origin = origin(tc, name, true);
     let mut source = v8::script_compiler::Source::new(source, Some(&origin));
@@ -125,7 +130,8 @@ fn graph<'s>(
     script: &Script,
     builtins: v8::Local<v8::Object>,
 ) -> Result<v8::Local<'s, v8::Module>, String> {
-    let entry = compile(tc, script, script.entry())?;
+    let mut total = 0;
+    let entry = compile(tc, script, script.entry(), &mut total)?;
     let mut modules = BTreeMap::from([(script.entry().clone(), entry)]);
     let mut queue = VecDeque::from([script.entry().clone()]);
     let mut synthetic = HashMap::new();
@@ -185,7 +191,7 @@ fn graph<'s>(
                     )
                 })?;
                 if !modules.contains_key(target) {
-                    let module = compile(tc, script, target)?;
+                    let module = compile(tc, script, target, &mut total)?;
                     modules.insert(target.clone(), module);
                     queue.push_back(target.clone());
                 }
