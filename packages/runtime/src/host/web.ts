@@ -235,6 +235,16 @@ export class URL {
   toJSON(): string {
     return this.href;
   }
+  static parse(input: string, base?: string): URL | null {
+    requireArguments(arguments.length, 1);
+    const value = text(input);
+    const relative = base === undefined ? undefined : text(base);
+    try {
+      return new URL(value, relative);
+    } catch {
+      return null;
+    }
+  }
   static canParse(input: string, base?: string): boolean {
     requireArguments(arguments.length, 1);
     const value = text(input);
@@ -282,7 +292,7 @@ export class TextDecoder {
       bytes = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
     else if (input instanceof ArrayBuffer) bytes = new Uint8Array(input);
     else throw new TypeError("Expected an ArrayBuffer or view");
-    const decoded = host!.decode(bytes, this.fatal, this.ignoreBOM);
+    const decoded = host!.decode(bytes, this.#fatal, this.#ignoreBOM);
     if (decoded === undefined)
       throw new TypeError("The encoded data was not valid UTF-8");
     return decoded;
@@ -307,6 +317,7 @@ const headerValue = (value: string): string => {
 };
 export class Headers {
   readonly #values = new Map<string, string[]>();
+  #sorted: Pair[] | undefined;
   constructor(
     init: Iterable<readonly [string, string]> | Record<string, string> = [],
   ) {
@@ -326,10 +337,12 @@ export class Headers {
     const values = this.#values.get(name) ?? [];
     values.push(value);
     this.#values.set(name, values);
+    this.#sorted = undefined;
   }
   delete(name: string): void {
     requireArguments(arguments.length, 1);
     this.#values.delete(headerName(name));
+    this.#sorted = undefined;
   }
   get(name: string): string | null {
     requireArguments(arguments.length, 1);
@@ -347,6 +360,7 @@ export class Headers {
     name = headerName(name);
     value = headerValue(value);
     this.#values.set(name, [value]);
+    this.#sorted = undefined;
   }
   getSetCookie(): string[] {
     return [...(this.#values.get("set-cookie") ?? [])];
@@ -354,7 +368,7 @@ export class Headers {
   *entries(): IterableIterator<Pair> {
     let index = 0;
     while (true) {
-      const pairs: Pair[] = [...this.#values.keys()]
+      const pairs = (this.#sorted ??= [...this.#values.keys()]
         .sort()
         .flatMap((key) =>
           key === "set-cookie"
@@ -365,10 +379,10 @@ export class Headers {
                   this.#values.get(key)!.join(key === "cookie" ? "; " : ", "),
                 ] as Pair,
               ],
-        );
+        ));
       const pair = pairs[index++];
       if (!pair) return;
-      yield pair;
+      yield [...pair] as Pair;
     }
   }
   *keys(): IterableIterator<string> {

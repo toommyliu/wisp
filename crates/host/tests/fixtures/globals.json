@@ -4403,5 +4403,177 @@
     "expected": {
       "error": "TypeError"
     }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://EXAMPLE.com/a?b#c'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://example.com/a?b#c",
+        "https://example.com",
+        "https:",
+        "",
+        "",
+        "example.com",
+        "example.com",
+        "",
+        "/a",
+        "?b",
+        "#c",
+        [
+          [
+            "b",
+            ""
+          ]
+        ],
+        "https://example.com/a?b#c",
+        "https://example.com/a?b#c"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('../child', 'https://example.com/dir/file'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://example.com/child",
+        "https://example.com",
+        "https:",
+        "",
+        "",
+        "example.com",
+        "example.com",
+        "",
+        "/child",
+        "",
+        "",
+        [],
+        "https://example.com/child",
+        "https://example.com/child"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('invalid'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": null
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://example.com', 'invalid'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": null
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://example.com', undefined); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://example.com/",
+        "https://example.com",
+        "https:",
+        "",
+        "",
+        "example.com",
+        "example.com",
+        "",
+        "/",
+        "",
+        "",
+        [],
+        "https://example.com/",
+        "https://example.com/"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse(); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse({toString(){throw new RangeError('input')}}); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "RangeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://example.com', {toString(){throw new RangeError('base')}}); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "RangeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return true; }\n        get ignoreBOM() { return true; }\n      }\n      const d = new Decoder('utf8', {fatal:false, ignoreBOM:false});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "value": "�"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return true; }\n        get ignoreBOM() { return false; }\n      }\n      const d = new Decoder('utf8', {fatal:false, ignoreBOM:true});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "value": "﻿�"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return false; }\n        get ignoreBOM() { return true; }\n      }\n      const d = new Decoder('utf8', {fatal:true, ignoreBOM:false});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return false; }\n        get ignoreBOM() { return false; }\n      }\n      const d = new Decoder('utf8', {fatal:true, ignoreBOM:true});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {\n  const h = new Headers([['b','2'],['d','4']]);\n  const it = h.entries();\n  const out = [it.next().value];\n  h.append('c','3');\n  out.push(it.next().value);\n  h.set('d','5');\n  out.push(it.next().value);\n  h.delete('b');\n  h.append('z','6');\n  out.push(it.next().value);\n  const pair = [...h][0]; pair[1] = 'changed';\n  return [out,[...h],h.get('c')];\n})()",
+    "expected": {
+      "value": [
+        [
+          [
+            "b",
+            "2"
+          ],
+          [
+            "c",
+            "3"
+          ],
+          [
+            "d",
+            "5"
+          ],
+          null
+        ],
+        [
+          [
+            "c",
+            "3"
+          ],
+          [
+            "d",
+            "5"
+          ],
+          [
+            "z",
+            "6"
+          ]
+        ],
+        "3"
+      ]
+    }
   }
 ]

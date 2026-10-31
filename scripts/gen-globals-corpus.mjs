@@ -160,6 +160,40 @@ for (const [group, constructor, method, args] of [
   ["URLSearchParams", "new URLSearchParams()", "forEach", "null"],
 ])
   add(group, `(${constructor}).${method}(${args})`);
+for (const args of [
+  "'https://EXAMPLE.com/a?b#c'",
+  "'../child', 'https://example.com/dir/file'",
+  "'invalid'",
+  "'https://example.com', 'invalid'",
+  "'https://example.com', undefined",
+  "",
+  "{toString(){throw new RangeError('input')}}",
+  "'https://example.com', {toString(){throw new RangeError('base')}}",
+]) add("URL", `(() => { const u = URL.parse(${args}); return u === null ? null : (${snapshot})(u); })()`);
+for (const fatal of [false, true])
+  for (const ignoreBOM of [false, true])
+    add("TextDecoder", `(() => {
+      class Decoder extends TextDecoder {
+        get fatal() { return ${!fatal}; }
+        get ignoreBOM() { return ${!ignoreBOM}; }
+      }
+      const d = new Decoder('utf8', {fatal:${fatal}, ignoreBOM:${ignoreBOM}});
+      return d.decode(new Uint8Array([239,187,191,255]));
+    })()`);
+add("Headers", `(() => {
+  const h = new Headers([['b','2'],['d','4']]);
+  const it = h.entries();
+  const out = [it.next().value];
+  h.append('c','3');
+  out.push(it.next().value);
+  h.set('d','5');
+  out.push(it.next().value);
+  h.delete('b');
+  h.append('z','6');
+  out.push(it.next().value);
+  const pair = [...h][0]; pair[1] = 'changed';
+  return [out,[...h],h.get('c')];
+})()`);
 const path = new URL(
   "../crates/host/tests/fixtures/globals.json",
   import.meta.url,

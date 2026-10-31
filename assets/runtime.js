@@ -215,6 +215,16 @@
     toJSON() {
       return this.href;
     }
+    static parse(input, base) {
+      requireArguments(arguments.length, 1);
+      const value = text(input);
+      const relative = base === void 0 ? void 0 : text(base);
+      try {
+        return new _URL(value, relative);
+      } catch {
+        return null;
+      }
+    }
     static canParse(input, base) {
       requireArguments(arguments.length, 1);
       const value = text(input);
@@ -254,7 +264,7 @@
         bytes = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
       else if (input instanceof ArrayBuffer) bytes = new Uint8Array(input);
       else throw new TypeError("Expected an ArrayBuffer or view");
-      const decoded = host.decode(bytes, this.fatal, this.ignoreBOM);
+      const decoded = host.decode(bytes, this.#fatal, this.#ignoreBOM);
       if (decoded === void 0)
         throw new TypeError("The encoded data was not valid UTF-8");
       return decoded;
@@ -281,6 +291,7 @@
       __name(this, "Headers");
     }
     #values = /* @__PURE__ */ new Map();
+    #sorted;
     constructor(init = []) {
       const entries = Symbol.iterator in init ? init : Object.entries(init);
       for (const pair of entries) {
@@ -298,10 +309,12 @@
       const values = this.#values.get(name) ?? [];
       values.push(value);
       this.#values.set(name, values);
+      this.#sorted = void 0;
     }
     delete(name) {
       requireArguments(arguments.length, 1);
       this.#values.delete(headerName(name));
+      this.#sorted = void 0;
     }
     get(name) {
       requireArguments(arguments.length, 1);
@@ -317,6 +330,7 @@
       name = headerName(name);
       value = headerValue(value);
       this.#values.set(name, [value]);
+      this.#sorted = void 0;
     }
     getSetCookie() {
       return [...this.#values.get("set-cookie") ?? []];
@@ -324,7 +338,7 @@
     *entries() {
       let index = 0;
       while (true) {
-        const pairs = [...this.#values.keys()].sort().flatMap(
+        const pairs = this.#sorted ??= [...this.#values.keys()].sort().flatMap(
           (key) => key === "set-cookie" ? this.#values.get(key).map((value) => [key, value]) : [
             [
               key,
@@ -334,7 +348,7 @@
         );
         const pair = pairs[index++];
         if (!pair) return;
-        yield pair;
+        yield [...pair];
       }
     }
     *keys() {
