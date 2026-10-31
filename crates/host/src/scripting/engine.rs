@@ -60,6 +60,9 @@ impl Engine {
             let scope = &mut v8::ContextScope::new(scope, context);
             let host = v8::Object::new(scope);
             for (name, function) in [
+                ("url", v8::Function::new(scope, host::web::url)),
+                ("form", v8::Function::new(scope, host::web::form)),
+                ("decode", v8::Function::new(scope, host::web::decode)),
                 ("swf", v8::Function::new(scope, host_swf)),
                 ("read", v8::Function::new(scope, host_read)),
                 ("command", v8::Function::new(scope, host_command)),
