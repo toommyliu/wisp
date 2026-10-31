@@ -1,0 +1,4579 @@
+[
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://User:pass@EXAMPLE.com:443/a/../b?q=a b#é\"))",
+    "expected": {
+      "value": [
+        "https://User:pass@example.com/b?q=a%20b#%C3%A9",
+        "https://example.com",
+        "https:",
+        "User",
+        "pass",
+        "example.com",
+        "example.com",
+        "",
+        "/b",
+        "?q=a%20b",
+        "#%C3%A9",
+        [
+          [
+            "q",
+            "a b"
+          ]
+        ],
+        "https://User:pass@example.com/b?q=a%20b#%C3%A9",
+        "https://User:pass@example.com/b?q=a%20b#%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://User:pass@EXAMPLE.com:443/a/../b?q=a b#é\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://User:pass@EXAMPLE.com:443/a/../b?q=a b#é\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "https://User:pass@example.com/b?q=a%20b#%C3%A9",
+        "https://example.com",
+        "https:",
+        "User",
+        "pass",
+        "example.com",
+        "example.com",
+        "",
+        "/b",
+        "?q=a%20b",
+        "#%C3%A9",
+        [
+          [
+            "q",
+            "a b"
+          ]
+        ],
+        "https://User:pass@example.com/b?q=a%20b#%C3%A9",
+        "https://User:pass@example.com/b?q=a%20b#%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://User:pass@EXAMPLE.com:443/a/../b?q=a b#é\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://User:pass@EXAMPLE.com:443/a/../b?q=a b#é\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://User:pass@EXAMPLE.com:443/a/../b?q=a b#é\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"../a?b#c\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"../a?b#c\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"../a?b#c\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "https://base.test/a?b#c",
+        "https://base.test",
+        "https:",
+        "",
+        "",
+        "base.test",
+        "base.test",
+        "",
+        "/a",
+        "?b",
+        "#c",
+        [
+          [
+            "b",
+            ""
+          ]
+        ],
+        "https://base.test/a?b#c",
+        "https://base.test/a?b#c"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"../a?b#c\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"../a?b#c\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"../a?b#c\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://[::1]:8080/é\"))",
+    "expected": {
+      "value": [
+        "http://[::1]:8080/%C3%A9",
+        "http://[::1]:8080",
+        "http:",
+        "",
+        "",
+        "[::1]:8080",
+        "[::1]",
+        "8080",
+        "/%C3%A9",
+        "",
+        "",
+        [],
+        "http://[::1]:8080/%C3%A9",
+        "http://[::1]:8080/%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://[::1]:8080/é\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://[::1]:8080/é\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "http://[::1]:8080/%C3%A9",
+        "http://[::1]:8080",
+        "http:",
+        "",
+        "",
+        "[::1]:8080",
+        "[::1]",
+        "8080",
+        "/%C3%A9",
+        "",
+        "",
+        [],
+        "http://[::1]:8080/%C3%A9",
+        "http://[::1]:8080/%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://[::1]:8080/é\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://[::1]:8080/é\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://[::1]:8080/é\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://例え.テスト/雪?q=é#😀\"))",
+    "expected": {
+      "value": [
+        "https://xn--r8jz45g.xn--zckzah/%E9%9B%AA?q=%C3%A9#%F0%9F%98%80",
+        "https://xn--r8jz45g.xn--zckzah",
+        "https:",
+        "",
+        "",
+        "xn--r8jz45g.xn--zckzah",
+        "xn--r8jz45g.xn--zckzah",
+        "",
+        "/%E9%9B%AA",
+        "?q=%C3%A9",
+        "#%F0%9F%98%80",
+        [
+          [
+            "q",
+            "é"
+          ]
+        ],
+        "https://xn--r8jz45g.xn--zckzah/%E9%9B%AA?q=%C3%A9#%F0%9F%98%80",
+        "https://xn--r8jz45g.xn--zckzah/%E9%9B%AA?q=%C3%A9#%F0%9F%98%80"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://例え.テスト/雪?q=é#😀\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://例え.テスト/雪?q=é#😀\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "https://xn--r8jz45g.xn--zckzah/%E9%9B%AA?q=%C3%A9#%F0%9F%98%80",
+        "https://xn--r8jz45g.xn--zckzah",
+        "https:",
+        "",
+        "",
+        "xn--r8jz45g.xn--zckzah",
+        "xn--r8jz45g.xn--zckzah",
+        "",
+        "/%E9%9B%AA",
+        "?q=%C3%A9",
+        "#%F0%9F%98%80",
+        [
+          [
+            "q",
+            "é"
+          ]
+        ],
+        "https://xn--r8jz45g.xn--zckzah/%E9%9B%AA?q=%C3%A9#%F0%9F%98%80",
+        "https://xn--r8jz45g.xn--zckzah/%E9%9B%AA?q=%C3%A9#%F0%9F%98%80"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://例え.テスト/雪?q=é#😀\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://例え.テスト/雪?q=é#😀\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://例え.テスト/雪?q=é#😀\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"file:///a/b\"))",
+    "expected": {
+      "value": [
+        "file:///a/b",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/a/b",
+        "",
+        "",
+        [],
+        "file:///a/b",
+        "file:///a/b"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"file:///a/b\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"file:///a/b\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "file:///a/b",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/a/b",
+        "",
+        "",
+        [],
+        "file:///a/b",
+        "file:///a/b"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"file:///a/b\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"file:///a/b\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"file:///a/b\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"mailto:a@example.com\"))",
+    "expected": {
+      "value": [
+        "mailto:a@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "a@example.com",
+        "",
+        "",
+        [],
+        "mailto:a@example.com",
+        "mailto:a@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"mailto:a@example.com\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"mailto:a@example.com\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "mailto:a@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "a@example.com",
+        "",
+        "",
+        [],
+        "mailto:a@example.com",
+        "mailto:a@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"mailto:a@example.com\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"mailto:a@example.com\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"mailto:a@example.com\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"data:text/plain,hi\"))",
+    "expected": {
+      "value": [
+        "data:text/plain,hi",
+        "null",
+        "data:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "text/plain,hi",
+        "",
+        "",
+        [],
+        "data:text/plain,hi",
+        "data:text/plain,hi"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"data:text/plain,hi\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"data:text/plain,hi\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "data:text/plain,hi",
+        "null",
+        "data:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "text/plain,hi",
+        "",
+        "",
+        [],
+        "data:text/plain,hi",
+        "data:text/plain,hi"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"data:text/plain,hi\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"data:text/plain,hi\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"data:text/plain,hi\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"blob:https://example.com/id\"))",
+    "expected": {
+      "value": [
+        "blob:https://example.com/id",
+        "https://example.com",
+        "blob:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "https://example.com/id",
+        "",
+        "",
+        [],
+        "blob:https://example.com/id",
+        "blob:https://example.com/id"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"blob:https://example.com/id\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"blob:https://example.com/id\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "blob:https://example.com/id",
+        "https://example.com",
+        "blob:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "https://example.com/id",
+        "",
+        "",
+        [],
+        "blob:https://example.com/id",
+        "blob:https://example.com/id"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"blob:https://example.com/id\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"blob:https://example.com/id\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"blob:https://example.com/id\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://0x7f000001\"))",
+    "expected": {
+      "value": [
+        "http://127.0.0.1/",
+        "http://127.0.0.1",
+        "http:",
+        "",
+        "",
+        "127.0.0.1",
+        "127.0.0.1",
+        "",
+        "/",
+        "",
+        "",
+        [],
+        "http://127.0.0.1/",
+        "http://127.0.0.1/"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://0x7f000001\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://0x7f000001\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "http://127.0.0.1/",
+        "http://127.0.0.1",
+        "http:",
+        "",
+        "",
+        "127.0.0.1",
+        "127.0.0.1",
+        "",
+        "/",
+        "",
+        "",
+        [],
+        "http://127.0.0.1/",
+        "http://127.0.0.1/"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://0x7f000001\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://0x7f000001\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://0x7f000001\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/%2e%2e/b?x=%ff\"))",
+    "expected": {
+      "value": [
+        "https://a/b?x=%ff",
+        "https://a",
+        "https:",
+        "",
+        "",
+        "a",
+        "a",
+        "",
+        "/b",
+        "?x=%ff",
+        "",
+        [
+          [
+            "x",
+            "�"
+          ]
+        ],
+        "https://a/b?x=%ff",
+        "https://a/b?x=%ff"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/%2e%2e/b?x=%ff\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/%2e%2e/b?x=%ff\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "https://a/b?x=%ff",
+        "https://a",
+        "https:",
+        "",
+        "",
+        "a",
+        "a",
+        "",
+        "/b",
+        "?x=%ff",
+        "",
+        [
+          [
+            "x",
+            "�"
+          ]
+        ],
+        "https://a/b?x=%ff",
+        "https://a/b?x=%ff"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/%2e%2e/b?x=%ff\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/%2e%2e/b?x=%ff\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/%2e%2e/b?x=%ff\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/?#\"))",
+    "expected": {
+      "value": [
+        "https://a/?#",
+        "https://a",
+        "https:",
+        "",
+        "",
+        "a",
+        "a",
+        "",
+        "/",
+        "",
+        "",
+        [],
+        "https://a/?#",
+        "https://a/?#"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/?#\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/?#\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "https://a/?#",
+        "https://a",
+        "https:",
+        "",
+        "",
+        "a",
+        "a",
+        "",
+        "/",
+        "",
+        "",
+        [],
+        "https://a/?#",
+        "https://a/?#"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/?#\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/?#\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/?#\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"invalid\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "https://base.test/dir/invalid",
+        "https://base.test",
+        "https:",
+        "",
+        "",
+        "base.test",
+        "base.test",
+        "",
+        "/dir/invalid",
+        "",
+        "",
+        [],
+        "https://base.test/dir/invalid",
+        "https://base.test/dir/invalid"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"invalid\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"invalid\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"invalid\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://[bad]\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://[bad]\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://[bad]\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://[bad]\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://[bad]\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://[bad]\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://a:99999\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://a:99999\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://a:99999\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://a:99999\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"http://a:99999\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"http://a:99999\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"foo:a \"))",
+    "expected": {
+      "value": [
+        "foo:a",
+        "null",
+        "foo:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "a",
+        "",
+        "",
+        [],
+        "foo:a",
+        "foo:a"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"foo:a \")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"foo:a \",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "foo:a",
+        "null",
+        "foo:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "a",
+        "",
+        "",
+        [],
+        "foo:a",
+        "foo:a"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"foo:a \",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"foo:a \",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"foo:a \",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/\\ud800\"))",
+    "expected": {
+      "value": [
+        "https://a/%EF%BF%BD",
+        "https://a",
+        "https:",
+        "",
+        "",
+        "a",
+        "a",
+        "",
+        "/%EF%BF%BD",
+        "",
+        "",
+        [],
+        "https://a/%EF%BF%BD",
+        "https://a/%EF%BF%BD"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/\\ud800\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/\\ud800\",\"https://base.test/dir/file\"))",
+    "expected": {
+      "value": [
+        "https://a/%EF%BF%BD",
+        "https://a",
+        "https:",
+        "",
+        "",
+        "a",
+        "a",
+        "",
+        "/%EF%BF%BD",
+        "",
+        "",
+        [],
+        "https://a/%EF%BF%BD",
+        "https://a/%EF%BF%BD"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/\\ud800\",\"https://base.test/dir/file\")",
+    "expected": {
+      "value": true
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(new URL(\"https://a/\\ud800\",\"invalid\"))",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "URL.canParse(\"https://a/\\ud800\",\"invalid\")",
+    "expected": {
+      "value": false
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.href=\"https://new.test/é?x#y\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://new.test/%C3%A9?x#y",
+        "https://new.test",
+        "https:",
+        "",
+        "",
+        "new.test",
+        "new.test",
+        "",
+        "/%C3%A9",
+        "?x",
+        "#y",
+        [
+          [
+            "x",
+            ""
+          ]
+        ],
+        "https://new.test/%C3%A9?x#y",
+        "https://new.test/%C3%A9?x#y"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.href=\"https://new.test/é?x#y\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://new.test/%C3%A9?x#y",
+        "https://new.test",
+        "https:",
+        "",
+        "",
+        "new.test",
+        "new.test",
+        "",
+        "/%C3%A9",
+        "?x",
+        "#y",
+        [
+          [
+            "x",
+            ""
+          ]
+        ],
+        "https://new.test/%C3%A9?x#y",
+        "https://new.test/%C3%A9?x#y"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.href=\"https://new.test/é?x#y\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://new.test/%C3%A9?x#y",
+        "https://new.test",
+        "https:",
+        "",
+        "",
+        "new.test",
+        "new.test",
+        "",
+        "/%C3%A9",
+        "?x",
+        "#y",
+        [
+          [
+            "x",
+            ""
+          ]
+        ],
+        "https://new.test/%C3%A9?x#y",
+        "https://new.test/%C3%A9?x#y"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.href=\"invalid\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.href=\"invalid\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.href=\"invalid\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.protocol=\"http:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "http://u:p@a:8080/old?x=1#z",
+        "http://a:8080",
+        "http:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "http://u:p@a:8080/old?x=1#z",
+        "http://u:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.protocol=\"http:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.protocol=\"http:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.protocol=\"file:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#z",
+        "https://u:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.protocol=\"file:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.protocol=\"file:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.protocol=\"bad+:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#z",
+        "https://u:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.protocol=\"bad+:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "bad+:old@example.com",
+        "null",
+        "bad+:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "bad+:old@example.com",
+        "bad+:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.protocol=\"bad+:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.protocol=\"https:ignored\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#z",
+        "https://u:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.protocol=\"https:ignored\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.protocol=\"https:ignored\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.username=\"a b:@é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://a%20b%3A%40%C3%A9:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "a%20b%3A%40%C3%A9",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://a%20b%3A%40%C3%A9:p@a:8080/old?x=1#z",
+        "https://a%20b%3A%40%C3%A9:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.username=\"a b:@é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.username=\"a b:@é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.username=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://:p@a:8080/old?x=1#z",
+        "https://:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.username=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.username=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.password=\"a b:@é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:a%20b%3A%40%C3%A9@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "a%20b%3A%40%C3%A9",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:a%20b%3A%40%C3%A9@a:8080/old?x=1#z",
+        "https://u:a%20b%3A%40%C3%A9@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.password=\"a b:@é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.password=\"a b:@é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.password=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u@a:8080/old?x=1#z",
+        "https://u@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.password=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.password=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.host=\"[::1]:80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@[::1]:80/old?x=1#z",
+        "https://[::1]:80",
+        "https:",
+        "u",
+        "p",
+        "[::1]:80",
+        "[::1]",
+        "80",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@[::1]:80/old?x=1#z",
+        "https://u:p@[::1]:80/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.host=\"[::1]:80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.host=\"[::1]:80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.host=\"bad host\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#z",
+        "https://u:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.host=\"bad host\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.host=\"bad host\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.host=\"new.test:123junk\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@new.test:123/old?x=1#z",
+        "https://new.test:123",
+        "https:",
+        "u",
+        "p",
+        "new.test:123",
+        "new.test",
+        "123",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@new.test:123/old?x=1#z",
+        "https://u:p@new.test:123/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.host=\"new.test:123junk\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.host=\"new.test:123junk\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.host=\"new.test:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@new.test:8080/old?x=1#z",
+        "https://new.test:8080",
+        "https:",
+        "u",
+        "p",
+        "new.test:8080",
+        "new.test",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@new.test:8080/old?x=1#z",
+        "https://u:p@new.test:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.host=\"new.test:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.host=\"new.test:\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.hostname=\"例え.テスト\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@xn--r8jz45g.xn--zckzah:8080/old?x=1#z",
+        "https://xn--r8jz45g.xn--zckzah:8080",
+        "https:",
+        "u",
+        "p",
+        "xn--r8jz45g.xn--zckzah:8080",
+        "xn--r8jz45g.xn--zckzah",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@xn--r8jz45g.xn--zckzah:8080/old?x=1#z",
+        "https://u:p@xn--r8jz45g.xn--zckzah:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.hostname=\"例え.テスト\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.hostname=\"例え.テスト\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file://xn--r8jz45g.xn--zckzah/old",
+        "null",
+        "file:",
+        "",
+        "",
+        "xn--r8jz45g.xn--zckzah",
+        "xn--r8jz45g.xn--zckzah",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file://xn--r8jz45g.xn--zckzah/old",
+        "file://xn--r8jz45g.xn--zckzah/old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.hostname=\"[::2]\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@[::2]:8080/old?x=1#z",
+        "https://[::2]:8080",
+        "https:",
+        "u",
+        "p",
+        "[::2]:8080",
+        "[::2]",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@[::2]:8080/old?x=1#z",
+        "https://u:p@[::2]:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.hostname=\"[::2]\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.hostname=\"[::2]\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file://[::2]/old",
+        "null",
+        "file:",
+        "",
+        "",
+        "[::2]",
+        "[::2]",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file://[::2]/old",
+        "file://[::2]/old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.hostname=\"bad:80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#z",
+        "https://u:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.hostname=\"bad:80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.hostname=\"bad:80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.port=\"80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:80/old?x=1#z",
+        "https://a:80",
+        "https:",
+        "u",
+        "p",
+        "a:80",
+        "a",
+        "80",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:80/old?x=1#z",
+        "https://u:p@a:80/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.port=\"80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.port=\"80\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.port=\"65536\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#z",
+        "https://u:p@a:8080/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.port=\"65536\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.port=\"65536\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.port=\"12junk\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:12/old?x=1#z",
+        "https://a:12",
+        "https:",
+        "u",
+        "p",
+        "a:12",
+        "a",
+        "12",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:12/old?x=1#z",
+        "https://u:p@a:12/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.port=\"12junk\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.port=\"12junk\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.port=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a/old?x=1#z",
+        "https://a",
+        "https:",
+        "u",
+        "p",
+        "a",
+        "a",
+        "",
+        "/old",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a/old?x=1#z",
+        "https://u:p@a/old?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.port=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.port=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.pathname=\"/a b/é%20\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/a%20b/%C3%A9%20?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/a%20b/%C3%A9%20",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/a%20b/%C3%A9%20?x=1#z",
+        "https://u:p@a:8080/a%20b/%C3%A9%20?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.pathname=\"/a b/é%20\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.pathname=\"/a b/é%20\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///a%20b/%C3%A9%20",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/a%20b/%C3%A9%20",
+        "",
+        "",
+        [],
+        "file:///a%20b/%C3%A9%20",
+        "file:///a%20b/%C3%A9%20"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.pathname=\"../c?x#y\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/c%3Fx%23y?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/c%3Fx%23y",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/c%3Fx%23y?x=1#z",
+        "https://u:p@a:8080/c%3Fx%23y?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.pathname=\"../c?x#y\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.pathname=\"../c?x#y\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///c%3Fx%23y",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/c%3Fx%23y",
+        "",
+        "",
+        [],
+        "file:///c%3Fx%23y",
+        "file:///c%3Fx%23y"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.pathname=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/?x=1#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/",
+        "?x=1",
+        "#z",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/?x=1#z",
+        "https://u:p@a:8080/?x=1#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.pathname=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.pathname=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/",
+        "",
+        "",
+        [],
+        "file:///",
+        "file:///"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.search=\"?x=a b&x=é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=a%20b&x=%C3%A9#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=a%20b&x=%C3%A9",
+        "#z",
+        [
+          [
+            "x",
+            "a b"
+          ],
+          [
+            "x",
+            "é"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=a%20b&x=%C3%A9#z",
+        "https://u:p@a:8080/old?x=a%20b&x=%C3%A9#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.search=\"?x=a b&x=é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com?x=a%20b&x=%C3%A9",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "?x=a%20b&x=%C3%A9",
+        "",
+        [
+          [
+            "x",
+            "a b"
+          ],
+          [
+            "x",
+            "é"
+          ]
+        ],
+        "mailto:old@example.com?x=a%20b&x=%C3%A9",
+        "mailto:old@example.com?x=a%20b&x=%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.search=\"?x=a b&x=é\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old?x=a%20b&x=%C3%A9",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "?x=a%20b&x=%C3%A9",
+        "",
+        [
+          [
+            "x",
+            "a b"
+          ],
+          [
+            "x",
+            "é"
+          ]
+        ],
+        "file:///old?x=a%20b&x=%C3%A9",
+        "file:///old?x=a%20b&x=%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.search=\"?\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "",
+        "#z",
+        [],
+        "https://u:p@a:8080/old?#z",
+        "https://u:p@a:8080/old?#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.search=\"?\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com?",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com?",
+        "mailto:old@example.com?"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.search=\"?\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old?",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old?",
+        "file:///old?"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.search=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old#z",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "",
+        "#z",
+        [],
+        "https://u:p@a:8080/old#z",
+        "https://u:p@a:8080/old#z"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.search=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.search=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.hash=\"#a bé\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#a%20b%C3%A9",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "#a%20b%C3%A9",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#a%20b%C3%A9",
+        "https://u:p@a:8080/old?x=1#a%20b%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.hash=\"#a bé\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com#a%20b%C3%A9",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "#a%20b%C3%A9",
+        [],
+        "mailto:old@example.com#a%20b%C3%A9",
+        "mailto:old@example.com#a%20b%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.hash=\"#a bé\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old#a%20b%C3%A9",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "#a%20b%C3%A9",
+        [],
+        "file:///old#a%20b%C3%A9",
+        "file:///old#a%20b%C3%A9"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.hash=\"#\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1#",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1#",
+        "https://u:p@a:8080/old?x=1#"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.hash=\"#\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com#",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com#",
+        "mailto:old@example.com#"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.hash=\"#\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old#",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old#",
+        "file:///old#"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"https://u:p@a:8080/old?x=1#z\"); u.hash=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://u:p@a:8080/old?x=1",
+        "https://a:8080",
+        "https:",
+        "u",
+        "p",
+        "a:8080",
+        "a",
+        "8080",
+        "/old",
+        "?x=1",
+        "",
+        [
+          [
+            "x",
+            "1"
+          ]
+        ],
+        "https://u:p@a:8080/old?x=1",
+        "https://u:p@a:8080/old?x=1"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"mailto:old@example.com\"); u.hash=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "mailto:old@example.com",
+        "null",
+        "mailto:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "old@example.com",
+        "",
+        "",
+        [],
+        "mailto:old@example.com",
+        "mailto:old@example.com"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u=new URL(\"file:///old\"); u.hash=\"\"; return (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "file:///old",
+        "null",
+        "file:",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "/old",
+        "",
+        "",
+        [],
+        "file:///old",
+        "file:///old"
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams(\"?a=1&a=2&b=hello+world&bad=%ff&x=%\"); const before=[p.toString(),[...p],p.size,p.get('a'),p.getAll('a'),p.has('a','2')]; p.append('a','4'); p.set('z','x y'); p.delete('a','2'); p.sort(); const calls=[];p.forEach((v,k)=>calls.push([k,v]));return [before,p.toString(),[...p.keys()],[...p.values()],calls]; })()",
+    "expected": {
+      "value": [
+        [
+          "a=1&a=2&b=hello+world&bad=%EF%BF%BD&x=%25",
+          [
+            [
+              "a",
+              "1"
+            ],
+            [
+              "a",
+              "2"
+            ],
+            [
+              "b",
+              "hello world"
+            ],
+            [
+              "bad",
+              "�"
+            ],
+            [
+              "x",
+              "%"
+            ]
+          ],
+          5,
+          "1",
+          [
+            "1",
+            "2"
+          ],
+          true
+        ],
+        "a=1&a=4&b=hello+world&bad=%EF%BF%BD&x=%25&z=x+y",
+        [
+          "a",
+          "a",
+          "b",
+          "bad",
+          "x",
+          "z"
+        ],
+        [
+          "1",
+          "4",
+          "hello world",
+          "�",
+          "%",
+          "x y"
+        ],
+        [
+          [
+            "a",
+            "1"
+          ],
+          [
+            "a",
+            "4"
+          ],
+          [
+            "b",
+            "hello world"
+          ],
+          [
+            "bad",
+            "�"
+          ],
+          [
+            "x",
+            "%"
+          ],
+          [
+            "z",
+            "x y"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams(\"z=é&a=~&a=1\"); const before=[p.toString(),[...p],p.size,p.get('a'),p.getAll('a'),p.has('a','2')]; p.append('a','4'); p.set('z','x y'); p.delete('a','2'); p.sort(); const calls=[];p.forEach((v,k)=>calls.push([k,v]));return [before,p.toString(),[...p.keys()],[...p.values()],calls]; })()",
+    "expected": {
+      "value": [
+        [
+          "z=%C3%A9&a=%7E&a=1",
+          [
+            [
+              "z",
+              "é"
+            ],
+            [
+              "a",
+              "~"
+            ],
+            [
+              "a",
+              "1"
+            ]
+          ],
+          3,
+          "~",
+          [
+            "~",
+            "1"
+          ],
+          false
+        ],
+        "a=%7E&a=1&a=4&z=x+y",
+        [
+          "a",
+          "a",
+          "a",
+          "z"
+        ],
+        [
+          "~",
+          "1",
+          "4",
+          "x y"
+        ],
+        [
+          [
+            "a",
+            "~"
+          ],
+          [
+            "a",
+            "1"
+          ],
+          [
+            "a",
+            "4"
+          ],
+          [
+            "z",
+            "x y"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams([[\"z\",\"1\"],[\"a\",\"2\"],[\"a\",\"3\"]]); const before=[p.toString(),[...p],p.size,p.get('a'),p.getAll('a'),p.has('a','2')]; p.append('a','4'); p.set('z','x y'); p.delete('a','2'); p.sort(); const calls=[];p.forEach((v,k)=>calls.push([k,v]));return [before,p.toString(),[...p.keys()],[...p.values()],calls]; })()",
+    "expected": {
+      "value": [
+        [
+          "z=1&a=2&a=3",
+          [
+            [
+              "z",
+              "1"
+            ],
+            [
+              "a",
+              "2"
+            ],
+            [
+              "a",
+              "3"
+            ]
+          ],
+          3,
+          "2",
+          [
+            "2",
+            "3"
+          ],
+          true
+        ],
+        "a=3&a=4&z=x+y",
+        [
+          "a",
+          "a",
+          "z"
+        ],
+        [
+          "3",
+          "4",
+          "x y"
+        ],
+        [
+          [
+            "a",
+            "3"
+          ],
+          [
+            "a",
+            "4"
+          ],
+          [
+            "z",
+            "x y"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams({\"z\":\"last\",\"A\":\"first\"}); const before=[p.toString(),[...p],p.size,p.get('a'),p.getAll('a'),p.has('a','2')]; p.append('a','4'); p.set('z','x y'); p.delete('a','2'); p.sort(); const calls=[];p.forEach((v,k)=>calls.push([k,v]));return [before,p.toString(),[...p.keys()],[...p.values()],calls]; })()",
+    "expected": {
+      "value": [
+        [
+          "z=last&A=first",
+          [
+            [
+              "z",
+              "last"
+            ],
+            [
+              "A",
+              "first"
+            ]
+          ],
+          2,
+          null,
+          [],
+          false
+        ],
+        "A=first&a=4&z=x+y",
+        [
+          "A",
+          "a",
+          "z"
+        ],
+        [
+          "first",
+          "4",
+          "x y"
+        ],
+        [
+          [
+            "A",
+            "first"
+          ],
+          [
+            "a",
+            "4"
+          ],
+          [
+            "z",
+            "x y"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams(\"\"); const before=[p.toString(),[...p],p.size,p.get('a'),p.getAll('a'),p.has('a','2')]; p.append('a','4'); p.set('z','x y'); p.delete('a','2'); p.sort(); const calls=[];p.forEach((v,k)=>calls.push([k,v]));return [before,p.toString(),[...p.keys()],[...p.values()],calls]; })()",
+    "expected": {
+      "value": [
+        [
+          "",
+          [],
+          0,
+          null,
+          [],
+          false
+        ],
+        "a=4&z=x+y",
+        [
+          "a",
+          "z"
+        ],
+        [
+          "4",
+          "x y"
+        ],
+        [
+          [
+            "a",
+            "4"
+          ],
+          [
+            "z",
+            "x y"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => {const u=new URL('https://a/?a=b%20~');const p=u.searchParams;const first=p.toString();p.sort();const sorted=u.href;u.search='?z=3';p.append('x','雪');u.href='https://b/?q=4';p.delete('q');return [first,sorted,u.href,p===u.searchParams,[...p]];})()",
+    "expected": {
+      "value": [
+        "a=b+%7E",
+        "https://a/?a=b+%7E",
+        "https://b/",
+        true,
+        []
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        ""
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        ""
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        false,
+        ""
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        true,
+        ""
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([97,195,169,240,159,152,128]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "aé😀"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([97,195,169,240,159,152,128]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "aé😀"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([97,195,169,240,159,152,128]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        false,
+        "aé😀"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([97,195,169,240,159,152,128]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        true,
+        "aé😀"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([255]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "�"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([255]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "�"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([255]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([255]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([226,130]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "�"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([226,130]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "�"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([226,130]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([226,130]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([237,160,128]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "���"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([237,160,128]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "���"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([237,160,128]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([237,160,128]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([192,175]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "��"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([192,175]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "��"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([192,175]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([192,175]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,97]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "a"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,97]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "﻿a"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,97]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        false,
+        "a"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,97]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        true,
+        "﻿a"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,239,187,191]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "﻿"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,239,187,191]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "﻿﻿"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,239,187,191]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        false,
+        "﻿"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([239,187,191,239,187,191]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        true,
+        true,
+        "﻿﻿"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([0,128,65]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        false,
+        "\u0000�A"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:false,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([0,128,65]))];})()",
+    "expected": {
+      "value": [
+        "utf-8",
+        false,
+        true,
+        "\u0000�A"
+      ]
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:false});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([0,128,65]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {const d=new TextDecoder('utf8',{fatal:true,ignoreBOM:true});return [d.encoding,d.fatal,d.ignoreBOM,d.decode(new Uint8Array([0,128,65]))];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "new TextDecoder(\"utf-8\").decode()",
+    "expected": {
+      "value": ""
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "new TextDecoder(\" UTF8 \").decode()",
+    "expected": {
+      "value": ""
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "new TextDecoder(\"windows-1252-invalid\").decode()",
+    "expected": {
+      "error": "RangeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "new TextDecoder().decode(new DataView(new Uint8Array([0,195,169,0]).buffer,1,2))",
+    "expected": {
+      "value": "é"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {const h=new Headers([[\"Z\",\"1\"],[\"a\",\"2\"],[\"A\",\"3\"],[\"Set-Cookie\",\"a=1\"],[\"set-cookie\",\"b=2\"]]); const before=[[...h],h.get('A'),h.has('z'),h.getSetCookie()];h.append('A','4');h.set('Z','5');h.delete('missing');const calls=[];h.forEach((v,k)=>calls.push([k,v]));return [before,[...h.entries()],[...h.keys()],[...h.values()],calls,new Headers(h).getSetCookie()];})()",
+    "expected": {
+      "value": [
+        [
+          [
+            [
+              "a",
+              "2, 3"
+            ],
+            [
+              "set-cookie",
+              "a=1"
+            ],
+            [
+              "set-cookie",
+              "b=2"
+            ],
+            [
+              "z",
+              "1"
+            ]
+          ],
+          "2, 3",
+          true,
+          [
+            "a=1",
+            "b=2"
+          ]
+        ],
+        [
+          [
+            "a",
+            "2, 3, 4"
+          ],
+          [
+            "set-cookie",
+            "a=1"
+          ],
+          [
+            "set-cookie",
+            "b=2"
+          ],
+          [
+            "z",
+            "5"
+          ]
+        ],
+        [
+          "a",
+          "set-cookie",
+          "set-cookie",
+          "z"
+        ],
+        [
+          "2, 3, 4",
+          "a=1",
+          "b=2",
+          "5"
+        ],
+        [
+          [
+            "a",
+            "2, 3, 4"
+          ],
+          [
+            "set-cookie",
+            "a=1"
+          ],
+          [
+            "set-cookie",
+            "b=2"
+          ],
+          [
+            "z",
+            "5"
+          ]
+        ],
+        [
+          "a=1",
+          "b=2"
+        ]
+      ]
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {const h=new Headers({\"Z\":\" last \",\"a\":\"\\té\\t\"}); const before=[[...h],h.get('A'),h.has('z'),h.getSetCookie()];h.append('A','4');h.set('Z','5');h.delete('missing');const calls=[];h.forEach((v,k)=>calls.push([k,v]));return [before,[...h.entries()],[...h.keys()],[...h.values()],calls,new Headers(h).getSetCookie()];})()",
+    "expected": {
+      "value": [
+        [
+          [
+            [
+              "a",
+              "é"
+            ],
+            [
+              "z",
+              "last"
+            ]
+          ],
+          "é",
+          true,
+          []
+        ],
+        [
+          [
+            "a",
+            "é, 4"
+          ],
+          [
+            "z",
+            "5"
+          ]
+        ],
+        [
+          "a",
+          "z"
+        ],
+        [
+          "é, 4",
+          "5"
+        ],
+        [
+          [
+            "a",
+            "é, 4"
+          ],
+          [
+            "z",
+            "5"
+          ]
+        ],
+        []
+      ]
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {const h=new Headers([]); const before=[[...h],h.get('A'),h.has('z'),h.getSetCookie()];h.append('A','4');h.set('Z','5');h.delete('missing');const calls=[];h.forEach((v,k)=>calls.push([k,v]));return [before,[...h.entries()],[...h.keys()],[...h.values()],calls,new Headers(h).getSetCookie()];})()",
+    "expected": {
+      "value": [
+        [
+          [],
+          null,
+          false,
+          []
+        ],
+        [
+          [
+            "a",
+            "4"
+          ],
+          [
+            "z",
+            "5"
+          ]
+        ],
+        [
+          "a",
+          "z"
+        ],
+        [
+          "4",
+          "5"
+        ],
+        [
+          [
+            "a",
+            "4"
+          ],
+          [
+            "z",
+            "5"
+          ]
+        ],
+        []
+      ]
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {const h=new Headers([[\"bad name\",\"x\"]]); const before=[[...h],h.get('A'),h.has('z'),h.getSetCookie()];h.append('A','4');h.set('Z','5');h.delete('missing');const calls=[];h.forEach((v,k)=>calls.push([k,v]));return [before,[...h.entries()],[...h.keys()],[...h.values()],calls,new Headers(h).getSetCookie()];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {const h=new Headers([[\"a\",\"bad\\nvalue\"]]); const before=[[...h],h.get('A'),h.has('z'),h.getSetCookie()];h.append('A','4');h.set('Z','5');h.delete('missing');const calls=[];h.forEach((v,k)=>calls.push([k,v]));return [before,[...h.entries()],[...h.keys()],[...h.values()],calls,new Headers(h).getSetCookie()];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {const h=new Headers([[\"a\",\"雪\"]]); const before=[[...h],h.get('A'),h.has('z'),h.getSetCookie()];h.append('A','4');h.set('Z','5');h.delete('missing');const calls=[];h.forEach((v,k)=>calls.push([k,v]));return [before,[...h.entries()],[...h.keys()],[...h.values()],calls,new Headers(h).getSetCookie()];})()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {const h=new Headers([['set-cookie','a=1'],['set-cookie','b=2']]);h.set('SET-cookie','c=3');h.append('set-cookie','d=4');const a=[h.get('set-cookie'),h.getSetCookie()];h.delete('Set-Cookie');return [a,h.getSetCookie(),h.get('missing')];})()",
+    "expected": {
+      "value": [
+        [
+          "c=3, d=4",
+          [
+            "c=3",
+            "d=4"
+          ]
+        ],
+        [],
+        null
+      ]
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => { const h=new Headers([[\"Cookie\",'a=1']]);h.append(\"Cookie\",'b=2');return [h.get(\"Cookie\"),[...h]];})()",
+    "expected": {
+      "value": [
+        "a=1; b=2",
+        [
+          [
+            "cookie",
+            "a=1; b=2"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => { const h=new Headers([[\"Accept\",'a=1']]);h.append(\"Accept\",'b=2');return [h.get(\"Accept\"),[...h]];})()",
+    "expected": {
+      "value": [
+        "a=1, b=2",
+        [
+          [
+            "accept",
+            "a=1, b=2"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => { const h=new Headers([[\"Set-Cookie\",'a=1']]);h.append(\"Set-Cookie\",'b=2');return [h.get(\"Set-Cookie\"),[...h]];})()",
+    "expected": {
+      "value": [
+        "a=1, b=2",
+        [
+          [
+            "set-cookie",
+            "a=1"
+          ],
+          [
+            "set-cookie",
+            "b=2"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams(null); return [p.toString(),[...p]]; })()",
+    "expected": {
+      "value": [
+        "null=",
+        [
+          [
+            "null",
+            ""
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams(42); return [p.toString(),[...p]]; })()",
+    "expected": {
+      "value": [
+        "42=",
+        [
+          [
+            "42",
+            ""
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams(true); return [p.toString(),[...p]]; })()",
+    "expected": {
+      "value": [
+        "true=",
+        [
+          [
+            "true",
+            ""
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams([[\"a\"]]); return [p.toString(),[...p]]; })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(() => { const p=new URLSearchParams([[\"a\",\"b\",\"c\"]]); return [p.toString(),[...p]]; })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(URL).canParse()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).append()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).set()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).delete()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).get()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).getAll()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).has()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).forEach()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).append()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).set()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).delete()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).get()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).has()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).forEach()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).append('a')",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).set('a')",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(new Headers()).forEach(null)",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URLSearchParams",
+    "source": "(new URLSearchParams()).forEach(null)",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://EXAMPLE.com/a?b#c'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://example.com/a?b#c",
+        "https://example.com",
+        "https:",
+        "",
+        "",
+        "example.com",
+        "example.com",
+        "",
+        "/a",
+        "?b",
+        "#c",
+        [
+          [
+            "b",
+            ""
+          ]
+        ],
+        "https://example.com/a?b#c",
+        "https://example.com/a?b#c"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('../child', 'https://example.com/dir/file'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://example.com/child",
+        "https://example.com",
+        "https:",
+        "",
+        "",
+        "example.com",
+        "example.com",
+        "",
+        "/child",
+        "",
+        "",
+        [],
+        "https://example.com/child",
+        "https://example.com/child"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('invalid'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": null
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://example.com', 'invalid'); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": null
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://example.com', undefined); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "value": [
+        "https://example.com/",
+        "https://example.com",
+        "https:",
+        "",
+        "",
+        "example.com",
+        "example.com",
+        "",
+        "/",
+        "",
+        "",
+        [],
+        "https://example.com/",
+        "https://example.com/"
+      ]
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse(); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse({toString(){throw new RangeError('input')}}); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "RangeError"
+    }
+  },
+  {
+    "group": "URL",
+    "source": "(() => { const u = URL.parse('https://example.com', {toString(){throw new RangeError('base')}}); return u === null ? null : (u => [u.href,u.origin,u.protocol,u.username,u.password,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,[...u.searchParams],u.toString(),u.toJSON()])(u); })()",
+    "expected": {
+      "error": "RangeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return true; }\n        get ignoreBOM() { return true; }\n      }\n      const d = new Decoder('utf8', {fatal:false, ignoreBOM:false});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "value": "�"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return true; }\n        get ignoreBOM() { return false; }\n      }\n      const d = new Decoder('utf8', {fatal:false, ignoreBOM:true});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "value": "﻿�"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return false; }\n        get ignoreBOM() { return true; }\n      }\n      const d = new Decoder('utf8', {fatal:true, ignoreBOM:false});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "TextDecoder",
+    "source": "(() => {\n      class Decoder extends TextDecoder {\n        get fatal() { return false; }\n        get ignoreBOM() { return false; }\n      }\n      const d = new Decoder('utf8', {fatal:true, ignoreBOM:true});\n      return d.decode(new Uint8Array([239,187,191,255]));\n    })()",
+    "expected": {
+      "error": "TypeError"
+    }
+  },
+  {
+    "group": "Headers",
+    "source": "(() => {\n  const h = new Headers([['b','2'],['d','4']]);\n  const it = h.entries();\n  const out = [it.next().value];\n  h.append('c','3');\n  out.push(it.next().value);\n  h.set('d','5');\n  out.push(it.next().value);\n  h.delete('b');\n  h.append('z','6');\n  out.push(it.next().value);\n  const pair = [...h][0]; pair[1] = 'changed';\n  return [out,[...h],h.get('c')];\n})()",
+    "expected": {
+      "value": [
+        [
+          [
+            "b",
+            "2"
+          ],
+          [
+            "c",
+            "3"
+          ],
+          [
+            "d",
+            "5"
+          ],
+          null
+        ],
+        [
+          [
+            "c",
+            "3"
+          ],
+          [
+            "d",
+            "5"
+          ],
+          [
+            "z",
+            "6"
+          ]
+        ],
+        "3"
+      ]
+    }
+  }
+]
