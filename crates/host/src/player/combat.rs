@@ -67,18 +67,28 @@ impl Running {
     ) -> Result<Observation, Error> {
         let area = self.profile_area;
         let binding = self.operation_packets.binding();
+        if self.projection.read().world.get_me().is_none() {
+            return Ok(Observation {
+                binding,
+                area,
+                snapshot: ProfileSnapshot::default(),
+            });
+        }
         let hydration = self.refresh_combat_state()?;
         if area != self.profile_area || binding != self.operation_packets.binding() {
-            return Err(Error::Unavailable(
-                "combat observation changed area or connection".into(),
+            return Err(crate::projection::commands::decode_error(
+                "combat observation",
+                "area or connection changed",
             ));
         }
         let at = Instant::now();
         let state = self.projection.read();
         if state.world.get_me().is_none() {
-            return Err(Error::Unavailable(
-                "combat observation has no player".into(),
-            ));
+            return Ok(Observation {
+                binding,
+                area,
+                snapshot: ProfileSnapshot::default(),
+            });
         }
         let monsters = state.world.monsters();
         let allies = state.world.players();
@@ -168,7 +178,10 @@ impl Running {
             CombatTarget::Player { alive, .. } => SelectedTarget::Player { alive },
             CombatTarget::Monster { monster_map_id } => {
                 let monster = state.world.get_monster(monster_map_id).ok_or_else(|| {
-                    Error::Unavailable("selected monster has no projected generation".into())
+                    crate::projection::commands::decode_error(
+                        "combat observation",
+                        "selected monster has no projected generation",
+                    )
                 })?;
                 SelectedTarget::Monster(TargetKey {
                     monster_map_id,
@@ -302,7 +315,54 @@ impl Running {
     pub(super) fn prepare_profile(
         &mut self,
         name: Option<String>,
-    ) -> Result<ConsumableInfo, Error> {
+        class_names: &[String],
+        ambient: bool,
+    ) -> Result<Option<ConsumableInfo>, Error> {
+        if self.projection.read().world.get_me().is_none() {
+            return Ok(None);
+        }
+        let equipped = if class_names.is_empty() {
+            None
+        } else {
+            let inventory_class = self
+                .projection
+                .read()
+                .items
+                .all(ItemContainer::Inventory)
+                .into_iter()
+                .find(|item| item.data().category == "Class" && item.data().equipped)
+                .map(|item| item.data().name.clone());
+            let class_name = match self.invoke_command("player.getClassName", vec![]) {
+                Ok(Value::String(name)) => name,
+                _ => String::new(),
+            };
+            if inventory_class.as_ref().is_some_and(|name| {
+                class_names
+                    .iter()
+                    .any(|expected| expected.eq_ignore_ascii_case(name))
+            }) || class_names
+                .iter()
+                .any(|expected| expected.eq_ignore_ascii_case(&class_name))
+            {
+                None
+            } else {
+                inventory_class
+                    .filter(|name| !name.is_empty())
+                    .or_else(|| (!class_name.is_empty()).then_some(class_name))
+            }
+        };
+        let class_warning = equipped.map(|equipped| {
+            let expected = match class_names {
+                [one] => one.clone(),
+                [one, two] => format!("{one} or {two}"),
+                _ => format!(
+                    "{}, or {}",
+                    class_names[..class_names.len() - 1].join(", "),
+                    class_names.last().unwrap()
+                ),
+            };
+            format!("This profile is for {expected}, but {equipped} is equipped.")
+        });
         let item = name
             .as_ref()
             .and_then(|name| {
@@ -320,7 +380,7 @@ impl Running {
         } else {
             true
         };
-        let current = if name.is_none() {
+        let current = if ambient {
             let slot = self.command_answer("combat.getConsumableSkillItem", vec![])?;
             slot.get("itemId")
                 .or_else(|| slot.get("ItemID"))
@@ -328,10 +388,11 @@ impl Running {
         } else {
             None
         };
-        Ok(ConsumableInfo {
+        Ok(Some(ConsumableInfo {
             current,
             item,
             member,
-        })
+            class_warning,
+        }))
     }
 }

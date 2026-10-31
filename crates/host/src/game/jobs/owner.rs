@@ -79,8 +79,14 @@ pub(super) struct Handoff {
     pub(super) waker: Option<Waker>,
     pub(super) queue: VecDeque<JobRequest>,
     pub(super) live: usize,
+    pub(super) scripts: usize,
+}
+pub(super) enum JobKind {
+    Script,
+    AutoAttack(Arc<crate::sessions::auto_attack::Shared>),
 }
 pub(super) struct JobRequest {
+    pub(super) kind: JobKind,
     pub(super) id: JobId,
     pub(super) owner: Owner,
     pub(super) detached: Arc<AtomicBool>,
@@ -119,6 +125,15 @@ impl ScriptJobs {
             .map_err(|error| format!("invalid combat profile job: {error}"))?;
         let executor = ProfileJob::new(normalize_combat_profile(&request.profile), None)
             .map_err(|limit| format!("combat profile exceeds native {limit:?} limit"))?;
+        self.submit(executor, request.target_priority, JobKind::Script)
+    }
+    pub(super) fn submit(
+        &self,
+        executor: ProfileJob,
+        priorities: Vec<MonsterSelector>,
+        kind: JobKind,
+    ) -> Result<JobId, String> {
+        let script = matches!(kind, JobKind::Script);
         let mut handoff = self.requests.handoff.lock();
         if self.detached.load(Ordering::Acquire) || self.player.stopped.load(Ordering::Acquire) {
             return Err(Error::Stopped.to_string());
@@ -127,15 +142,22 @@ impl ScriptJobs {
             .waker
             .clone()
             .ok_or("combat profile jobs require a session controller")?;
-        if handoff.live >= MAX_JOBS {
+        self.live.lock().retain(|_, gate| gate.open());
+        if script && handoff.scripts >= MAX_JOBS {
             return Err("too many combat profile jobs".into());
         }
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = JobId(NEXT.fetch_add(1, Ordering::Relaxed));
         let binding = self.player.packets.binding();
         let gate = Arc::new(JobGate::new(binding));
+        if matches!(kind, JobKind::AutoAttack(_)) {
+            let mut state = gate.state.lock();
+            state.engaged = true;
+            state.epoch = 1;
+        }
         self.live.lock().insert(id, gate.clone());
         handoff.queue.push_back(JobRequest {
+            kind,
             id,
             owner: Owner {
                 attachment: self.attachment,
@@ -145,10 +167,11 @@ impl ScriptJobs {
             player: self.player.clone(),
             gate,
             executor,
-            priorities: request.target_priority.into(),
+            priorities: priorities.into(),
             binding,
         });
         handoff.live += 1;
+        handoff.scripts += usize::from(script);
         drop(handoff);
         waker.wake();
         Ok(id)
@@ -177,6 +200,16 @@ impl ScriptJobs {
             });
         }
         self.wake();
+    }
+    pub(super) fn stop(&self, id: JobId) {
+        if let Some(gate) = self.live.lock().get(&id)
+            && gate.close()
+        {
+            self.player
+                .inbox
+                .post(Msg::StopProfile(gate.state.lock().binding));
+        }
+        self.cancel(id);
     }
     pub(crate) fn revoke(&self) {
         let binding = self.player.packets.binding();

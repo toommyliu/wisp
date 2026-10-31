@@ -170,6 +170,10 @@ pub enum ScriptEvent {
         class_names: Vec<String>,
         warnings: Vec<String>,
     },
+    JobWarning {
+        id: u64,
+        warning: String,
+    },
     JobFailed {
         id: u64,
         error: String,

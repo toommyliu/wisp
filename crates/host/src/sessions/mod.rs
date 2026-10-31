@@ -1,3 +1,4 @@
+pub(crate) mod auto_attack;
 mod controller;
 mod environment;
 mod environment_order;
@@ -16,6 +17,7 @@ use lucent_protocol::settings::GameSettings;
 use parking_lot::RwLock;
 
 pub(crate) struct Records {
+    pub(crate) auto_attack: Arc<auto_attack::Shared>,
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
@@ -103,6 +105,7 @@ impl Host {
         let operations = operations::Operations::start(id).map_err(HostError::OperationThread)?;
         let relogin = Arc::new(relogin::Shared::default());
         Ok(Session {
+            auto_attack: Arc::default(),
             jobs: Arc::default(),
             environment: Arc::default(),
             auto_relogin: relogin.records.clone(),
@@ -147,6 +150,7 @@ impl Host {
 }
 
 pub struct Session {
+    auto_attack: Arc<auto_attack::Shared>,
     jobs: Arc<crate::game::jobs::JobRequests>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
     auto_relogin: Arc<RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>>,
@@ -232,6 +236,10 @@ impl Session {
         self.relogin.count()
     }
 
+    pub fn auto_attack(&self) -> lucent_protocol::auto_attack::AutoAttackRecords {
+        self.auto_attack.records.read().clone()
+    }
+
     pub fn auto_relogin(&self) -> lucent_protocol::auto_relogin::AutoReloginRecords {
         self.auto_relogin.read().clone()
     }
@@ -251,6 +259,7 @@ impl Session {
             attachment,
             events,
             Records {
+                auto_attack: self.auto_attack.clone(),
                 jobs: self.jobs.clone(),
                 environment: self.environment.clone(),
                 settings: self.settings.clone(),

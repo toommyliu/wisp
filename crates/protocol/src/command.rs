@@ -38,6 +38,8 @@ macro_rules! commands {
 commands! {
     UpdateEnvironment { edit: crate::environment::EnvironmentEdit } => crate::environment::EnvironmentState,
     RefreshCombatState {} => crate::combat_state::CombatSnapshot,
+    EnableAutoAttack { profile: serde_json::Value, target_priority: Vec<String> } => crate::auto_attack::AutoAttackRecords,
+    DisableAutoAttack {} => crate::auto_attack::AutoAttackRecords,
     SetAutoReloginEnabled { enabled: bool } => crate::auto_relogin::AutoReloginRecords,
     SetAutoReloginDelay { delay_ms: f64 } => crate::auto_relogin::AutoReloginRecords,
     SetAutoReloginServer { server: Option<String> } => crate::auto_relogin::AutoReloginRecords,

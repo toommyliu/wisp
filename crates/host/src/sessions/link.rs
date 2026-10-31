@@ -228,6 +228,32 @@ impl ScriptLink {
                 .submit(edit, self.detached.clone(), Instant::now())
         };
         let command = match command {
+            Command::EnableAutoAttack {
+                profile,
+                target_priority,
+            } => {
+                if self.stopped.load(Ordering::Acquire) {
+                    return Pending::stopped();
+                }
+                return self.records.auto_attack.submit(
+                    super::auto_attack::Edit::Enable {
+                        profile,
+                        target_priority,
+                    },
+                    self.detached.clone(),
+                    Instant::now(),
+                );
+            }
+            Command::DisableAutoAttack {} => {
+                if self.stopped.load(Ordering::Acquire) {
+                    return Pending::stopped();
+                }
+                return self.records.auto_attack.submit(
+                    super::auto_attack::Edit::Disable,
+                    self.detached.clone(),
+                    Instant::now(),
+                );
+            }
             Command::UpdateEnvironment { edit } => {
                 if self.stopped.load(Ordering::Acquire) {
                     return Pending::stopped();
@@ -280,6 +306,16 @@ impl ScriptLink {
             query.take();
             return Ok(serde_json::to_string(&*state).unwrap());
         }
+        if matches!(query, Some(Query::AutoAttack {})) {
+            let records = self
+                .records
+                .auto_attack
+                .records
+                .try_read_for(timeout)
+                .ok_or(bridge::Error::Timeout)?;
+            query.take();
+            return Ok(serde_json::to_string(&*records).unwrap());
+        }
         if matches!(query, Some(Query::AutoRelogin {})) {
             let records = self
                 .records
@@ -319,6 +355,7 @@ impl ScriptLink {
                 projection,
                 &settings,
                 &self.records.auto_zone,
+                &self.records.auto_attack.records,
                 &self.records.auto_relogin,
                 &self.records.environment,
                 query.take().unwrap(),
