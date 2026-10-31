@@ -29,3 +29,7 @@ The host service implementations in `host/services.ts` fail explicitly until the
 `host/globals.ts` supplies `Event`, `EventTarget`, `AbortController`, `AbortSignal`, `TextEncoder`, and the console methods `log`, `info`, `warn`, `error`, and `debug`. Console messages reach `__host.log` and Rust tracing with target `lucent_host::scripting::script`. `host/loop.ts` supplies `window`, timers, and `window.swf`. HTTP response decoding creates `TextDecoder` only when a body is read.
 
 `host/scripts.ts` builds the API layer before the first turn and shares it with ScriptRunner through a memo map. The host exposes `__lucent.start(load, name, inputsJson)` and `__lucent.stop(reason?)`. Each start resolves with a protocol `ScriptOutcome` after its resources are released. Rust loads ES modules and supplies their per-run built-ins.
+
+`host/web.ts` supplies `URL`, `URLSearchParams`, `TextDecoder`, and `Headers`. URL components use the host's `url` crate through a private synchronous binding; form-urlencoded parsing and serialization use a second binding. UTF-8 decoding uses a native byte-view binding. `TextDecoder` accepts `utf-8` and `utf8`, supports `fatal` and `ignoreBOM`, and rejects streaming and other encodings. Headers normalize names, preserve separate `set-cookie` values, and iterate in sorted order. These bindings are captured before the runtime hides `__host`.
+
+`node scripts/gen-globals-corpus.mjs --check` checks the Node-generated fixtures replayed by the host's globals integration tests.
