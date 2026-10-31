@@ -5,7 +5,6 @@ import {
 } from "@lucent/game";
 import type { ItemQuery, LiveMonster, MonsterQuery } from "@lucent/game";
 import {
-  normalizeCombatProfile,
   type CombatProfile,
   type CombatProfileDefinition,
   type SkillSlot,
@@ -14,15 +13,17 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
 import {
-  makeCombatProfileSession,
-  type CombatProfileSession,
-} from "../../combatProfileSession";
-import { makeCombatProfileRuntimeDeps } from "../../combatProfiles";
+  startProfileJob,
+  profileJobHost,
+  type ProfileJob,
+} from "../../../host/jobs";
 import type { BridgeService } from "../bridge/Bridge";
 import {
   NonNegativeWireInt,
@@ -34,7 +35,6 @@ import { decodeCombatActionAcknowledgements } from "../contract/payload/Combat";
 import type { HostStateService } from "../state/HostState";
 import type { AntiCounter } from "./internal/AntiCounter";
 import { getCombatProfileClassWarning } from "./internal/CombatProfileClass";
-import { makeCombatProfileConsumables } from "./internal/CombatProfileConsumables";
 import {
   readCombatTarget,
   stopCombat as stopCombatControl,
@@ -148,12 +148,12 @@ export const makeCombat = (
   antiCounter: AntiCounter,
   host: HostStateService,
   drops: Drops,
-  events: Events,
+  _events: Events,
   inventory: Inventory,
   map: Map,
   monsters: MonsterLookup,
   player: Player,
-  players: Players,
+  _players: Players,
   settings: Settings,
   temporary: TempInventory,
   wait: Wait,
@@ -197,26 +197,36 @@ export const makeCombat = (
       ),
     );
 
-  const prepareCombatProfileConsumable = makeCombatProfileConsumables({
-    getConsumableSkillItem,
-    inventory,
-  }).prepare;
-
   const prepareCombatProfile = Effect.fn("Combat.prepareCombatProfile")(
     function* (profile: CombatProfile) {
-      const { warning, ...prepared } =
-        yield* prepareCombatProfileConsumable(profile);
-      return {
-        ...prepared,
-        warnings: getCombatProfileClassWarning(
+      const scope = yield* Scope.make();
+      return yield* Effect.gen(function* () {
+        const job = yield* startProfileJob(
+          { profile, targetPriority: [] },
+          profileJobHost,
+        ).pipe(Effect.provideService(Scope.Scope, scope));
+        const slot = yield* getConsumableSkillItem();
+        const classWarning = yield* getCombatProfileClassWarning(
           { inventory, player },
-          profile,
-        ).pipe(
-          Effect.map((classWarning): readonly string[] =>
-            [classWarning, warning].filter((message) => message !== undefined),
+          { classNames: job.classNames },
+        );
+        const prepared: {
+          skill5ItemId?: number;
+          release: Effect.Effect<void>;
+          warnings: Effect.Effect<readonly string[]>;
+        } = {
+          ...(slot === null ? {} : { skill5ItemId: slot.itemId }),
+          release: Scope.close(scope, Exit.void),
+          warnings: Effect.succeed(
+            [classWarning, ...job.warnings].filter((warning) => warning !== undefined),
           ),
+        };
+        return prepared;
+      }).pipe(
+        Effect.onExit((exit) =>
+          Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void,
         ),
-      };
+      );
     },
   );
 
@@ -476,78 +486,46 @@ export const makeCombat = (
 
   const makeKillProfileRuntime = (
     selector: MonsterQuery,
-    options: CombatKillOptions | undefined,
+    options?: CombatKillOptions,
   ) => {
-    const definition = options?.profile;
-    if (definition === undefined) {
-      return Effect.succeed<CombatProfileSession | null>(null);
-    }
-
-    const profile = normalizeCombatProfile(definition);
+    const profile = options?.profile;
+    if (profile === undefined) return Effect.succeed<ProfileJob | null>(null);
     return Effect.gen(function* () {
-      const session = yield* makeCombatProfileSession(
-        {
-          attack,
-          getAvailableMonsters: monsters.getAvailable,
-          isAttackBlocked: antiCounterActive,
-          isPlayerAlive: player.isAlive,
-          onMessage: (handler) =>
-            events.on({ type: "update-message" }, (event) =>
-              handler({
-                message: event.message,
-                ...(event.monsterMapId === undefined
-                  ? {}
-                  : { monsterMapId: event.monsterMapId }),
-                source: event.source,
-              }),
-            ),
-          onMonsterDeath: (handler) =>
-            events.on({ type: "monster-death" }, (event) =>
-              handler(event.monsterMapId),
-            ),
-          prepare: (sessionProfile) =>
-            Effect.gen(function* () {
-              const prepared = yield* prepareCombatProfile(sessionProfile);
-              return {
-                dependencies: makeCombatProfileRuntimeDeps(
-                  {
-                    canUseSkill,
-                    getConsumableSkillItem,
-                    target,
-                    useSkill,
-                  },
-                  player,
-                  players,
-                  prepared.skill5ItemId,
-                ),
-                release: prepared.release,
-                warnings: prepared.warnings,
-              };
-            }),
-        },
-        {
-          allowTargetFallback: false,
-          profile,
-          targetPriority: [...(options?.targetPriority ?? []), selector],
-        },
+      const job = yield* startProfileJob(
+        { profile, targetPriority: [...(options?.targetPriority ?? []), selector] },
+        profileJobHost,
       );
-      for (const warning of yield* session.warnings) {
+      const classWarning = yield* getCombatProfileClassWarning(
+        { inventory, player },
+        { classNames: job.classNames },
+      );
+      for (const warning of [classWarning, ...job.warnings].filter(
+        (warning) => warning !== undefined,
+      )) {
         yield* Effect.logWarning("Combat profile session degraded").pipe(
           Effect.annotateLogs({
             component: "combat",
-            data: { profile: profile.label, warning },
+            data: { profile: job.label, warning },
           }),
         );
       }
-      return session;
+      return job;
     });
   };
 
   const fight = (
     selector: MonsterQuery,
     options: CombatKillOptions | undefined,
-    runtime: CombatProfileSession | null,
+    runtime: ProfileJob | null,
   ) => {
+    if (runtime !== null) {
+      return Effect.scoped(
+        Effect.acquireRelease(
+          Effect.sync(() => profileJobHost.engageJob(runtime.id, true)),
+          () => Effect.sync(() => profileJobHost.engageJob(runtime.id, false)),
+        ).pipe(Effect.andThen(Effect.never)),
+      );
+    }
     const skills = normalizeSkills(options?.skills);
     const skillInterval = normalizeSkillInterval(options?.skillInterval);
     const attackOrder = [...(options?.targetPriority ?? []), selector];
@@ -566,15 +544,6 @@ export const makeCombat = (
 
     return Effect.forever(
       Effect.gen(function* () {
-        if (runtime !== null) {
-          const result = yield* runtime.runCycle().pipe(Effect.orDie);
-          if (result.kind === "no-target") {
-            yield* stopCombat;
-          }
-          yield* Effect.sleep(result.delayMs);
-          return;
-        }
-
         if (!(yield* player.isAlive())) {
           yield* Effect.sleep("250 millis");
           return;
@@ -602,7 +571,7 @@ export const makeCombat = (
   const killWithRuntime = (
     selector: MonsterQuery,
     options: CombatKillOptions | undefined,
-    runtime: CombatProfileSession | null,
+    runtime: ProfileJob | null,
   ) =>
     Effect.gen(function* () {
       const startMap = yield* host.read({ kind: "map" });
@@ -647,10 +616,13 @@ export const makeCombat = (
         ),
         { interval: "250 millis" },
       );
-      return yield* Effect.raceFirst(
+      const result = Effect.raceFirst(
         death,
         projectedEnd.pipe(Effect.map((dead) => dead === true)),
       );
+      return yield* (runtime === null
+        ? result
+        : Effect.raceFirst(result, runtime.failed));
     });
 
   const kill = (selector: MonsterQuery, options?: CombatKillOptions) =>
@@ -684,7 +656,7 @@ export const makeCombat = (
             }
           }
         });
-        return yield* loop;
+        return yield* (runtime === null ? loop : Effect.raceFirst(loop, runtime.failed));
       }),
     ).pipe(Effect.ensuring(stopCombat));
   };

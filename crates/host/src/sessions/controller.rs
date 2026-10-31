@@ -77,6 +77,7 @@ struct Player {
     watch: Option<ScriptLink>,
     relogin: ScriptLink,
     auto_zone: ScriptLink,
+    jobs: ScriptLink,
 }
 
 impl Supervisor {
@@ -114,6 +115,7 @@ impl Supervisor {
             settings: None,
             relogin: None,
             auto_zone: None,
+            jobs: None,
             deadline: None,
         };
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
@@ -177,6 +179,7 @@ fn attach(session: &mut Session, has_script: bool) -> Option<Player> {
         watch,
         relogin: session.attach(ReloginPolicy::INTERESTS)?,
         auto_zone: session.attach(AutoZonePolicy::INTERESTS)?,
+        jobs: session.attach(crate::game::jobs::ProfileJobs::INTERESTS)?,
     })
 }
 
@@ -203,6 +206,7 @@ struct Supervision {
     settings: Option<SettingsPolicy>,
     relogin: Option<ReloginPolicy>,
     auto_zone: Option<AutoZonePolicy>,
+    jobs: Option<crate::game::jobs::ProfileJobs>,
     deadline: Option<Instant>,
 }
 struct CurrentRun {
@@ -320,6 +324,7 @@ impl Supervision {
             watch,
             relogin,
             auto_zone,
+            jobs,
         } = player;
         if matches!(
             self.script,
@@ -331,6 +336,11 @@ impl Supervision {
             *next = None;
         }
         info!("session {}: supervisor started", self.session);
+        self.jobs = None;
+        self.jobs = Some(crate::game::jobs::ProfileJobs::new(
+            jobs,
+            Waker::from(self.notify.clone()),
+        ));
         self.settings = Some(SettingsPolicy::new(
             &relogin,
             Waker::from(self.notify.clone()),
@@ -416,6 +426,15 @@ impl Supervision {
                 }
             }
         }
+        self.deadline = self
+            .deadline
+            .into_iter()
+            .chain(
+                self.jobs
+                    .as_mut()
+                    .and_then(|jobs| jobs.advance(Instant::now())),
+            )
+            .min();
     }
 
     fn start_run(&mut self) {

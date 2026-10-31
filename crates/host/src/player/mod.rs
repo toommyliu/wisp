@@ -1,4 +1,5 @@
 mod backends;
+mod combat;
 mod commands;
 pub(crate) mod frames;
 mod net;
@@ -167,6 +168,22 @@ impl Read {
 }
 
 pub(crate) enum Msg {
+    ObserveProfile {
+        priorities: Arc<[lucent_protocol::query::MonsterSelector]>,
+        clock: crate::game::jobs::JobClock,
+        reply: crate::bridge::Reply<crate::game::jobs::Observation>,
+        #[cfg(feature = "testing")]
+        probe: Option<crate::game::jobs::ObservationProbe>,
+    },
+    DispatchProfile(
+        crate::game::jobs::Dispatch,
+        crate::bridge::Reply<crate::game::jobs::DispatchReply>,
+    ),
+    PrepareProfile {
+        consumable: Option<String>,
+        reply: crate::bridge::Reply<crate::game::jobs::prepare::ConsumableInfo>,
+    },
+    StopProfile(crate::sessions::claims::Binding),
     Read(Read),
     Command(
         lucent_protocol::command::Command,
@@ -328,6 +345,16 @@ fn first_viewport(
             Msg::LinkCount(reply) => {
                 let _ = reply.send(Ok(script_events.len()));
             }
+            Msg::ObserveProfile { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
+            Msg::DispatchProfile(_, reply) => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
+            Msg::PrepareProfile { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
+            Msg::StopProfile(_) => {}
             Msg::Call(call) => call.reject(BridgeError::NotReady),
             Msg::Read(read) => (read.0)(Err(BridgeError::NotReady)),
             Msg::Command(command, reply) => {
@@ -372,6 +399,7 @@ struct Running {
     player: Arc<Mutex<Player>>,
     tasks: Tasks,
     viewport: Viewport,
+    profile_area: u64,
     last_tick: Instant,
     effects: Vec<Effect>,
     drawn: u32,
@@ -427,6 +455,7 @@ impl Running {
             player,
             tasks,
             viewport,
+            profile_area: 0,
             last_tick: now,
             effects: Vec::new(),
             drawn: 0,
@@ -454,6 +483,40 @@ impl Running {
                 deliver_operation_answer(&self.script_events, attachment, answer);
             }
             Msg::Read(read) => (read.0)(Ok(&self.projection.read())),
+            Msg::ObserveProfile {
+                priorities,
+                clock,
+                reply,
+                #[cfg(feature = "testing")]
+                probe,
+            } => {
+                #[cfg(feature = "testing")]
+                let began = Instant::now();
+                let result = self.observe_profile(priorities, clock);
+                #[cfg(feature = "testing")]
+                if let Some(probe) = probe {
+                    probe(began.elapsed());
+                }
+                let _ = reply.send(result);
+            }
+            Msg::DispatchProfile(request, reply) => {
+                #[cfg(feature = "testing")]
+                let probe = request.probe.clone();
+                let result = self.dispatch_profile(request);
+                #[cfg(feature = "testing")]
+                if let Some(probe) = probe {
+                    probe(matches!(
+                        result,
+                        Ok(crate::game::jobs::DispatchReply::StaleTarget)
+                    ));
+                }
+                let _ = reply.send(result);
+            }
+            Msg::PrepareProfile { consumable, reply } => {
+                let result = self.prepare_profile(consumable);
+                let _ = reply.send(result);
+            }
+            Msg::StopProfile(binding) => self.stop_profile(binding),
             Msg::Command(command, reply) => {
                 let result = self.command(command);
                 let _ = reply.send(result);
@@ -554,6 +617,7 @@ mod tests {
             player: PlayerBuilder::new().build(),
             tasks: Tasks::default(),
             viewport: Viewport::new(1024.0, 768.0, 1.0).unwrap(),
+            profile_area: 0,
             last_tick: now,
             effects: Vec::new(),
             drawn: 0,

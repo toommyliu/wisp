@@ -16,7 +16,7 @@ const sameClass = (left: string, right: string): boolean =>
 
 export const getCombatProfileClassWarning = Effect.fn(
   "getCombatProfileClassWarning",
-)(function* (deps: Dependencies, profile: CombatProfile) {
+)(function* (deps: Dependencies, profile: Pick<CombatProfile, "classNames"> | CombatProfile) {
   const classNames = profile.classNames ?? [];
   if (classNames.length === 0) {
     return undefined;

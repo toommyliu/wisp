@@ -24,6 +24,7 @@ pub type ProbeReply = (serde_json::Value, Vec<(String, String)>);
 #[derive(Default)]
 pub struct ProbeMovie {
     constants: Vec<(String, serde_json::Value)>,
+    game_objects: Vec<(String, serde_json::Value)>,
     raises: Vec<(String, String, String, u16)>,
     sequences: Vec<(String, Vec<(String, String)>)>,
     throws: Vec<(String, String)>,
@@ -34,6 +35,27 @@ pub struct ProbeMovie {
 }
 
 impl ProbeMovie {
+    pub fn game_object(mut self, path: &str, value: serde_json::Value) -> Self {
+        self.game_objects.retain(|(key, _)| key != path);
+        self.game_objects.push((path.into(), value));
+        self
+    }
+
+    pub fn without_game_object(mut self, path: &str) -> Self {
+        self.game_objects.retain(|(key, _)| key != path);
+        self
+    }
+
+    pub fn combat_facts(self) -> Self {
+        self.game_object("world.actions.active", serde_json::json!([]))
+            .game_object("world.myAvatar.dataLeaf.sta.$tha", serde_json::json!(0))
+            .game_object("world.GCD", serde_json::json!(0))
+            .game_object("world.GCDTS", serde_json::json!(0))
+            .game_object("world.lockdownPots", serde_json::json!(false))
+            .constant("combat.getTarget", serde_json::json!(null))
+            .constant("combat.getSkillCooldownRemaining", serde_json::json!(0))
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -356,9 +378,16 @@ fn fixture_swf(movie: &ProbeMovie) -> Vec<u8> {
     let record_bodies: Vec<(&str, Vec<u8>)> = movie
         .records
         .iter()
+        .filter(|name| name.as_str() != "flash.getGameObject" || movie.game_objects.is_empty())
         .map(|name| {
             let mut body = vec![
-                push(vec![Value::Str(string("value"))]),
+                push(vec![Value::Str(string(
+                    if movie.throws.iter().any(|(method, _)| method == name) {
+                        "arguments"
+                    } else {
+                        "value"
+                    },
+                ))]),
                 Action::GetVariable,
                 push(vec![
                     Value::Str(string(name)),
@@ -396,7 +425,9 @@ fn fixture_swf(movie: &ProbeMovie) -> Vec<u8> {
                 guarded.extend(body);
                 body = guarded;
             }
-            if let Some((_, value)) = constants.iter().find(|(method, _)| method == name) {
+            if let Some((_, message)) = movie.throws.iter().find(|(method, _)| method == name) {
+                body.extend([push(vec![Value::Str(string(message))]), Action::Throw]);
+            } else if let Some((_, value)) = constants.iter().find(|(method, _)| method == name) {
                 push_json(&mut body, value);
                 body.push(Action::Return);
             }
@@ -516,6 +547,50 @@ fn fixture_swf(movie: &ProbeMovie) -> Vec<u8> {
         notify.extend([push(vec![Value::Bool(true)]), Action::Return]);
         actions(&notify)
     });
+    let object_strings: Vec<_> = movie
+        .game_objects
+        .iter()
+        .map(|(_, value)| value.to_string())
+        .collect();
+    let mut object_actions = Vec::new();
+    if movie
+        .records
+        .iter()
+        .any(|name| name == "flash.getGameObject")
+    {
+        object_actions.extend([
+            push(vec![Value::Str(string("path"))]),
+            Action::GetVariable,
+            push(vec![
+                Value::Str(string("flash.getGameObject")),
+                Value::Str(string("onProbeCall")),
+                Value::Int(3),
+            ]),
+        ]);
+        object_actions.extend(external_interface());
+        object_actions.extend([
+            push(vec![Value::Str(string("call"))]),
+            Action::CallMethod,
+            Action::Pop,
+        ]);
+    }
+
+    for ((path, _), value) in movie.game_objects.iter().zip(&object_strings) {
+        let answer = vec![push(vec![Value::Str(string(value))]), Action::Return];
+        object_actions.extend([
+            push(vec![Value::Str(string("path"))]),
+            Action::GetVariable,
+            push(vec![Value::Str(string(path))]),
+            Action::Equals2,
+            Action::Not,
+            Action::If(swf::avm1::types::If {
+                offset: i16::try_from(actions(&answer).len()).unwrap(),
+            }),
+        ]);
+        object_actions.extend(answer);
+    }
+    object_actions.extend([push(vec![Value::Null]), Action::Return]);
+    let object_body = actions(&object_actions);
     let mut callbacks = vec![
         ("probe.ready", vec![], ready_body.as_slice()),
         ("probe.echo", vec![string("x")], echo_body.as_slice()),
@@ -525,6 +600,13 @@ fn fixture_swf(movie: &ProbeMovie) -> Vec<u8> {
             emit_body.as_slice(),
         ),
     ];
+    if !movie.game_objects.is_empty() {
+        callbacks.push((
+            "flash.getGameObject",
+            vec![string("path")],
+            object_body.as_slice(),
+        ));
+    }
     if let Some(body) = &accept_body {
         callbacks.push(("drops.accept", vec![string("item")], body.as_slice()));
     }

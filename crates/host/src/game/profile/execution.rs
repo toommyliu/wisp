@@ -8,13 +8,16 @@ impl ProfileJob {
         cast: PreparedCast,
         expires_at: u64,
         now: u64,
+        confirmed: bool,
     ) -> ProfileEffects {
         if cast.readiness == CastReadiness::Wait
             && now < expires_at
             && snapshot.skills[usize::from(u8::from(cast.skill))] != SkillReadiness::Ready
         {
             let deadline = match snapshot.skills[usize::from(u8::from(cast.skill))] {
-                SkillReadiness::CooldownUntil(until) if until > now => until.min(expires_at),
+                SkillReadiness::CooldownUntil(until) if until > now => {
+                    until.saturating_add(50).min(expires_at)
+                }
                 _ => now.saturating_add(50).min(expires_at),
             };
             self.phase = Phase::Cooldown {
@@ -39,6 +42,18 @@ impl ProfileJob {
             self.rotation.complete(&cast, false);
             return self.cycle(Cycle::Attacked { cast: false }, now, 0);
         }
+        if cast.readiness == CastReadiness::Wait && !confirmed {
+            let until = now.saturating_add(150).min(expires_at);
+            self.phase = Phase::Reconfirm {
+                pending: Pending::Cast { lease, cast },
+                expires_at,
+                until,
+            };
+            return ProfileEffects {
+                next_deadline: Some(until),
+                ..Default::default()
+            };
+        }
         self.issue(
             Action::UseSkill {
                 skill: cast.skill,
@@ -56,6 +71,7 @@ impl ProfileJob {
         pending: Pending,
         expires_at: u64,
         now: u64,
+        confirmed: bool,
     ) -> ProfileEffects {
         let Pending::Trigger {
             target,
@@ -76,7 +92,9 @@ impl ProfileJob {
             && snapshot.skills[usize::from(u8::from(skill))] != SkillReadiness::Ready
         {
             let deadline = match snapshot.skills[usize::from(u8::from(skill))] {
-                SkillReadiness::CooldownUntil(until) if until > now => until.min(expires_at),
+                SkillReadiness::CooldownUntil(until) if until > now => {
+                    until.saturating_add(50).min(expires_at)
+                }
                 _ => now.saturating_add(50).min(expires_at),
             };
             self.phase = Phase::TriggerCooldown {
@@ -109,6 +127,23 @@ impl ProfileJob {
             };
             return ProfileEffects {
                 next_deadline: Some(now),
+                ..Default::default()
+            };
+        }
+        if !confirmed {
+            let until = now.saturating_add(150).min(expires_at);
+            self.phase = Phase::Reconfirm {
+                pending: Pending::Trigger {
+                    target,
+                    index,
+                    started,
+                    message,
+                },
+                expires_at,
+                until,
+            };
+            return ProfileEffects {
+                next_deadline: Some(until),
                 ..Default::default()
             };
         }
@@ -152,6 +187,9 @@ impl ProfileJob {
                 self.cycle(Cycle::Attacked { cast: true }, now, 0)
             }
             Phase::Ready => {
+                if !self.engaged {
+                    return ProfileEffects::default();
+                }
                 if now < self.next_step {
                     return ProfileEffects {
                         next_deadline: Some(self.next_step),
@@ -247,13 +285,13 @@ impl ProfileJob {
                 ) else {
                     return self.cycle(Cycle::Attacked { cast: false }, now, 0);
                 };
-                self.cast_or_wait(snapshot, lease, cast, now.saturating_add(5_000), now)
+                self.cast_or_wait(snapshot, lease, cast, now.saturating_add(5_000), now, false)
             }
             Phase::Cooldown {
                 lease,
                 cast,
                 expires_at,
-            } => self.cast_or_wait(snapshot, lease, cast, expires_at, now),
+            } => self.cast_or_wait(snapshot, lease, cast, expires_at, now, false),
             Phase::TriggerCooldown {
                 target,
                 index,
@@ -270,6 +308,7 @@ impl ProfileJob {
                 },
                 expires_at,
                 now,
+                false,
             ),
             Phase::Triggering {
                 target,
@@ -300,12 +339,39 @@ impl ProfileJob {
                         },
                         now.saturating_add(5_000),
                         now,
+                        false,
                     );
                 }
                 self.phase = Phase::Ready;
                 ProfileEffects {
                     next_deadline: Some(self.next_step.max(now)),
                     ..Default::default()
+                }
+            }
+            Phase::Reconfirm {
+                pending,
+                expires_at,
+                until,
+            } => {
+                if now < until {
+                    return ProfileEffects {
+                        next_deadline: Some(until),
+                        ..Default::default()
+                    };
+                }
+                match pending {
+                    Pending::Cast { lease, cast } => {
+                        let ready = snapshot.skills[usize::from(u8::from(cast.skill))]
+                            == SkillReadiness::Ready;
+                        self.cast_or_wait(snapshot, lease, cast, expires_at, now, ready)
+                    }
+                    pending @ Pending::Trigger { index, .. } => {
+                        let skill = self.profile.message_triggers.as_ref().unwrap()[index].skill;
+                        let ready =
+                            snapshot.skills[usize::from(u8::from(skill))] == SkillReadiness::Ready;
+                        self.trigger_or_wait(snapshot, pending, expires_at, now, ready)
+                    }
+                    _ => unreachable!(),
                 }
             }
             Phase::Pending { .. } => ProfileEffects::default(),

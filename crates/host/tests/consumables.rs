@@ -343,11 +343,20 @@ fn await_available(link: &ScriptLink, run: &lucent_host::scripting::ScriptRun) {
     }
 }
 
-fn combat_setup(ambient: bool, confirm: bool) -> (Session, Runtime, ScriptLink, ScriptLink) {
+fn combat_setup(
+    ambient: bool,
+    confirm: bool,
+) -> (
+    Session,
+    (Runtime, lucent_host::Supervisor),
+    ScriptLink,
+    ScriptLink,
+) {
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(
         &host,
         common::ready_movie()
+            .combat_facts()
             .constant("world.isActionAvailable", json!(true))
             .recording("world.isActionAvailable")
             .constant("world.getAvailableMonsterMapIds", json!([2]))
@@ -394,7 +403,8 @@ fn combat_setup(ambient: bool, confirm: bool) -> (Session, Runtime, ScriptLink, 
         "monBranch":[{"MonID":1,"MonMapID":2,"intHP":50,"intHPMax":50}]}),
     );
     let trace = session.attach(EventInterests::ALL).unwrap();
-    (session, runtime, control, trace)
+    let supervisor = lucent_host::Supervisor::start(&mut session, None).unwrap();
+    (session, (runtime, supervisor), control, trace)
 }
 
 #[test]

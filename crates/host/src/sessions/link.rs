@@ -30,8 +30,9 @@ pub struct ScriptLink {
     projection: Arc<RwLock<Projection>>,
     pub(crate) records: super::Records,
     stopped: Arc<AtomicBool>,
-    packets: Arc<super::operations::Packets>,
-    operations: Arc<super::operations::Shared>,
+    pub(crate) packets: Arc<super::operations::Packets>,
+    pub(crate) jobs: crate::game::jobs::ScriptJobs,
+    pub(crate) operations: Arc<super::operations::Shared>,
 }
 
 impl ScriptLink {
@@ -43,10 +44,19 @@ impl ScriptLink {
         player: super::operations::Endpoint,
         operations: Arc<super::operations::Shared>,
     ) -> Self {
+        let detached: Arc<AtomicBool> = Arc::default();
+        let jobs = crate::game::jobs::ScriptJobs::new(
+            attachment,
+            detached.clone(),
+            player.clone(),
+            operations.clone(),
+            records.jobs.clone(),
+        );
         Self {
+            jobs,
             id,
             attachment,
-            detached: Arc::default(),
+            detached,
             inbox: player.inbox,
             events,
             projection: player.projection,
@@ -138,7 +148,8 @@ impl ScriptLink {
     ) -> Result<(), bridge::Error> {
         self.operations.submit(super::operations::Request {
             id,
-            attachment: self.attachment,
+            owner: super::claims::Owner::script(self.attachment),
+            recipient: self.attachment,
             detached: self.detached.clone(),
             operation,
             player: super::operations::Endpoint {
@@ -150,17 +161,43 @@ impl ScriptLink {
         })
     }
 
+    pub(crate) fn submit_as(
+        &self,
+        owner: super::claims::Owner,
+        detached: Arc<AtomicBool>,
+        operation: lucent_protocol::operation::Operation,
+    ) -> Result<u64, bridge::Error> {
+        let id = self.operations.prepare(owner.attachment)?;
+        if let Err(error) = self.operations.submit(super::operations::Request {
+            id,
+            owner,
+            recipient: self.attachment,
+            detached,
+            operation,
+            player: super::operations::Endpoint {
+                inbox: self.inbox.clone(),
+                projection: self.projection.clone(),
+                stopped: self.stopped.clone(),
+                packets: self.packets.clone(),
+            },
+        }) {
+            self.operations.cancel(owner.attachment, id);
+            return Err(error);
+        }
+        Ok(id)
+    }
+
     pub fn acquire_consumable_claim(
         &self,
         item: Option<i64>,
     ) -> Result<Option<super::ClaimGrant>, bridge::Error> {
         self.packets
-            .acquire_claim(super::claims::Owner::Script(self.attachment), item)
+            .acquire_claim(super::claims::Owner::script(self.attachment), item)
     }
 
     pub fn release_claim(&self, id: u64) {
         self.packets
-            .release_claim(super::claims::Owner::Script(self.attachment), id);
+            .release_claim(super::claims::Owner::script(self.attachment), id);
     }
 
     pub fn cancel_operation(&self, id: u64) {
@@ -324,8 +361,8 @@ impl ScriptLink {
 impl Drop for ScriptLink {
     fn drop(&mut self) {
         self.detached.store(true, Ordering::Release);
-        self.packets
-            .release_owner(super::claims::Owner::Script(self.attachment));
+        self.jobs.revoke();
+        self.packets.release_attachment(self.attachment);
         self.operations.detach(self.attachment);
         self.inbox.post(Msg::Detach(self.attachment));
     }

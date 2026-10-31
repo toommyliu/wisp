@@ -291,7 +291,19 @@ impl Harness {
             message: event,
         };
         let effects = self.advance(event);
+        let effects = self.reconfirm(effects);
         self.settle(effects)
+    }
+    pub(super) fn reconfirm(&mut self, effects: ProfileEffects) -> ProfileEffects {
+        if let Phase::Reconfirm { until, .. } = self.job.phase {
+            assert_eq!(effects.command, None);
+            assert_eq!(effects.next_deadline, Some(self.now + 150));
+            self.now = until - 1;
+            assert_eq!(self.advance(ProfileEvent::Tick).command, None);
+            self.now = until;
+            return self.advance(ProfileEvent::Tick);
+        }
+        effects
     }
     pub(super) fn die(&mut self, id: i64) {
         self.advance(ProfileEvent::MonsterDeath(TargetKey {
@@ -359,7 +371,8 @@ fn serializes_trigger_cooldown_checks() {
         observed_version: h.job.target_version(),
         message: message(None),
     };
-    let first = h.advance(event.clone()).command.unwrap();
+    let effects = h.advance(event.clone());
+    let first = h.reconfirm(effects).command.unwrap();
     assert_eq!(h.advance(event.clone()).command, None);
     h.complete(first);
     assert_eq!(h.advance(event).command, None);
@@ -603,6 +616,7 @@ fn asynchronous_trigger_failures_keep_message_stage() {
         observed_version: h.job.target_version(),
         message: message(None),
     });
+    let effect = h.reconfirm(effect);
     let result = h.advance(ProfileEvent::Completed {
         id: effect.command.unwrap().id,
         reply: Reply::Failed("trigger failed".into()),

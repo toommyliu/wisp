@@ -147,6 +147,31 @@ impl Packets {
         self.0.lock().claims.release_owner(owner);
     }
 
+    pub(crate) fn binding(&self) -> super::claims::Binding {
+        self.0.lock().claims.binding()
+    }
+
+    pub(crate) fn acquire_for_job(
+        &self,
+        owner: super::claims::Owner,
+        item: Option<i64>,
+        gate: &crate::game::jobs::JobGate,
+        detached: &AtomicBool,
+    ) -> Result<Option<super::ClaimGrant>, Error> {
+        let mut state = self.0.lock();
+        if state.stopped || detached.load(Ordering::Acquire) || !gate.open() {
+            return Err(Error::Stopped);
+        }
+        state.claims.acquire(
+            owner,
+            super::claims::ClaimResource::ConsumableSlot5 { item },
+        )
+    }
+
+    pub(crate) fn release_attachment(&self, attachment: super::AttachmentId) {
+        self.0.lock().claims.release_attachment(attachment);
+    }
+
     pub(crate) fn invalidate(&self) {
         let mut state = self.0.lock();
         state.waiting.take();
@@ -288,14 +313,18 @@ impl Endpoint {
         operations: &Shared,
         id: u64,
     ) -> Result<bool, Error> {
-        let claim = claim.parse().map_err(|_| Error::Stopped)?;
+        let claim = claim.parse().map_err(|_| {
+            crate::projection::commands::decode_error(
+                "prepareConsumableClaim",
+                "invalid claim handle",
+            )
+        })?;
         let preparation = self.packets.0.lock().claims.preparation(owner, claim);
         let Some((item, binding, preparation)) = preparation else {
             return Ok(false);
         };
         let slot: Option<i64> = match preparation {
-            super::claims::Preparation::Ready => return Ok(true),
-            super::claims::Preparation::Unchecked => {
+            super::claims::Preparation::Ready | super::claims::Preparation::Unchecked => {
                 let (reply, slot) = Pending::channel();
                 self.inbox.post(Msg::Command(
                     lucent_protocol::command::Command::RefreshEquippedConsumable {},
@@ -317,13 +346,14 @@ impl Endpoint {
                         == lucent_protocol::world::EntityState::Idle
                 })
             })?;
-            if !idle
-                || !self.packets.0.lock().claims.set_preparation(
-                    binding,
-                    item,
-                    super::claims::Preparation::EquipRequired,
-                )
-            {
+            if !idle {
+                return Err(Error::EquipInCombat);
+            }
+            if !self.packets.0.lock().claims.set_preparation(
+                binding,
+                item,
+                super::claims::Preparation::EquipRequired,
+            ) {
                 return Ok(false);
             }
             if !self.equip_consumable(
@@ -486,7 +516,8 @@ impl Endpoint {
 
 pub(crate) struct Request {
     pub(crate) id: u64,
-    pub(crate) attachment: super::AttachmentId,
+    pub(crate) owner: super::claims::Owner,
+    pub(crate) recipient: super::AttachmentId,
     pub(crate) detached: Arc<AtomicBool>,
     pub(crate) operation: Operation,
     pub(crate) player: Endpoint,
@@ -558,7 +589,7 @@ impl Queue {
                 .any(|earlier| earlier.binding == entry.binding && earlier.item == entry.item);
             if entry.waiting && !waiting {
                 entry.request.player.inbox.post(Msg::OperationAnswer(
-                    entry.request.attachment,
+                    entry.request.recipient,
                     ScriptEvent::OperationResponsibility {
                         id: entry.request.id,
                         responsible: true,
@@ -615,7 +646,7 @@ impl Shared {
         else {
             return Err(Error::Stopped);
         };
-        if *owner != request.attachment || pending.is_some() {
+        if *owner != request.owner.attachment || pending.is_some() {
             return Err(Error::Stopped);
         }
         let id = request.id;
@@ -629,7 +660,7 @@ impl Shared {
                     .0
                     .lock()
                     .claims
-                    .preparation(super::claims::Owner::Script(request.attachment), claim)
+                    .preparation(request.owner, claim)
             });
             if let Some((item, binding, _)) = preparation {
                 let waiting = queue
@@ -638,7 +669,7 @@ impl Shared {
                     .any(|entry| entry.binding == binding && entry.item == item);
                 if waiting {
                     request.player.inbox.post(Msg::OperationAnswer(
-                        request.attachment,
+                        request.recipient,
                         ScriptEvent::OperationResponsibility {
                             id,
                             responsible: false,
@@ -729,7 +760,7 @@ impl Shared {
                 )
             {
                 request.player.inbox.post(Msg::OperationAnswer(
-                    request.attachment,
+                    request.recipient,
                     ScriptEvent::OperationIssued { id },
                 ));
             }
@@ -743,10 +774,10 @@ impl Shared {
     fn settle(&self, request: &Request, answer: Result<OperationAnswer, Error>) {
         let mut queue = self.queue.lock();
         if let Some(mut entry) = queue.entries.remove(&request.id)
-            && let Some(recipient) = entry.settle()
+            && entry.settle().is_some()
         {
             request.player.inbox.post(Msg::OperationAnswer(
-                recipient,
+                request.recipient,
                 ScriptEvent::Operation {
                     id: request.id,
                     answer,
@@ -775,7 +806,7 @@ impl Shared {
         self.queue.lock().entries.insert(
             request.id,
             Lifecycle::Queued {
-                owner: request.attachment,
+                owner: request.owner.attachment,
                 request: None,
             },
         );
@@ -797,18 +828,13 @@ impl Operations {
             .spawn(move || {
                 while let Some(request) = requests.next() {
                     request.player.inbox.post(Msg::OperationAnswer(
-                        request.attachment,
+                        request.recipient,
                         ScriptEvent::OperationStarted { id: request.id },
                     ));
                     let answer = match &request.operation {
                         Operation::PrepareConsumableClaim { claim } => request
                             .player
-                            .prepare_consumable_claim(
-                                claim,
-                                super::claims::Owner::Script(request.attachment),
-                                &requests,
-                                request.id,
-                            )
+                            .prepare_consumable_claim(claim, request.owner, &requests, request.id)
                             .map(OperationAnswer::EquipConsumable),
                         Operation::EquipConsumable { selector } => request
                             .player

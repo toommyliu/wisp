@@ -80,6 +80,9 @@ impl Engine {
                     v8::Function::new(scope, host_acquire_consumable_claim),
                 ),
                 ("releaseClaim", v8::Function::new(scope, host_release_claim)),
+                ("startJob", v8::Function::new(scope, host_start_job)),
+                ("engageJob", v8::Function::new(scope, host_engage_job)),
+                ("cancelJob", v8::Function::new(scope, host_cancel_job)),
                 ("now", v8::Function::new(scope, host_now)),
                 ("log", v8::Function::new(scope, host_log)),
             ] {
@@ -746,3 +749,47 @@ fn host_log(
 
 #[cfg(test)]
 mod tests;
+
+fn host_start_job(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    reply: v8::ReturnValue<v8::Value>,
+) {
+    let Some(json) = args.get(0).to_string(scope) else {
+        return;
+    };
+    let json = json.to_rust_string_lossy(scope);
+    let result = scope
+        .get_slot::<ScriptLink>()
+        .unwrap()
+        .jobs
+        .start(&json)
+        .map(|id| Some(id.to_string()));
+    return_reply(scope, reply, result);
+}
+fn host_engage_job(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _reply: v8::ReturnValue<v8::Value>,
+) {
+    if let Some(id) = args.get(0).to_string(scope)
+        && let Ok(id) = id.to_rust_string_lossy(scope).parse()
+    {
+        scope
+            .get_slot::<ScriptLink>()
+            .unwrap()
+            .jobs
+            .engage(id, args.get(1).boolean_value(scope));
+    }
+}
+fn host_cancel_job(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _reply: v8::ReturnValue<v8::Value>,
+) {
+    if let Some(id) = args.get(0).to_string(scope)
+        && let Ok(id) = id.to_rust_string_lossy(scope).parse()
+    {
+        scope.get_slot::<ScriptLink>().unwrap().jobs.cancel(id);
+    }
+}

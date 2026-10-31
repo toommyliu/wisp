@@ -93,14 +93,35 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
+fn timestamp(value: Option<&Value>) -> f64 {
+    match value {
+        Some(Value::Null) => 0.0,
+        Some(Value::Bool(value)) => u8::from(*value).into(),
+        Some(Value::String(value)) if trim_js(value).is_empty() => 0.0,
+        Some(value) => wire_number(value).unwrap_or(f64::NAN),
+        None => f64::NAN,
+    }
+}
+
 impl Skill {
     fn remaining(&self, now_ms: f64) -> f64 {
-        (self.cooldown - (now_ms - self.used_at)).max(0.0)
+        {
+            let remaining = self.cooldown - (now_ms - self.used_at);
+            if remaining < 0.0 { 0.0 } else { remaining }
+        }
+    }
+}
+
+pub(crate) fn skill_cooldown(remaining: f64) -> SkillCooldown {
+    match remaining.trunc() as i64 {
+        remaining_ms if remaining_ms > 0 => SkillCooldown::Cooldown { remaining_ms },
+        _ => SkillCooldown::Ready,
     }
 }
 
 impl CombatHydration {
     pub fn snapshot(self, now_ms: f64) -> Result<CombatSnapshot, Error> {
+        let now_ms = now_ms.floor();
         let observed_at_ms = number(&Value::from(now_ms))?;
         let haste = 1.0 - number(&self.haste)?.clamp(-1.0, 0.5);
         let actions = self
@@ -123,16 +144,12 @@ impl CombatHydration {
             }
             *skill = Some(Skill {
                 cooldown: (cooldown * haste + 0.5).floor(),
-                used_at: number(
-                    action
-                        .get("ts")
-                        .ok_or_else(|| invalid("missing action timestamp"))?,
-                )?,
+                used_at: timestamp(action.get("ts")),
             });
         }
         let global = Skill {
             cooldown: number(&self.global_cooldown)?,
-            used_at: number(&self.global_used_at)?,
+            used_at: timestamp(Some(&self.global_used_at)),
         };
         let locked = truthy(Some(&self.potions_locked));
         let consumable = actions
@@ -200,19 +217,22 @@ impl CombatHydration {
             .collect::<Result<Vec<_>, _>>()?;
         let remaining: [f64; 6] = std::array::from_fn(|slot| {
             skills[slot].as_ref().map_or(0.0, |skill| {
-                skill.remaining(now_ms).max(global.remaining(now_ms))
+                let action = skill.remaining(now_ms);
+                let global = global.remaining(now_ms);
+                if action.is_nan() || global.is_nan() {
+                    f64::NAN
+                } else {
+                    action.max(global)
+                }
             })
         });
         Ok(CombatSnapshot {
             observed_at_ms,
-            skills: remaining.map(|remaining| match remaining.trunc() as i64 {
-                remaining_ms if remaining_ms > 0 => SkillCooldown::Cooldown { remaining_ms },
-                _ => SkillCooldown::Ready,
-            }),
+            skills: remaining.map(skill_cooldown),
             selected_target: target,
             consumable: consumable.map(|(item_id, allowed)| ConsumableReadiness {
                 item_id,
-                ready: allowed && remaining[5] <= 0.0,
+                ready: allowed && remaining[5] as i64 <= 0,
             }),
             available_monster_ids: available,
         })
@@ -263,4 +283,33 @@ pub(crate) fn now_ms() -> f64 {
         .unwrap_or_default()
         .as_secs_f64()
         * 1000.0
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn missing_action_timestamp_does_not_prevent_combat_observation() {
+        for timestamp in [None, Some(json!(null)), Some(json!("bad"))] {
+            let mut action = json!({"cd":1000});
+            if let Some(timestamp) = timestamp {
+                action["ts"] = timestamp;
+            }
+            let observation = CombatHydration {
+                actions: json!([action]),
+                haste: json!(0),
+                global_cooldown: json!(100),
+                global_used_at: json!("bad"),
+                potions_locked: json!(false),
+                target: json!(null),
+                available_monster_ids: json!([]),
+            }
+            .snapshot(1500.5)
+            .unwrap();
+            assert_eq!(observation.skills[0], SkillCooldown::Ready);
+            assert_eq!(observation.skills[5], SkillCooldown::Ready);
+        }
+    }
 }

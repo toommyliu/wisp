@@ -10,20 +10,18 @@ use serde_json::{Value as Json, json};
 use super::Running;
 use crate::bridge::{self, Error, Value};
 use crate::projection::{
-    Projection,
-    combat_state::{CombatHydration, now_ms},
-    commands,
+    Projection, commands,
     world::{MonsterLookup, monster_lookup},
 };
 
 impl Running {
-    fn invoke_command(&mut self, name: &str, args: Vec<Value>) -> Result<Value, Error> {
+    pub(super) fn invoke_command(&mut self, name: &str, args: Vec<Value>) -> Result<Value, Error> {
         let result = bridge::invoke(&mut self.player.lock().unwrap(), name, args);
         self.drain_events();
         result
     }
 
-    fn command_answer(&mut self, name: &str, args: Vec<Value>) -> Result<Json, Error> {
+    pub(super) fn command_answer(&mut self, name: &str, args: Vec<Value>) -> Result<Json, Error> {
         to_json(self.invoke_command(name, args)?)
             .ok_or_else(|| commands::decode_error(name, "the callback returned undefined"))
     }
@@ -146,38 +144,9 @@ impl Running {
 
     pub(super) fn command(&mut self, command: Command) -> Result<String, Error> {
         match command {
-            Command::RefreshCombatState {} => {
-                let mut read = |path: &str| -> Result<Json, Error> {
-                    let raw: String = commands::decode(
-                        "flash.getGameObject",
-                        self.command_answer(
-                            "flash.getGameObject",
-                            vec![Value::String(path.into())],
-                        )?,
-                    )?;
-                    serde_json::from_str(&raw)
-                        .map_err(|error| commands::decode_error("flash.getGameObject", error))
-                };
-                let actions = read("world.actions.active")?;
-                let haste = read("world.myAvatar.dataLeaf.sta.$tha")?;
-                let global_cooldown = read("world.GCD")?;
-                let global_used_at = read("world.GCDTS")?;
-                let potions_locked = read("world.lockdownPots")?;
-                let target = self.command_answer("combat.getTarget", vec![])?;
-                let available_monster_ids =
-                    self.command_answer("world.getAvailableMonsterMapIds", vec![])?;
-                let snapshot = CombatHydration {
-                    actions,
-                    haste,
-                    global_cooldown,
-                    global_used_at,
-                    potions_locked,
-                    target,
-                    available_monster_ids,
-                }
-                .snapshot(now_ms())?;
-                Ok(serde_json::to_string(&snapshot).unwrap())
-            }
+            Command::RefreshCombatState {} => self
+                .refresh_combat_state()
+                .map(|snapshot| serde_json::to_string(&snapshot).unwrap()),
             Command::UpdateEnvironment { .. } => Err(Error::Unavailable(
                 "environment requires a session record".into(),
             )),

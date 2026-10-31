@@ -7,8 +7,18 @@ use super::AttachmentId;
 use crate::bridge::{EVENT_CAPACITY, Error};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Owner {
-    Script(AttachmentId),
+pub(crate) struct Owner {
+    pub(crate) attachment: AttachmentId,
+    pub(crate) job: Option<crate::game::jobs::JobId>,
+}
+
+impl Owner {
+    pub(crate) fn script(attachment: AttachmentId) -> Self {
+        Self {
+            attachment,
+            job: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,6 +155,11 @@ impl Claims {
         self.holders.retain(|_, held| held.owner != owner);
     }
 
+    pub(crate) fn release_attachment(&mut self, attachment: AttachmentId) {
+        self.holders
+            .retain(|_, held| held.owner.attachment != attachment);
+    }
+
     pub(crate) fn clear(&mut self) {
         self.holders.clear();
         self.preparation = Preparation::Unchecked;
@@ -159,8 +174,8 @@ mod tests {
     #[test]
     fn shared_preparation_survives_owner_release_and_rejects_stale_or_foreign_holders() {
         let mut claims = Claims::default();
-        let a = Owner::Script(super::super::AttachmentId(1));
-        let b = Owner::Script(super::super::AttachmentId(2));
+        let a = Owner::script(super::super::AttachmentId(1));
+        let b = Owner::script(super::super::AttachmentId(2));
         let resource = ClaimResource::ConsumableSlot5 { item: Some(100) };
         let first = claims.acquire(a, resource).unwrap().unwrap();
         let shared = claims.acquire(b, resource).unwrap().unwrap();
@@ -196,8 +211,8 @@ mod tests {
     #[test]
     fn compatible_holders_share_until_the_last_release_and_stale_releases_do_nothing() {
         let mut claims = Claims::default();
-        let a = Owner::Script(super::super::AttachmentId(1));
-        let b = Owner::Script(super::super::AttachmentId(2));
+        let a = Owner::script(super::super::AttachmentId(1));
+        let b = Owner::script(super::super::AttachmentId(2));
         let resource = ClaimResource::ConsumableSlot5 { item: Some(100) };
         let first = claims.acquire(a, resource).unwrap().unwrap();
         let shared = claims.acquire(b, resource).unwrap().unwrap();
@@ -231,8 +246,8 @@ mod tests {
     #[test]
     fn only_the_owner_can_release_a_holder() {
         let mut claims = Claims::default();
-        let owner = Owner::Script(super::super::AttachmentId(1));
-        let other = Owner::Script(super::super::AttachmentId(2));
+        let owner = Owner::script(super::super::AttachmentId(1));
+        let other = Owner::script(super::super::AttachmentId(2));
         let first = claims
             .acquire(owner, ClaimResource::ConsumableSlot5 { item: Some(100) })
             .unwrap()
@@ -257,7 +272,7 @@ mod tests {
     #[test]
     fn ambient_holders_share_and_invalidation_frees_the_slot() {
         let mut claims = Claims::default();
-        let a = Owner::Script(super::super::AttachmentId(1));
+        let a = Owner::script(super::super::AttachmentId(1));
         let resource = ClaimResource::ConsumableSlot5 { item: None };
         assert!(claims.acquire(a, resource).unwrap().unwrap().first);
         assert!(!claims.acquire(a, resource).unwrap().unwrap().first);

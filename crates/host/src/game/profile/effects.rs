@@ -42,6 +42,9 @@ pub enum Reply {
         warnings: Vec<String>,
     },
     Accepted(bool),
+    Abandoned {
+        target_lost: bool,
+    },
     Failed(String),
 }
 

@@ -252,7 +252,10 @@ fn skill_rounding_and_consumable_locks_follow_the_client_formula() {
         )
     };
     assert_eq!(at(1000.0)["skills"][5]["remainingMs"], 501);
-    assert_eq!(at(1500.5)["skills"][5], json!({"status":"ready"}));
+    assert_eq!(
+        at(1500.5)["skills"][5],
+        json!({"status":"cooldown","remainingMs":1})
+    );
     assert_eq!(at(1500.5)["consumable"]["ready"], false);
     assert_eq!(at(1501.0)["consumable"]["ready"], true);
     let mut locked = input(
@@ -271,13 +274,41 @@ fn invalid_client_inputs_return_errors() {
         json!({}),
         json!([{"cd":"bad","ts":1000}]),
         json!([{"cd":1e30,"ts":1000}]),
-        json!([{"cd":1}]),
     ] {
         assert!(
             input(invalid, Value::Null, 0.0, 0.0)
                 .snapshot(1000.0)
                 .is_err()
         );
+    }
+}
+
+#[test]
+fn missing_and_null_timestamps_follow_client_number_coercion() {
+    for (timestamp, expected) in [
+        (None, json!({"status":"ready"})),
+        (
+            Some(Value::Null),
+            json!({"status":"cooldown","remainingMs":500}),
+        ),
+        (Some(json!("bad")), json!({"status":"ready"})),
+    ] {
+        let mut action = json!({"cd":1000});
+        if let Some(timestamp) = timestamp {
+            action["ts"] = timestamp;
+        }
+        let mut observation = input(json!([action]), Value::Null, 0.0, 0.0);
+        observation.global_used_at = json!(0);
+        assert_eq!(refresh(observation, 500.0)["skills"][0], expected);
+    }
+    for (timestamp, expected) in [
+        (Value::Null, json!({"status":"cooldown","remainingMs":500})),
+        (json!("bad"), json!({"status":"ready"})),
+        (json!("undefined"), json!({"status":"ready"})),
+    ] {
+        let mut observation = input(json!([{"cd":0,"ts":0}]), Value::Null, 0.0, 1000.0);
+        observation.global_used_at = timestamp;
+        assert_eq!(refresh(observation, 500.0)["skills"][0], expected);
     }
 }
 
