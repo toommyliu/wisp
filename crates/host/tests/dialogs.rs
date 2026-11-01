@@ -288,13 +288,13 @@ fn fiber_interruption_removes_current_and_queued_dialogs() {
 }
 
 #[test]
-fn dialogs_show_the_file_or_package_display_name() {
+fn dialogs_show_the_entry_file_name() {
     for (entry, expected) in [
         (ModulePath::loose("daily/farming.js").unwrap(), "farming.js"),
         (ModulePath::loose("daily/   ").unwrap(), "daily/   "),
         (
             ModulePath::in_package("@lucent-scripts/daily", "src/main.js").unwrap(),
-            "@lucent-scripts/daily",
+            "main.js",
         ),
     ] {
         let task = DialogRun::start_entry("yield* script.alert('message'); return 'done';", entry);

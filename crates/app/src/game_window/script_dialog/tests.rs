@@ -1,3 +1,4 @@
+use super::super::controls::sync_script_dialog;
 use super::super::game_bar::{BarAction, GameBar, Toggle};
 use super::*;
 use core::prelude::v1::test;
@@ -14,11 +15,13 @@ struct Harness {
     actions: Rc<RefCell<Vec<BarAction>>>,
     game: FocusHandle,
     clicks: Rc<Cell<usize>>,
+    game_keys: Rc<Cell<usize>>,
 }
 
 impl Render for Harness {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let clicks = self.clicks.clone();
+        let keys = self.game_keys.clone();
         div()
             .size_full()
             .flex()
@@ -34,6 +37,7 @@ impl Render for Harness {
                             .id("player")
                             .size_full()
                             .track_focus(&self.game)
+                            .on_key_down(move |_, _, _| keys.set(keys.get() + 1))
                             .child(
                                 canvas(
                                     |bounds, window, _| {
@@ -63,34 +67,42 @@ fn setup(
     kind: ScriptDialogKind,
     cx: &mut TestAppContext,
 ) -> (Entity<Harness>, &mut VisualTestContext, Responses) {
+    setup_current(Some(dialog(42, kind)), cx)
+}
+
+fn dialog(id: u64, kind: ScriptDialogKind) -> ScriptDialog {
+    ScriptDialog {
+        id,
+        kind,
+        script: "dialogs.js".into(),
+        message: "A question for the player".into(),
+    }
+}
+
+fn setup_current(
+    current: Option<ScriptDialog>,
+    cx: &mut TestAppContext,
+) -> (Entity<Harness>, &mut VisualTestContext, Responses) {
     cx.update(lucent_ui::text_field::init);
     let responses: Responses = Default::default();
     let recorded = responses.clone();
     let (harness, cx) = cx.add_window_view(move |window, cx| {
         let game = cx.focus_handle();
+        window.focus(&game, cx);
         let actions: Rc<RefCell<Vec<BarAction>>> = Default::default();
         let recorded_actions = actions.clone();
         let modal = cx.new(|cx| {
-            let mut modal = ScriptDialogModal::new(game.clone(), cx);
+            let modal = ScriptDialogModal::new(game.clone(), cx);
             cx.subscribe_self(move |_, response: &DialogAnswered, _| {
                 recorded
                     .borrow_mut()
                     .push((response.id, response.response.clone()))
             })
             .detach();
-            modal.sync(
-                Some(ScriptDialog {
-                    id: 42,
-                    kind,
-                    script: "dialogs.js".into(),
-                    message: "A question for the player".into(),
-                }),
-                window,
-                cx,
-            );
             modal
         });
-        let bar = cx.new(|cx| GameBar::new(modal.focus_handle(cx), window, cx));
+        let bar = cx.new(|cx| GameBar::new(game.clone(), window, cx));
+        sync_script_dialog(current, &modal, &bar, window, cx);
         cx.subscribe(&bar, move |_, _, action: &BarAction, _| {
             recorded_actions.borrow_mut().push(action.clone());
         })
@@ -101,11 +113,25 @@ fn setup(
             actions,
             game,
             clicks: Default::default(),
+            game_keys: Default::default(),
         }
     });
     cx.update(|window, _| window.activate_window());
     cx.run_until_parked();
     (harness, cx, responses)
+}
+
+fn refresh(h: &Entity<Harness>, current: Option<ScriptDialog>, cx: &mut VisualTestContext) {
+    h.update_in(cx, |h, window, cx| {
+        sync_script_dialog(current, &h.modal, &h.bar, window, cx);
+    });
+    cx.run_until_parked();
+}
+
+fn click(cx: &mut VisualTestContext, selector: &'static str) {
+    let bounds = cx.debug_bounds(selector).unwrap();
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.run_until_parked();
 }
 
 fn press(cx: &mut VisualTestContext, key: &str) {
@@ -451,9 +477,104 @@ fn closing_a_bar_menu_keeps_player_keyboard_focus_blocked(cx: &mut TestAppContex
         cx.simulate_click(options.center(), Default::default());
         cx.run_until_parked();
         press(cx, "escape");
+        assert!(responses.borrow().is_empty());
         let game = h.read_with(cx, |h, _| h.game.clone());
         assert!(!cx.update(|window, _| game.is_focused(window)));
         press(cx, "enter");
         assert_eq!(responses.borrow().len(), 1);
+    }
+}
+
+#[gpui::test]
+fn arriving_dialog_closes_the_menu_and_updates_its_return_focus(cx: &mut TestAppContext) {
+    for kind in [
+        ScriptDialogKind::Alert,
+        ScriptDialogKind::Confirm,
+        ScriptDialogKind::Prompt {
+            placeholder: "hint".into(),
+        },
+    ] {
+        for previous in [
+            None,
+            Some(dialog(
+                41,
+                ScriptDialogKind::Prompt {
+                    placeholder: "previous".into(),
+                },
+            )),
+        ] {
+            let (h, cx, responses) = setup_current(previous, cx);
+            click(cx, "Options ▾");
+            click(cx, "custom-name");
+            refresh(&h, Some(dialog(42, kind.clone())), cx);
+            assert!(cx.debug_bounds("Infinite Range").is_none());
+            let focus = h.read_with(cx, |h, cx| h.modal.focus_handle(cx));
+            assert!(cx.update(|window, _| focus.is_focused(window)));
+            assert!(responses.borrow().is_empty());
+            click(cx, "Options ▾");
+            press(cx, "escape");
+            assert!(cx.debug_bounds("Infinite Range").is_none());
+            assert!(responses.borrow().is_empty());
+            assert!(cx.update(|window, _| focus.is_focused(window)));
+            if matches!(kind, ScriptDialogKind::Prompt { .. }) {
+                cx.simulate_input("answer");
+                press(cx, "enter");
+                assert_eq!(
+                    *responses.borrow(),
+                    [(42, ScriptDialogResponse::Submitted(Some("answer".into())))]
+                );
+            } else {
+                press(cx, "escape");
+                let expected = if kind == ScriptDialogKind::Alert {
+                    ScriptDialogResponse::Dismissed
+                } else {
+                    ScriptDialogResponse::Confirmed(false)
+                };
+                assert_eq!(*responses.borrow(), [(42, expected)]);
+            }
+            assert_eq!(h.read_with(cx, |h, _| h.game_keys.get()), 0);
+        }
+    }
+}
+
+#[gpui::test]
+fn closing_dialog_preserves_menu_focus_until_the_menu_closes(cx: &mut TestAppContext) {
+    for kind in [
+        ScriptDialogKind::Alert,
+        ScriptDialogKind::Confirm,
+        ScriptDialogKind::Prompt {
+            placeholder: "hint".into(),
+        },
+    ] {
+        for field in [false, true] {
+            let (h, cx, responses) = setup(kind.clone(), cx);
+            click(cx, "Options ▾");
+            if field {
+                click(cx, "custom-name");
+                cx.simulate_input("before");
+            }
+            let focus = cx.update(|window, cx| window.focused(cx).unwrap());
+            refresh(&h, None, cx);
+            assert!(cx.debug_bounds("Infinite Range").is_some());
+            assert!(cx.update(|window, _| focus.is_focused(window)));
+            refresh(&h, None, cx);
+            assert!(cx.update(|window, _| focus.is_focused(window)));
+            if field {
+                cx.simulate_input("after");
+                press(cx, "enter");
+                assert_eq!(
+                    *h.read_with(cx, |h, _| h.actions.clone()).borrow(),
+                    [BarAction::CustomName(Some("beforeafter".into()))]
+                );
+            }
+            press(cx, "escape");
+            assert!(cx.debug_bounds("Infinite Range").is_none());
+            assert!(responses.borrow().is_empty());
+            let game = h.read_with(cx, |h, _| h.game.clone());
+            assert!(cx.update(|window, _| game.is_focused(window)));
+            assert_eq!(h.read_with(cx, |h, _| h.game_keys.get()), 0);
+            press(cx, "a");
+            assert_eq!(h.read_with(cx, |h, _| h.game_keys.get()), 1);
+        }
     }
 }

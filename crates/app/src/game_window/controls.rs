@@ -7,19 +7,15 @@ use std::{path::PathBuf, task::Poll};
 
 impl GameWindow {
     pub(super) fn refresh_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let (Ok(player), Some(dialog)) = (&self.player, &self.dialog) {
-            dialog.update(cx, |dialog, cx| {
-                dialog.sync(
-                    super::script_dialog::current(player.read(cx).session()),
-                    window,
-                    cx,
-                )
-            });
-        }
         if let (Ok(player), Some(bar), Some(dialog)) = (&self.player, &self.bar, &self.dialog) {
-            let return_focus = dialog.focus_handle(cx);
+            sync_script_dialog(
+                super::script_dialog::current(player.read(cx).session()),
+                dialog,
+                bar,
+                window,
+                cx,
+            );
             bar.update(cx, |bar, cx| {
-                bar.return_focus = return_focus;
                 bar.state.read(player.read(cx).session());
                 bar.refresh(window, cx);
             });
@@ -192,6 +188,18 @@ impl GameWindow {
         })
         .detach();
     }
+}
+
+pub(super) fn sync_script_dialog(
+    current: Option<lucent_protocol::script::ScriptDialog>,
+    dialog: &Entity<super::script_dialog::ScriptDialogModal>,
+    bar: &Entity<game_bar::GameBar>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    dialog.update(cx, |dialog, cx| dialog.sync(current, window, cx));
+    let return_focus = dialog.focus_handle(cx);
+    bar.update(cx, |bar, _| bar.return_focus = return_focus);
 }
 
 pub(super) struct BarWake(pub async_channel::Sender<()>);
