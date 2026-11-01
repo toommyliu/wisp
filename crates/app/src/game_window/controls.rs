@@ -7,6 +7,15 @@ use std::{path::PathBuf, task::Poll};
 
 impl GameWindow {
     pub(super) fn refresh_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let (Ok(player), Some(dialog)) = (&self.player, &self.dialog) {
+            dialog.update(cx, |dialog, cx| {
+                dialog.sync(
+                    super::script_dialog::current(player.read(cx).session()),
+                    window,
+                    cx,
+                )
+            });
+        }
         if let (Ok(player), Some(bar)) = (&self.player, &self.bar) {
             bar.update(cx, |bar, cx| {
                 bar.state.read(player.read(cx).session());

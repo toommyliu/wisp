@@ -53,7 +53,11 @@ impl Engine {
         );
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         isolate.set_slot(interrupt.clone());
-        isolate.set_slot(super::io::Io::new(link.records.files.clone(), wake));
+        isolate.set_slot(super::io::Io::new(
+            link.records.files.clone(),
+            link.records.dialogs.clone(),
+            wake,
+        ));
         isolate.set_slot(link);
         isolate.set_slot(Instant::now());
         isolate.set_slot(Rejections::new());
@@ -116,6 +120,10 @@ impl Engine {
     }
 
     pub(crate) fn kill(&mut self, kill: Kill) {
+        self.isolate
+            .get_slot::<Arc<super::io::Io>>()
+            .unwrap()
+            .close();
         self.isolate.get_slot::<Arc<Interrupt>>().unwrap().detach();
         for active in self.active.drain(..) {
             let _ = active.reply.send(Err(RuntimeError::Killed(kill)));
@@ -179,6 +187,10 @@ impl Engine {
 
     pub(crate) fn start(&mut self, script: Script, inputs: ScriptInputs, reply: EvalReply) {
         let name = script.entry().to_string();
+        self.isolate
+            .get_slot::<Arc<super::io::Io>>()
+            .unwrap()
+            .set_script(name.clone());
         let id = self
             .isolate
             .get_slot_mut::<Scripts>()
@@ -220,6 +232,10 @@ impl Engine {
     }
 
     pub(crate) fn stop(&mut self, reason: Option<&str>) {
+        self.isolate
+            .get_slot::<Arc<super::io::Io>>()
+            .unwrap()
+            .close_dialogs();
         let result = self.in_context(|tc| {
             let args: Vec<v8::Local<v8::Value>> = reason
                 .into_iter()

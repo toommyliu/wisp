@@ -1,6 +1,7 @@
 pub(crate) mod auto_attack;
 mod changes;
 mod controller;
+pub(crate) mod dialogs;
 use crate::scripting::RuntimeError;
 pub(crate) use changes::Changes;
 use lucent_protocol::script::{Script, ScriptStatus};
@@ -26,6 +27,7 @@ use parking_lot::RwLock;
 #[derive(Clone)]
 pub(crate) struct Records {
     pub(crate) files: Arc<crate::data::Files>,
+    pub(crate) dialogs: Arc<dialogs::Dialogs>,
     pub(crate) changes: Arc<Changes>,
     pub(crate) auto_attack: Arc<auto_attack::Shared>,
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
@@ -136,6 +138,7 @@ impl Host {
         Ok(Session {
             supervisor: None,
             script_status: Arc::default(),
+            dialogs: Arc::new(dialogs::Dialogs::new(changes.clone())),
             changes,
             detached: Arc::default(),
             auto_attack,
@@ -189,6 +192,7 @@ struct PlayerRecords {
 }
 
 pub struct Session {
+    dialogs: Arc<dialogs::Dialogs>,
     supervisor: Option<Supervisor>,
     script_status: Arc<RwLock<ScriptStatus>>,
     changes: Arc<Changes>,
@@ -244,6 +248,12 @@ impl Session {
             supervisor.controls().kill();
         }
     }
+    pub fn script_dialog(&self) -> Option<lucent_protocol::script::ScriptDialog> {
+        self.dialogs.current()
+    }
+    pub fn respond_dialog(&self, id: u64, response: lucent_protocol::script::ScriptDialogResponse) {
+        self.dialogs.respond(id, response);
+    }
     pub fn script_status(&self) -> ScriptStatus {
         self.script_status.read().clone()
     }
@@ -274,6 +284,7 @@ impl Session {
     fn records(&self) -> Records {
         Records {
             files: self.host.shared.files.clone(),
+            dialogs: self.dialogs.clone(),
             auto_attack: self.auto_attack.clone(),
             changes: self.changes.clone(),
             jobs: self.jobs.clone(),

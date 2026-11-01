@@ -14,8 +14,9 @@ import { ScriptServices } from "../game/scripting/ScriptServices";
 import { makeAutoReloginService } from "./autoRelogin";
 import { makeAutoZoneService } from "./autoZone";
 import { makeFileSystemBridge } from "./filesystem";
+import { makeHostDialogs } from "./dialogs";
 import { hideInternals } from "./loop";
-import { unavailableScriptDialogs, unavailableScriptServices } from "./services";
+import { unavailableScriptServices } from "./services";
 
 const api = ManagedRuntime.make(scriptApiLayer);
 api.runSync(Effect.void);
@@ -30,7 +31,7 @@ const runtime = ManagedRuntime.make(
           autoZone: makeAutoZoneService(__host),
           autoRelogin: makeAutoReloginService(__host),
         }),
-        Layer.succeed(ScriptDialogs, unavailableScriptDialogs),
+        Layer.succeed(ScriptDialogs, makeHostDialogs(__host)),
       ),
     ),
   ),

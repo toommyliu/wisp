@@ -240,3 +240,25 @@ pub struct ScriptStatus {
     pub script: Option<String>,
     pub last_end: Option<String>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ScriptDialogKind {
+    Alert,
+    Confirm,
+    Prompt { placeholder: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ScriptDialog {
+    pub id: u64,
+    pub kind: ScriptDialogKind,
+    pub script: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ScriptDialogResponse {
+    Dismissed,
+    Confirmed(bool),
+    Submitted(Option<String>),
+}
