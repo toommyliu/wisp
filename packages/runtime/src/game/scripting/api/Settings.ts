@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 
 import type { ApiService } from "../../flash/api/Api";
-import type { ScriptSettingsApi, ScriptSettingsPatch } from "../ScriptApi";
+import type { ScriptSettingsApi, ScriptSettingsPatch } from "@lucent/scripting-api/contract";
 
 export const makeScriptSettingsApi = (
   settings: ApiService["settings"],

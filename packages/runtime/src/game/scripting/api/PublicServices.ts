@@ -11,7 +11,7 @@ import type {
   ScriptQuestsApi,
   ScriptTempInventoryApi,
   ScriptWaitApi,
-} from "../ScriptApi";
+} from "@lucent/scripting-api/contract";
 import type { ScriptRuntimeServices } from "./Services";
 
 export interface ScriptPublicServices {

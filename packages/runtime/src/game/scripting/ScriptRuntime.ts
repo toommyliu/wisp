@@ -15,7 +15,7 @@ import type {
   ScriptRuntimeApi,
   ScriptRuntimeOptions,
   ScriptRuntimeOptionsPatch,
-} from "./ScriptApi";
+} from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "./scriptAsyncScope";
 import type { ScriptDialogSource, ScriptDialogsShape } from "./ScriptDialogs";
 import {

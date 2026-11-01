@@ -21,7 +21,7 @@ import type {
   ScriptFileSystemApi,
   ScriptHttpApi,
   ScriptRuntimeApi,
-} from "./ScriptApi";
+} from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "./scriptAsyncScope";
 import { scriptEffectStd } from "./ScriptEffectStd";
 import { scriptSchema } from "./schema";

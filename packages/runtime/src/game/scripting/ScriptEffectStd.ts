@@ -9,7 +9,7 @@ import type {
   ScriptEffectModule,
   ScriptEffectStd,
   ScriptOptionModule,
-} from "./ScriptApi";
+} from "@lucent/scripting-api/contract";
 
 const scriptDurationModule: ScriptDurationModule = {
   days: Duration.days,
