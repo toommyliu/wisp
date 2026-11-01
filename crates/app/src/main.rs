@@ -19,14 +19,7 @@ fn main() -> anyhow::Result<()> {
     let script = script_spec(std::env::args_os().skip(1))?
         .map(|spec| lucent_host::library::load_script(&spec, &cwd))
         .transpose()?;
-    let request = match script {
-        Some(script) => {
-            let (request, controls) = ScriptRequest::new(script);
-            terminal::spawn(controls)?;
-            Some(request)
-        }
-        None => None,
-    };
+    let request = script.map(|script| ScriptRequest::new(script).0);
     let host = Host::new()?;
     let app = gpui_platform::application();
     let reopen_host = host.clone();

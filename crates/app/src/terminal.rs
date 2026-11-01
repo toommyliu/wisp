@@ -1,7 +1,12 @@
-use lucent_host::ScriptControls;
 use std::io::{self, BufRead};
 
-pub fn spawn(controls: ScriptControls) -> io::Result<()> {
+pub enum Command {
+    Stop,
+    Kill,
+    Status,
+}
+
+pub fn spawn(commands: async_channel::Sender<Command>) -> io::Result<()> {
     std::thread::Builder::new()
         .name("lucent-terminal".into())
         .spawn(move || {
@@ -15,9 +20,21 @@ pub fn spawn(controls: ScriptControls) -> io::Result<()> {
                     }
                 };
                 match line.trim() {
-                    "stop" => controls.stop(),
-                    "kill" => controls.kill(),
-                    "status" => controls.status(),
+                    "stop" => {
+                        if commands.send_blocking(Command::Stop).is_err() {
+                            break;
+                        }
+                    }
+                    "kill" => {
+                        if commands.send_blocking(Command::Kill).is_err() {
+                            break;
+                        }
+                    }
+                    "status" => {
+                        if commands.send_blocking(Command::Status).is_err() {
+                            break;
+                        }
+                    }
                     "" => {}
                     line => tracing::warn!("unknown command {line:?}; type stop, kill or status"),
                 }

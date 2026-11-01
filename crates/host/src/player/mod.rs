@@ -56,6 +56,7 @@ pub(crate) struct Options {
     pub(crate) muted: bool,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
     pub(crate) auto_zone: Arc<RwLock<AutoZoneConfig>>,
+    pub(crate) changes: Arc<crate::sessions::Changes>,
 }
 
 pub(crate) struct Handle {
@@ -248,9 +249,13 @@ fn run(
     options: Options,
     bridge: PlayerBridge,
 ) -> Result<(), PlayerError> {
-    let Some((viewport, muted, script_events)) =
-        first_viewport(&inbox, options.muted, &options.settings, &options.auto_zone)
-    else {
+    let Some((viewport, muted, script_events)) = first_viewport(
+        &inbox,
+        options.muted,
+        &options.settings,
+        &options.auto_zone,
+        &options.changes,
+    ) else {
         return Ok(());
     };
     let mut running = Running::build(viewport, &surface, Net::new(net)?, outbox, options, bridge)?;
@@ -292,21 +297,29 @@ fn patch_auto_zone(
     record: &RwLock<AutoZoneConfig>,
     patch: AutoZonePatch,
     links: &ScriptAttachments,
+    changes: &crate::sessions::Changes,
 ) -> String {
     let mut record = record.write();
     let next = AutoZoneConfig {
         enabled: patch.enabled.unwrap_or(record.enabled),
         map: patch.map.unwrap_or(record.map),
     };
-    if *record != next {
+    let changed = *record != next;
+    if changed {
         *record = next.clone();
+
         for (_, stream) in links {
             stream.send(crate::bridge::ScriptEvent::AutoZoneChanged {
                 config: next.clone(),
             });
         }
     }
-    serde_json::to_string(&*record).unwrap()
+    let result = serde_json::to_string(&*record).unwrap();
+    drop(record);
+    if changed {
+        changes.notify();
+    }
+    result
 }
 
 type ScriptAttachments = Vec<(AttachmentId, ScriptEventSender)>;
@@ -326,6 +339,7 @@ fn first_viewport(
     mut muted: bool,
     settings: &RwLock<GameSettings>,
     auto_zone: &RwLock<AutoZoneConfig>,
+    changes: &crate::sessions::Changes,
 ) -> Option<(Viewport, bool, ScriptAttachments)> {
     let mut script_events = Vec::new();
     loop {
@@ -360,12 +374,12 @@ fn first_viewport(
             Msg::Command(command, reply) => {
                 let result = match command {
                     Command::PatchAutoZone { patch } => {
-                        Ok(patch_auto_zone(auto_zone, patch, &script_events))
+                        Ok(patch_auto_zone(auto_zone, patch, &script_events, changes))
                     }
                     Command::UpdateSettings { mut patch } => {
-                        let mut state = settings.write();
-                        *state = commands::patched_settings(&state, &mut patch);
-                        Ok(serde_json::to_string(&*state).unwrap())
+                        let next = commands::patched_settings(&settings.read(), &mut patch);
+                        changes.set(settings, next.clone());
+                        Ok(serde_json::to_string(&next).unwrap())
                     }
                     _ => Err(BridgeError::NotReady),
                 };
@@ -390,6 +404,7 @@ struct PlayerBridge {
 struct Running {
     settings: Arc<RwLock<GameSettings>>,
     auto_zone: Arc<RwLock<AutoZoneConfig>>,
+    changes: Arc<crate::sessions::Changes>,
     settings_applied: bool,
     rejected_settings: HashSet<&'static str>,
     operation_packets: Arc<crate::sessions::operations::Packets>,
@@ -446,6 +461,7 @@ impl Running {
         Ok(Running {
             settings: options.settings,
             auto_zone: options.auto_zone,
+            changes: options.changes,
             settings_applied: false,
             rejected_settings: HashSet::new(),
             operation_packets,
@@ -608,6 +624,7 @@ mod tests {
         Running {
             settings: Arc::new(RwLock::new(GameSettings::default())),
             auto_zone: Arc::default(),
+            changes: Arc::default(),
             settings_applied: false,
             rejected_settings: HashSet::new(),
             loader_events,

@@ -16,8 +16,8 @@ use gpui::{
 };
 use lucent_host::{Host, HostError, Ime, Session, ViewEvent};
 
+use lucent_host::ScriptRequest;
 use lucent_host::scripting::RuntimeError;
-use lucent_host::{ScriptRequest, Supervisor};
 use native::NativeView;
 
 #[derive(Debug, thiserror::Error)]
@@ -31,7 +31,6 @@ pub enum PlayerViewError {
 }
 
 pub struct PlayerView {
-    supervisor: Supervisor,
     // Dropped before `native`: on Windows the player draws into its window until the session stops.
     session: Session,
     native: NativeView,
@@ -52,8 +51,36 @@ impl PlayerView {
         let (wake, woken) = async_channel::bounded(1);
         let native = NativeView::attach(window, wake)?;
         let mut session = host.start_session(native.surface())?;
-        let supervisor = Supervisor::start(&mut session, script)?;
+        let terminal = if script.is_some() {
+            let (sender, receiver) = async_channel::bounded(16);
+            if let Err(error) = crate::terminal::spawn(sender) {
+                tracing::warn!(%error, "couldn't start terminal input");
+            }
+            Some(receiver)
+        } else {
+            None
+        };
+        session.supervise(script)?;
         Ok(cx.new(|cx| {
+            if let Some(commands) = terminal {
+                cx.spawn(async move |this, cx| {
+                    while let Ok(command) = commands.recv().await {
+                        if this
+                            .update(cx, |this: &mut Self, _| match command {
+                                crate::terminal::Command::Stop => this.session.stop_script(),
+                                crate::terminal::Command::Kill => this.session.kill_script(),
+                                crate::terminal::Command::Status => {
+                                    tracing::info!("{:?}", this.session.script_status())
+                                }
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                })
+                .detach();
+            }
             cx.spawn(async move |this, cx| {
                 while woken.recv().await.is_ok() {
                     if this.update(cx, |_, cx| cx.notify()).is_err() {
@@ -81,7 +108,6 @@ impl PlayerView {
                 }),
             ];
             Self {
-                supervisor,
                 session,
                 native,
                 focus,
@@ -96,7 +122,7 @@ impl PlayerView {
     fn layout(&mut self, bounds: Bounds<Pixels>, window: &Window) {
         let restarted = self.native.replaced_device(window).map(|surface| {
             tracing::warn!("the window's GPU device was replaced; restarting its player");
-            self.supervisor.restart_player(&mut self.session, surface)
+            self.session.restart_player(surface)
         });
         let scale = window.scale_factor();
         self.native.set_frame(bounds, scale);
