@@ -656,19 +656,22 @@ fn a_readiness_reply_from_an_old_connection_is_ignored() {
     logs.wait_for(INFO, "session 1: p.js completed");
     wait_idle(&session);
     while observer.try_event().unwrap().is_some() {}
-    supervisor
-        .start_script(
-            &mut session,
-            loose(&[(
-                "o.js",
-                "export default function* () { console.log('o body'); }",
-            )]),
-        )
-        .unwrap();
-    ctl.wait();
-    emit_connection(&observer, "OnConnection");
-    log_in(&observer);
-    ctl.open();
+    std::thread::scope(|scope| {
+        let starting = scope.spawn(|| {
+            supervisor.start_script(
+                &mut session,
+                loose(&[(
+                    "o.js",
+                    "export default function* () { console.log('o body'); }",
+                )]),
+            )
+        });
+        ctl.wait();
+        emit_connection(&observer, "OnConnection");
+        log_in(&observer);
+        ctl.open();
+        starting.join().unwrap().unwrap();
+    });
     wait_status(&session, |s| {
         s.script_status()
             .last_end
@@ -862,4 +865,41 @@ fn a_killed_run_cannot_issue_queued_work_before_its_thread_exits() {
     assert!(!issuance.try_iter().any(|id| id == queued));
     thread_gate.open();
     wait_idle(&session);
+}
+
+#[test]
+fn admission_publishes_waiting_before_returning_to_its_caller() {
+    let logs = Logs::default();
+    let (publishing, gate) = hold(
+        "session 1: admitted.js is waiting for login",
+        Some("lucent-supervisor"),
+        true,
+    );
+    let dispatch =
+        tracing::Dispatch::new(tracing_subscriber::registry().with(logs).with(publishing));
+    let (accepted, answer) = mpsc::channel();
+    let caller = std::thread::spawn(move || {
+        let _guard = tracing::dispatcher::set_default(&dispatch);
+        let host = testing::headless_host();
+        let (mut session, _observer) = testing::start_probe(&host, ready_movie());
+        session.supervise(None).unwrap();
+        session
+            .start_script(loose(&[("admitted.js", "export default function* () {}")]))
+            .unwrap();
+        accepted.send(session.script_status().phase).unwrap();
+        session.stop_script();
+        wait_idle(&session);
+        session.script_status().last_end
+    });
+    gate.wait();
+    let early = answer.recv_timeout(Duration::from_secs(1));
+    gate.open();
+    let phase = match early {
+        Ok(phase) => phase,
+        Err(mpsc::RecvTimeoutError::Timeout) => answer.recv_timeout(TIMEOUT).unwrap(),
+        Err(error) => panic!("admission failed: {error}"),
+    };
+    let end = caller.join().unwrap();
+    assert_eq!(phase, ScriptPhase::Waiting);
+    assert_eq!(end.as_deref(), Some("admitted.js was stopped"));
 }
