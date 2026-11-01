@@ -31,6 +31,7 @@ use parking_lot::RwLock;
 pub(crate) struct Records {
     pub(crate) attachments: Arc<AtomicU64>,
     pub(crate) files: Arc<crate::data::Files>,
+    pub(crate) http: Arc<crate::scripting::http::Http>,
     pub(crate) dialogs: Arc<dialogs::Dialogs>,
     pub(crate) changes: Arc<Changes>,
     pub(crate) auto_attack: Arc<auto_attack::Shared>,
@@ -61,6 +62,7 @@ pub struct Host {
 
 struct Shared {
     files: Arc<crate::data::Files>,
+    http: Arc<crate::scripting::http::Http>,
     net: tokio::runtime::Runtime,
     clipboard: Clipboard,
     audio: Audio,
@@ -73,6 +75,8 @@ pub enum HostError {
     Files(std::io::Error),
     #[error("couldn't start the net runtime: {0}")]
     NetRuntime(std::io::Error),
+    #[error("couldn't start the script HTTP client: {0}")]
+    Http(reqwest::Error),
     #[error("couldn't start a player thread: {0}")]
     PlayerThread(std::io::Error),
     #[error("couldn't start an operation worker: {0}")]
@@ -109,6 +113,8 @@ impl Host {
         Ok(Host {
             shared: Arc::new(Shared {
                 files: Arc::new(crate::data::Files::start(root).map_err(HostError::Files)?),
+                http: crate::scripting::http::Http::new(net.handle().clone())
+                    .map_err(HostError::Http)?,
                 net,
                 clipboard,
                 audio,
@@ -330,6 +336,7 @@ impl Session {
         Records {
             attachments: self.next_attachment.clone(),
             files: self.host.shared.files.clone(),
+            http: self.host.shared.http.clone(),
             dialogs: self.dialogs.clone(),
             auto_attack: self.auto_attack.clone(),
             changes: self.changes.clone(),
@@ -483,6 +490,17 @@ impl Session {
 impl Host {
     pub fn data_root(&self) -> &std::path::Path {
         self.shared.files.root()
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn resolve_script_http(&mut self, domain: &str, address: std::net::SocketAddr) {
+        let shared =
+            Arc::get_mut(&mut self.shared).expect("configure HTTP before starting sessions");
+        shared.http = crate::scripting::http::Http::with_builder(
+            shared.net.handle().clone(),
+            reqwest::Client::builder().resolve(domain, address),
+        )
+        .expect("couldn't configure script HTTP");
     }
 
     #[cfg(feature = "testing")]

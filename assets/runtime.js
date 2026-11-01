@@ -286,7 +286,7 @@
     if (/[\0\r\n]/.test(value)) throw new TypeError("Invalid header value");
     return value;
   }, "headerValue");
-  var Headers = class {
+  var Headers2 = class {
     static {
       __name(this, "Headers");
     }
@@ -547,7 +547,7 @@
       URL: URL2,
       URLSearchParams: URLSearchParams2,
       TextDecoder: TextDecoder2,
-      Headers,
+      Headers: Headers2,
       Event,
       EventTarget,
       AbortController: AbortController2,
@@ -5592,12 +5592,12 @@ ${prefix}}`;
 
   // packages/runtime/src/host/io.ts
   var pending = /* @__PURE__ */ new Map();
-  var requestIo = /* @__PURE__ */ __name((host4, request, signal) => new Promise((resolve3, reject) => {
+  var requestIo = /* @__PURE__ */ __name((host4, request, signal, body) => new Promise((resolve3, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
       return;
     }
-    const submitted = JSON.parse(host4.requestIo(JSON.stringify(request)));
+    const submitted = JSON.parse(host4.requestIo(JSON.stringify(request), body));
     if ("result" in submitted) {
       resolve3(submitted.result);
       return;
@@ -14643,7 +14643,7 @@ ${prefix}}`;
       const player = yield* host4.read({ kind: "me" });
       return player !== null && monster.isInCell(player.cell);
     });
-    const executeRequest = fn2("Monsters.executeDropRequest")(function* (request) {
+    const executeRequest2 = fn2("Monsters.executeDropRequest")(function* (request) {
       const operation = gen2(function* () {
         if ((yield* requestKey(request.monsterMapId)) !== request.key) return;
         if ((yield* readDrops(request.monsterMapId)) !== null) return;
@@ -14686,7 +14686,7 @@ ${prefix}}`;
     });
     yield* fromQueue(requests).pipe(
       schedule3(monsterDropRequestSpacing),
-      mapEffect2((request) => executeRequest(request), {
+      mapEffect2((request) => executeRequest2(request), {
         concurrency: "unbounded"
       }),
       runDrain2,
@@ -19576,14 +19576,14 @@ ${prefix}}`;
             scope: scriptScope,
             source: { sourceName: statusName(source) }
           });
-          const http = yield* makeHttpApi(scriptScope);
+          const http2 = yield* makeHttpApi(scriptScope);
           const modules = makeScriptBuiltinModules({
             autoRelogin,
             autoZone,
             bridge,
             failCause: /* @__PURE__ */ __name((cause) => failActiveCause(starting.id, cause), "failCause"),
             fileSystem: makeScriptFileSystemApi(fileSystemBridge, scriptScope),
-            http,
+            http: http2,
             roomPolicy: scriptOptions.get().pipe(
               map5((options) => snapshotRoomPolicy(options.roomPolicy))
             ),
@@ -19885,6 +19885,281 @@ ${prefix}}`;
     };
   }, "makeFileSystemBridge");
 
+  // packages/runtime/src/host/http.ts
+  var makeHttpBridge = /* @__PURE__ */ __name((host4) => {
+    const requests = /* @__PURE__ */ new Map();
+    return {
+      request: /* @__PURE__ */ __name(async (payload) => {
+        const controller = new AbortController();
+        requests.set(payload.requestId, controller);
+        try {
+          const { body, ...metadata } = payload;
+          const result2 = await requestIo(host4, { service: "http", ...metadata }, controller.signal, body);
+          return result2.ok ? { ok: true, value: { ...result2.value, body: new Uint8Array(host4.takeIoBody(result2.value.body)) } } : result2;
+        } finally {
+          requests.delete(payload.requestId);
+        }
+      }, "request"),
+      cancel: /* @__PURE__ */ __name(async (id) => {
+        requests.get(id)?.abort();
+      }, "cancel")
+    };
+  }, "makeHttpBridge");
+
+  // packages/runtime/src/shared/http.ts
+  var SCRIPT_HTTP_MAX_BYTES = 8 * 1024 * 1024;
+  var HttpErrorReasonSchema = Literals([
+    "request",
+    "redirect",
+    "timeout",
+    "aborted",
+    "too-large",
+    "body"
+  ]);
+  var HttpFailureSchema = Struct({
+    reason: HttpErrorReasonSchema,
+    url: String4,
+    detail: String4
+  });
+  var HttpError = class extends TaggedError3()("HttpError", {
+    ...HttpFailureSchema.fields,
+    cause: optionalKey2(Defect())
+  }) {
+    static {
+      __name(this, "HttpError");
+    }
+    get message() {
+      return this.detail;
+    }
+  };
+  var HttpRequestPayloadSchema = Struct({
+    requestId: Int.check(isGreaterThan2(0)),
+    url: String4,
+    method: String4,
+    headers: Record(String4, String4),
+    body: optionalKey2(Uint8Array2),
+    deadline: Finite,
+    redirect: Literals(["follow", "manual", "error"]),
+    maxRedirects: Int.check(isGreaterThanOrEqualTo2(0))
+  });
+  var HttpResponsePayloadSchema = Struct({
+    body: Uint8Array2,
+    headers: ArraySchema(Tuple([String4, String4])),
+    status: Int,
+    statusText: String4,
+    url: String4
+  });
+  var HttpResultSchema = Union2([
+    Struct({ ok: Literal2(true), value: HttpResponsePayloadSchema }),
+    Struct({ ok: Literal2(false), error: HttpFailureSchema })
+  ]);
+
+  // packages/runtime/src/game/scripting/http/request.ts
+  var encoder2 = new TextEncoder();
+  var DEFAULT_TIMEOUT_MS = 2e4;
+  var prepareRequest = /* @__PURE__ */ __name((input, options, requestId) => {
+    const startedAt = Date.now();
+    const url = new URL(input);
+    if (!["http:", "https:"].includes(url.protocol) || url.username !== "" || url.password !== "")
+      throw new Error(
+        "Expected an absolute HTTP or HTTPS URL without embedded credentials."
+      );
+    const method = (options.method ?? "GET").toUpperCase();
+    if (!/^[!#$%&'*+.^_`|~0-9A-Z-]+$/.test(method))
+      throw new Error("Invalid HTTP method.");
+    if ((method === "GET" || method === "HEAD") && options.body !== void 0)
+      throw new Error(`${method} requests cannot have a body.`);
+    const maxRedirects = options.maxRedirects ?? 5;
+    if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0)
+      throw new Error("maxRedirects must be a nonnegative integer.");
+    const redirect = options.redirect ?? "follow";
+    if (!["follow", "manual", "error"].includes(redirect))
+      throw new Error("Invalid redirect mode.");
+    const timeoutMs = options.timeout === void 0 ? DEFAULT_TIMEOUT_MS : toMillis(options.timeout);
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 2147483647 || typeof options.timeout === "number" && Number.isNaN(options.timeout))
+      throw new Error(
+        "timeout must be a nonnegative duration of at most 2147483647 milliseconds."
+      );
+    if (timeoutMs === 0)
+      throw new HttpError({
+        reason: "timeout",
+        detail: "HTTP request timed out before starting.",
+        url: url.href
+      });
+    const headers = new Headers(options.headers);
+    let body;
+    if (typeof options.body === "string") {
+      body = encoder2.encode(options.body);
+      if (!headers.has("content-type"))
+        headers.set("content-type", "text/plain;charset=UTF-8");
+    } else if (options.body instanceof URLSearchParams) {
+      body = encoder2.encode(options.body.toString());
+      if (!headers.has("content-type"))
+        headers.set(
+          "content-type",
+          "application/x-www-form-urlencoded;charset=UTF-8"
+        );
+    } else if (options.body instanceof ArrayBuffer) {
+      body = new Uint8Array(options.body);
+    } else if (options.body instanceof Uint8Array) {
+      body = options.body;
+    } else if (options.body !== void 0) {
+      throw new Error("Unsupported HTTP body.");
+    }
+    return {
+      requestId,
+      url: url.href,
+      method,
+      headers: Object.fromEntries(headers),
+      ...body === void 0 ? {} : { body },
+      deadline: startedAt + timeoutMs,
+      redirect,
+      maxRedirects
+    };
+  }, "prepareRequest");
+
+  // packages/runtime/src/game/scripting/http/response.ts
+  var makeHttpResponse = /* @__PURE__ */ __name((payload) => {
+    let bytes = payload.body;
+    const url = payload.url;
+    const read = /* @__PURE__ */ __name((decode3) => try_2({
+      try: /* @__PURE__ */ __name(() => {
+        if (bytes === void 0)
+          throw new Error("HTTP response body has already been consumed.");
+        const body = bytes;
+        bytes = void 0;
+        return decode3(body);
+      }, "try"),
+      catch: /* @__PURE__ */ __name((cause) => new HttpError({
+        reason: "body",
+        url,
+        detail: cause instanceof Error ? cause.message : "HTTP response body could not be read.",
+        cause
+      }), "catch")
+    }), "read");
+    return Object.freeze({
+      status: payload.status,
+      statusText: payload.statusText,
+      ok: payload.status >= 200 && payload.status < 300,
+      url,
+      headers: new Headers(payload.headers.map(([name, value]) => [name, value])),
+      get bodyUsed() {
+        return bytes === void 0;
+      },
+      json: /* @__PURE__ */ __name(() => read((body) => JSON.parse(new TextDecoder().decode(body))), "json"),
+      text: /* @__PURE__ */ __name(() => read((body) => new TextDecoder().decode(body)), "text"),
+      arrayBuffer: /* @__PURE__ */ __name(() => read((body) => new Uint8Array(body).buffer), "arrayBuffer")
+    });
+  }, "makeHttpResponse");
+
+  // packages/runtime/src/game/scripting/http/execute.ts
+  var requestFailure = /* @__PURE__ */ __name((cause, url) => cause instanceof HttpError ? cause : new HttpError({
+    reason: "request",
+    url,
+    detail: cause instanceof Error ? cause.message : "HTTP request failed.",
+    cause
+  }), "requestFailure");
+  var executeRequest = /* @__PURE__ */ __name((bridge, scope3, signal, payload) => callback2((resume) => {
+    let settled = false;
+    let sent = false;
+    let cancelling = false;
+    let cancellation;
+    const detach = /* @__PURE__ */ __name(() => {
+      scope3.signal.removeEventListener("abort", onStop);
+      signal?.removeEventListener("abort", onAbort);
+    }, "detach");
+    const finish = /* @__PURE__ */ __name((result2) => {
+      if (settled) return;
+      settled = true;
+      detach();
+      resume(result2);
+    }, "finish");
+    const cancel = /* @__PURE__ */ __name(() => {
+      cancelling = true;
+      cancellation ??= sent ? bridge.cancel(payload.requestId) : Promise.resolve();
+      return cancellation;
+    }, "cancel");
+    const abort2 = /* @__PURE__ */ __name((stopping) => {
+      void cancel().then(
+        () => finish(
+          stopping ? interrupt3 : fail5(
+            new HttpError({
+              reason: "aborted",
+              detail: "HTTP request was aborted.",
+              url: payload.url
+            })
+          )
+        ),
+        (cause) => finish(
+          stopping ? interrupt3 : fail5(requestFailure(cause, payload.url))
+        )
+      );
+    }, "abort");
+    const onStop = /* @__PURE__ */ __name(() => abort2(true), "onStop");
+    const onAbort = /* @__PURE__ */ __name(() => abort2(false), "onAbort");
+    scope3.signal.addEventListener("abort", onStop, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (scope3.signal.aborted) onStop();
+    else if (signal?.aborted) onAbort();
+    else {
+      sent = true;
+      try {
+        void bridge.request(payload).then(
+          (result2) => {
+            if (cancelling || settled) return;
+            finish(
+              result2.ok ? try_2({
+                try: /* @__PURE__ */ __name(() => makeHttpResponse(result2.value), "try"),
+                catch: /* @__PURE__ */ __name((cause) => requestFailure(cause, payload.url), "catch")
+              }) : fail5(new HttpError(result2.error))
+            );
+          },
+          (cause) => {
+            if (!cancelling)
+              finish(fail5(requestFailure(cause, payload.url)));
+          }
+        );
+      } catch (cause) {
+        finish(fail5(requestFailure(cause, payload.url)));
+      }
+    }
+    return suspend2(() => {
+      settled = true;
+      detach();
+      return tryPromise2({
+        try: cancel,
+        catch: /* @__PURE__ */ __name((cause) => requestFailure(cause, payload.url), "catch")
+      }).pipe(
+        catchCause2(
+          (cause) => logWarning("HTTP cancellation failed", cause).pipe(
+            annotateLogs({ component: "scripting" })
+          )
+        )
+      );
+    });
+  }), "executeRequest");
+
+  // packages/runtime/src/game/scripting/ScriptHttp.ts
+  var makeScriptHttpApi = fn2("ScriptHttpApi.make")(function* (bridge, scope3) {
+    let nextRequestId = 0;
+    const request = fn2("ScriptHttp.request")(function* (url, options = {}) {
+      if (scope3.signal.aborted) return yield* interrupt3;
+      const signal = options.signal;
+      if (signal?.aborted)
+        return yield* new HttpError({
+          reason: "aborted",
+          detail: "HTTP request was aborted.",
+          url: String(url)
+        });
+      const payload = yield* try_2({
+        try: /* @__PURE__ */ __name(() => prepareRequest(url, options, ++nextRequestId), "try"),
+        catch: /* @__PURE__ */ __name((cause) => requestFailure(cause, String(url)), "catch")
+      });
+      return yield* executeRequest(bridge, scope3, signal, payload);
+    });
+    return Object.freeze({ HttpError, request });
+  });
+
   // packages/runtime/src/host/environment.ts
   var makeEnvironmentService = /* @__PURE__ */ __name((host4, unavailable) => {
     const identifier2 = /* @__PURE__ */ __name((value) => Number.isFinite(value) ? value : 0, "identifier");
@@ -19924,55 +20199,6 @@ ${prefix}}`;
       clearBoosts: /* @__PURE__ */ __name(() => set4({ kind: "clearBoosts" }), "clearBoosts")
     };
   }, "makeEnvironmentService");
-
-  // packages/runtime/src/shared/http.ts
-  var SCRIPT_HTTP_MAX_BYTES = 8 * 1024 * 1024;
-  var HttpErrorReasonSchema = Literals([
-    "request",
-    "redirect",
-    "timeout",
-    "aborted",
-    "too-large",
-    "body"
-  ]);
-  var HttpFailureSchema = Struct({
-    reason: HttpErrorReasonSchema,
-    url: String4,
-    detail: String4
-  });
-  var HttpError = class extends TaggedError3()("HttpError", {
-    ...HttpFailureSchema.fields,
-    cause: optionalKey2(Defect())
-  }) {
-    static {
-      __name(this, "HttpError");
-    }
-    get message() {
-      return this.detail;
-    }
-  };
-  var HttpRequestPayloadSchema = Struct({
-    sessionId: String4,
-    requestId: Int.check(isGreaterThan2(0)),
-    url: String4,
-    method: String4,
-    headers: Record(String4, String4),
-    body: optionalKey2(Uint8Array2),
-    deadline: optionalKey2(Finite),
-    redirect: Literals(["follow", "manual", "error"]),
-    maxRedirects: Int.check(isGreaterThanOrEqualTo2(0))
-  });
-  var HttpResponsePayloadSchema = Struct({
-    body: Uint8Array2,
-    headers: ArraySchema(Tuple([String4, String4])),
-    status: Int,
-    statusText: String4,
-    url: String4
-  });
-  var HttpResultSchema = Union2([
-    Struct({ ok: Literal2(true), value: HttpResponsePayloadSchema }),
-    Struct({ ok: Literal2(false), error: HttpFailureSchema })
-  ]);
 
   // packages/runtime/src/host/services.ts
   var HostServiceUnavailable = class extends Error {
@@ -20020,17 +20246,7 @@ ${prefix}}`;
     environment: makeEnvironmentService(environmentHost, {
       fetchBoosts: failure("environment"),
       syncToAll: failure("environment")
-    }),
-    http: /* @__PURE__ */ __name(() => succeed7({
-      HttpError,
-      request: /* @__PURE__ */ __name((url) => fail5(
-        new HttpError({
-          reason: "request",
-          url: String(url),
-          detail: new HostServiceUnavailable("http").message
-        })
-      ), "request")
-    }), "http")
+    })
   };
   var unavailableScriptDialogs = {
     alert: defect("dialogs"),
@@ -20065,6 +20281,7 @@ ${prefix}}`;
   }, "makeHostDialogs");
 
   // packages/runtime/src/host/scripts.ts
+  var http = makeHttpBridge(__host);
   var api = make7(scriptApiLayer);
   api.runSync(void_3);
   var runtime = make7(
@@ -20075,6 +20292,7 @@ ${prefix}}`;
           succeed6(ScriptServices, {
             ...unavailableScriptServices,
             fileSystem: makeFileSystemBridge(__host),
+            http: /* @__PURE__ */ __name((scope3) => makeScriptHttpApi(http, scope3), "http"),
             autoZone: makeAutoZoneService(__host),
             autoRelogin: makeAutoReloginService(__host)
           }),

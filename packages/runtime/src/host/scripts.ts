@@ -14,10 +14,13 @@ import { ScriptServices } from "../game/scripting/ScriptServices";
 import { makeAutoReloginService } from "./autoRelogin";
 import { makeAutoZoneService } from "./autoZone";
 import { makeFileSystemBridge } from "./filesystem";
+import { makeHttpBridge } from "./http";
+import { makeScriptHttpApi } from "../game/scripting/ScriptHttp";
 import { makeHostDialogs } from "./dialogs";
 import { hideInternals } from "./loop";
 import { unavailableScriptServices } from "./services";
 
+const http = makeHttpBridge(__host);
 const api = ManagedRuntime.make(scriptApiLayer);
 api.runSync(Effect.void);
 const runtime = ManagedRuntime.make(
@@ -28,6 +31,7 @@ const runtime = ManagedRuntime.make(
         Layer.succeed(ScriptServices, {
           ...unavailableScriptServices,
           fileSystem: makeFileSystemBridge(__host),
+          http: scope => makeScriptHttpApi(http, scope),
           autoZone: makeAutoZoneService(__host),
           autoRelogin: makeAutoReloginService(__host),
         }),

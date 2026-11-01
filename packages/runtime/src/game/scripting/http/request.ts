@@ -6,11 +6,9 @@ import type { HttpRequestOptions } from "@lucent/scripting-api/contract";
 const encoder = new TextEncoder();
 const DEFAULT_TIMEOUT_MS = 20_000;
 
-/** Normalizes browser values into the small IPC request contract. */
 export const prepareRequest = (
   input: string | URL,
   options: HttpRequestOptions,
-  sessionId: string,
   requestId: number,
 ): HttpRequestPayload => {
   const startedAt = Date.now();
@@ -75,7 +73,6 @@ export const prepareRequest = (
     throw new Error("Unsupported HTTP body.");
   }
   return {
-    sessionId,
     requestId,
     url: url.href,
     method,

@@ -19,7 +19,6 @@ export const requestFailure = (cause: unknown, url: string) =>
         cause,
       });
 
-/** Keeps IPC cancellation attached until main has released the request. */
 export const executeRequest = (
   bridge: DesktopHttpBridge,
   scope: ScriptAsyncScope,
@@ -44,7 +43,7 @@ export const executeRequest = (
     const cancel = () => {
       cancelling = true;
       cancellation ??= sent
-        ? bridge.cancel(payload.sessionId, payload.requestId)
+        ? bridge.cancel(payload.requestId)
         : Promise.resolve();
       return cancellation;
     };

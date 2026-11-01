@@ -28,7 +28,6 @@ describe("unavailable host services", () => {
       yield* Effect.addFinalizer(() => scope.close);
       const services = unavailableScriptServices;
       const army = makeScriptArmyApi(services.army, scope, () => Effect.void);
-      const http = yield* services.http();
       const script = makeScriptRuntimeApi({
         dialogs: unavailableScriptDialogs,
         scriptOptions: {
@@ -51,9 +50,6 @@ describe("unavailable host services", () => {
       );
       expect(yield* failure(services.environment.syncToAll())).toBe(
         "The environment service is not available yet.",
-      );
-      expect(yield* failure(http.request("https://example.com"))).toBe(
-        "The http service is not available yet.",
       );
       expect(yield* failure(script.alert("Done"))).toBe(
         "The dialogs service is not available yet.",
