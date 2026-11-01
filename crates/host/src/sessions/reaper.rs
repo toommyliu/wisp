@@ -25,12 +25,31 @@ impl Sender {
     }
 }
 
+pub(super) struct Join {
+    thread: thread::JoinHandle<()>,
+    finished: mpsc::Receiver<()>,
+}
+
+impl Join {
+    pub(super) fn spawn(
+        name: String,
+        run: impl FnOnce() + Send + 'static,
+    ) -> std::io::Result<Self> {
+        let (finish, finished) = mpsc::channel::<()>();
+        let thread = thread::Builder::new().name(name).spawn(move || {
+            run();
+            drop(finish);
+        })?;
+        Ok(Self { thread, finished })
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Reapers(Mutex<HashMap<u64, Reaper>>);
 
 struct Reaper {
     sender: Sender,
-    thread: thread::JoinHandle<()>,
+    thread: Join,
     dispatch: tracing::Dispatch,
 }
 
@@ -46,16 +65,14 @@ impl Reapers {
         let (sender, tasks) = mpsc::channel();
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
         let worker_dispatch = dispatch.clone();
-        let thread = thread::Builder::new()
-            .name(format!("lucent-reaper-{session}"))
-            .spawn(move || {
-                let _guard = tracing::dispatcher::set_default(&worker_dispatch);
-                while let Ok(Message::Reap(task)) = tasks.recv() {
-                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(task)).is_err() {
-                        tracing::error!("a worker join panicked");
-                    }
+        let thread = Join::spawn(format!("lucent-reaper-{session}"), move || {
+            let _guard = tracing::dispatcher::set_default(&worker_dispatch);
+            while let Ok(Message::Reap(task)) = tasks.recv() {
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(task)).is_err() {
+                    tracing::error!("a worker join panicked");
                 }
-            })?;
+            }
+        })?;
         let sender = Sender(sender);
         entry.insert(Reaper {
             sender: sender.clone(),
@@ -117,15 +134,16 @@ impl Reaper {
     }
 }
 
-pub(super) fn join_until(thread: thread::JoinHandle<()>, deadline: Instant) -> bool {
-    while !thread.is_finished() {
+pub(super) fn join_until(thread: Join, deadline: Instant) -> bool {
+    while !thread.thread.is_finished() {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return false;
         }
-        thread::park_timeout(remaining.min(Duration::from_millis(5)));
+        let _ = thread.finished.recv_timeout(remaining);
+        thread::yield_now();
     }
-    let _ = thread.join();
+    let _ = thread.thread.join();
     true
 }
 

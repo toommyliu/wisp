@@ -17,7 +17,6 @@ use std::{
         mpsc,
     },
     task::{Wake, Waker},
-    thread,
     time::{Duration, Instant},
 };
 use tracing::{Level, info, warn};
@@ -76,7 +75,7 @@ pub struct Supervisor {
 }
 pub(super) struct Shutdown {
     inbox: mpsc::Sender<Msg>,
-    thread: parking_lot::Mutex<Option<thread::JoinHandle<()>>>,
+    thread: parking_lot::Mutex<Option<reaper::Join>>,
     reapers: Arc<Reapers>,
     session: u64,
     dispatch: tracing::Dispatch,
@@ -189,12 +188,13 @@ impl Supervisor {
             .watch(Waker::from(supervision.notify.clone()));
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
         let worker_dispatch = dispatch.clone();
-        let thread = thread::Builder::new()
-            .name(format!("lucent-supervisor-{}", first.watch.id()))
-            .spawn(move || {
+        let thread = reaper::Join::spawn(
+            format!("lucent-supervisor-{}", first.watch.id()),
+            move || {
                 let _dispatch = tracing::dispatcher::set_default(&worker_dispatch);
                 supervision.run(first, script, messages);
-            });
+            },
+        );
         let thread = match thread {
             Ok(thread) => thread,
             Err(error) => {
