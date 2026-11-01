@@ -8,6 +8,7 @@ pub enum EventKind {
     Loader,
     Connection,
     Invalidated,
+    Readiness,
     AutoZoneChanged,
     OperationResponsibility,
     OperationStarted,
@@ -71,6 +72,7 @@ impl EventInterests {
             ScriptEvent::Operation { .. } => EventKind::Operation,
             ScriptEvent::AutoZoneChanged { .. } => EventKind::AutoZoneChanged,
             ScriptEvent::Invalidated => EventKind::Invalidated,
+            ScriptEvent::Readiness { .. } => EventKind::Readiness,
             ScriptEvent::Loader { event, projected } => {
                 return self.contains(EventKind::Loader)
                     || (event.name == "onConnection" && self.contains(EventKind::Connection))

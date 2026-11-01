@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use lucent_protocol::{
     PacketDirection,
@@ -35,8 +35,12 @@ impl Running {
                 }
             };
             let invalidated = projection.receipts.epoch() != epoch;
-            let ready = projection.current_readiness().missing.is_empty();
-            if invalidated || event.as_ref().is_some_and(|event| matches!(event, ScriptEvent::Loader { projected, .. } if projected.iter().any(|event| matches!(event, ProjectionEvent::JoinMap { .. })))) { self.profile_area += 1; }
+            let joined = event.as_ref().is_some_and(|event| {
+                matches!(event, ScriptEvent::Loader { projected, .. } if projected.iter().any(|event| matches!(event, ProjectionEvent::JoinMap { .. })))
+            });
+            if invalidated || joined {
+                self.profile_area += 1;
+            }
             if let Some(ScriptEvent::Loader { projected, .. }) = &event {
                 for event in projected {
                     if let ProjectionEvent::MonsterDeath { monster_map_id } = event
@@ -52,6 +56,7 @@ impl Running {
                     }
                 }
             }
+            projection.refresh_readiness(joined);
             drop(projection);
             let countered: Vec<i64> = match &event {
                 Some(ScriptEvent::Loader { projected, .. })
@@ -75,14 +80,83 @@ impl Running {
             for monster_map_id in countered {
                 self.stop_attacking_countered(monster_map_id);
             }
-            if ready && !self.settings_applied {
-                self.settings_applied = true;
-                let _ = self.reapply_settings(false);
-            }
             if invalidated {
                 self.publish(ScriptEvent::Invalidated);
             }
+            self.publish_readiness();
         }
+    }
+
+    pub(super) fn publish_readiness(&mut self) {
+        let readiness = self.projection.read().readiness;
+        if readiness.avatar != self.published_readiness.avatar
+            || readiness.can_act() != self.published_readiness.can_act()
+        {
+            self.published_readiness = readiness;
+            self.publish(ScriptEvent::Readiness {
+                epoch: readiness.epoch,
+                can_act: readiness.can_act(),
+            });
+        }
+        if readiness.can_act() && !self.settings_applied {
+            self.settings_applied = true;
+            let _ = self.reapply_settings(false);
+        }
+    }
+
+    pub(super) fn confirm_readiness(&mut self, now: Instant) -> Option<Instant> {
+        const INTERVAL: Duration = Duration::from_millis(100);
+        let readiness = self.projection.read().readiness;
+        if !readiness.needs_confirmation() {
+            return None;
+        }
+        if let Some(last) = self.last_confirmation
+            && now < last + INTERVAL
+        {
+            return Some(last + INTERVAL);
+        }
+        self.last_confirmation = Some(now);
+        let area = self.profile_area;
+        let result = bridge::invoke(&mut self.player.lock().unwrap(), "player.isLoaded", vec![])
+            .and_then(|value| match value {
+                Value::Bool(value) => Ok(value),
+                _ => Err(Error::Unavailable(
+                    "expected boolean player.isLoaded reply".into(),
+                )),
+            });
+        self.drain_events();
+        let mut projection = self.projection.write();
+        if projection.readiness.epoch == readiness.epoch
+            && self.profile_area == area
+            && projection.readiness.needs_confirmation()
+        {
+            match result {
+                Ok(loaded) => {
+                    projection.readiness.avatar = if loaded {
+                        crate::projection::Avatar::Loaded
+                    } else {
+                        crate::projection::Avatar::Loading
+                    };
+                    if self.readiness_failed {
+                        tracing::info!("player readiness confirmation recovered");
+                        self.readiness_failed = false;
+                    }
+                }
+                Err(error) => {
+                    if !self.readiness_failed {
+                        tracing::warn!("player readiness confirmation failed: {error}");
+                    }
+                    self.readiness_failed = true;
+                }
+            }
+        }
+        drop(projection);
+        self.publish_readiness();
+        self.projection
+            .read()
+            .readiness
+            .needs_confirmation()
+            .then_some(now + INTERVAL)
     }
 
     fn stop_attacking_countered(&mut self, monster_map_id: i64) {
@@ -239,6 +313,9 @@ mod tests {
                 auto_zone: Default::default(),
                 changes: Default::default(),
                 settings_applied: false,
+                published_readiness: Default::default(),
+                last_confirmation: None,
+                readiness_failed: false,
                 rejected_settings: Default::default(),
                 operation_packets: Default::default(),
                 loader_events,
@@ -1034,6 +1111,115 @@ mod tests {
                 assert_eq!(events.try_recv().unwrap(), Some(ScriptEvent::Invalidated));
                 assert_eq!(events.try_recv().unwrap(), None);
             }
+        }
+    }
+    #[test]
+    fn readiness_edges_are_published_once_and_never_while_steady() {
+        use crate::projection::Avatar;
+        let (mut running, bridge, _) = running(32, 32);
+        let (sender, events) = script_events(
+            32,
+            crate::bridge::EventInterests::new(&[crate::bridge::EventKind::Readiness]),
+        );
+        running.script_events = vec![(crate::sessions::AttachmentId(0), sender)];
+        running.projection.write().auth.username = "player-a".into();
+        queue(&mut running, &bridge, "onConnection", "OnConnection".into());
+        running.drain_events();
+        assert_eq!(events.try_recv().unwrap(), None);
+        area(&mut running, &bridge);
+        extension(
+            &mut running,
+            &bridge,
+            json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
+        );
+        running.drain_events();
+        assert_eq!(events.try_recv().unwrap(), None);
+        running.projection.write().readiness.avatar = Avatar::Loading;
+        running.publish_readiness();
+        assert_eq!(
+            events.try_recv().unwrap(),
+            Some(ScriptEvent::Readiness {
+                epoch: 1,
+                can_act: false
+            })
+        );
+        running.projection.write().readiness.avatar = Avatar::Loaded;
+        running.publish_readiness();
+        assert_eq!(
+            events.try_recv().unwrap(),
+            Some(ScriptEvent::Readiness {
+                epoch: 1,
+                can_act: true
+            })
+        );
+        for _ in 0..3 {
+            queue(&mut running, &bridge, "onDebug", "steady".into());
+            running.drain_events();
+        }
+        assert_eq!(events.try_recv().unwrap(), None);
+        area(&mut running, &bridge);
+        running.drain_events();
+        assert_eq!(running.projection.read().readiness.avatar, Avatar::Unknown);
+        assert_eq!(
+            events.try_recv().unwrap(),
+            Some(ScriptEvent::Readiness {
+                epoch: 1,
+                can_act: false
+            })
+        );
+        assert_eq!(events.try_recv().unwrap(), None);
+    }
+
+    #[test]
+    fn connection_loss_and_overflow_cancel_scheduled_avatar_reads() {
+        use crate::projection::Avatar;
+        for overflow in [false, true] {
+            let (mut running, bridge, _) = running(4, 32);
+            running.projection.write().auth.username = "player-a".into();
+            queue(&mut running, &bridge, "onConnection", "OnConnection".into());
+            running.drain_events();
+            area(&mut running, &bridge);
+            extension(
+                &mut running,
+                &bridge,
+                json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
+            );
+            running.drain_events();
+            let now = Instant::now();
+            assert_eq!(
+                running.confirm_readiness(now),
+                Some(now + Duration::from_millis(100))
+            );
+            assert_eq!(running.last_confirmation, Some(now));
+            assert_eq!(
+                running.confirm_readiness(now + Duration::from_millis(99)),
+                Some(now + Duration::from_millis(100))
+            );
+            assert_eq!(running.last_confirmation, Some(now));
+            if overflow {
+                for _ in 0..5 {
+                    queue(&mut running, &bridge, "onDebug", "overflow".into());
+                }
+            } else {
+                queue(
+                    &mut running,
+                    &bridge,
+                    "onConnection",
+                    "OnConnectionLost".into(),
+                );
+            }
+            running.drain_events();
+            let readiness = running.projection.read().readiness;
+            assert_eq!(readiness.epoch, 2);
+            assert_eq!(readiness.connected, overflow);
+            assert!(!readiness.facts);
+            assert_eq!(readiness.avatar, Avatar::Unknown);
+            assert!(!readiness.can_act());
+            assert_eq!(
+                running.confirm_readiness(now + Duration::from_secs(1)),
+                None
+            );
+            assert_eq!(running.last_confirmation, Some(now));
         }
     }
 }

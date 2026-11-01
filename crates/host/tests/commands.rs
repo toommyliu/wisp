@@ -848,9 +848,10 @@ fn settings_movie() -> ProbeMovie {
         "settings.skipCutscenes",
     ]
     .into_iter()
-    .fold(ProbeMovie::new(), |movie, name| {
-        movie.recording_when_ready(name)
-    })
+    .fold(
+        ProbeMovie::new().constant("player.isLoaded", json!(true)),
+        |movie, name| movie.recording_when_ready(name),
+    )
 }
 
 fn start_settings() -> (lucent_host::Host, lucent_host::Session, ScriptLink) {
@@ -862,12 +863,29 @@ fn start_settings() -> (lucent_host::Host, lucent_host::Session, ScriptLink) {
     link.call_loader("probe.ready", vec![])
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
+    emit(&link, "onConnection", "OnConnection".into());
     become_ready(&link);
+    await_settings_ready(&link);
+    loader_calls(&link);
+    (host, session, link)
+}
+
+fn await_settings_ready(link: &ScriptLink) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match link.try_event().unwrap() {
+            Some(lucent_host::bridge::ScriptEvent::Readiness { can_act: true, .. }) => break,
+            Some(_) => {}
+            None => {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                assert!(!remaining.is_zero(), "settings did not become ready");
+                std::thread::park_timeout(remaining);
+            }
+        }
+    }
     link.call_loader("probe.echo", vec![])
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
-    loader_calls(&link);
-    (host, session, link)
 }
 
 fn loader_calls(link: &ScriptLink) -> Vec<Value> {
@@ -1105,6 +1123,7 @@ fn a_restarted_player_gets_the_stored_settings() {
         .call_loader("probe.ready", vec![])
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
+    emit(&current, "onConnection", "OnConnection".into());
     enter_area(&current, "testroom-1");
     packet(&current, json!({"cmd": "initInventory", "items": []}));
     assert_eq!(
@@ -1113,10 +1132,7 @@ fn a_restarted_player_gets_the_stored_settings() {
     );
     assert_eq!(loader_calls(&current), Vec::<Value>::new());
     packet(&current, json!({"cmd": "loadHouseInventory", "items": []}));
-    current
-        .call_loader("probe.echo", vec![])
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    await_settings_ready(&current);
     let calls = loader_calls(&current);
     assert!(calls.contains(&json!(["settings.setWalkSpeed", 20.0])));
     assert!(calls.contains(&json!(["settings.setCustomGuild", "Lucent"])));
@@ -1158,10 +1174,9 @@ fn settings_updated_before_the_first_viewport_are_stored_and_applied_when_ready(
     link.call_loader("probe.ready", vec![])
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
+    emit(&link, "onConnection", "OnConnection".into());
     become_ready(&link);
-    link.call_loader("probe.echo", vec![])
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap();
+    await_settings_ready(&link);
     let calls = loader_calls(&link);
     assert!(calls.contains(&json!(["settings.setWalkSpeed", 20.0])));
     assert!(calls.contains(&json!(["settings.setCustomName", "Tommy"])));

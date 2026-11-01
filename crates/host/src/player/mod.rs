@@ -414,6 +414,9 @@ struct Running {
     auto_zone: Arc<RwLock<AutoZoneConfig>>,
     changes: Arc<crate::sessions::Changes>,
     settings_applied: bool,
+    published_readiness: crate::projection::PlayerReadiness,
+    last_confirmation: Option<Instant>,
+    readiness_failed: bool,
     rejected_settings: HashSet<&'static str>,
     operation_packets: Arc<crate::sessions::operations::Packets>,
     loader_events: Events,
@@ -471,6 +474,9 @@ impl Running {
             auto_zone: options.auto_zone,
             changes: options.changes,
             settings_applied: false,
+            published_readiness: Default::default(),
+            last_confirmation: None,
+            readiness_failed: false,
             rejected_settings: HashSet::new(),
             operation_packets,
             loader_events,
@@ -548,6 +554,8 @@ impl Running {
             Msg::StopProfile(binding) => self.stop_profile(binding),
             Msg::Command(command, reply) => {
                 let result = self.command(command);
+                self.projection.write().refresh_readiness(false);
+                self.publish_readiness();
                 let _ = reply.send(result);
             }
             Msg::Mute(muted) => self.set_muted(muted),
@@ -623,7 +631,9 @@ impl Running {
         let wait = player.time_til_next_frame();
         drop(player);
         self.drain_events();
-        wait
+        self.confirm_readiness(Instant::now()).map_or(wait, |at| {
+            wait.min(at.saturating_duration_since(Instant::now()))
+        })
     }
 }
 
@@ -639,6 +649,9 @@ mod tests {
             auto_zone: Arc::default(),
             changes: Arc::default(),
             settings_applied: false,
+            published_readiness: Default::default(),
+            last_confirmation: None,
+            readiness_failed: false,
             rejected_settings: HashSet::new(),
             loader_events,
             script_events: Vec::new(),

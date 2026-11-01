@@ -201,6 +201,10 @@ pub enum ScriptEvent {
         event: Event,
         projected: Vec<ProjectionEvent>,
     },
+    Readiness {
+        epoch: u64,
+        can_act: bool,
+    },
     Invalidated,
     Operation {
         id: u64,

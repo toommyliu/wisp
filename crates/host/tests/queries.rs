@@ -498,6 +498,7 @@ fn readiness_reports_every_key_missing_until_area_and_baselines_arrive() {
         query(&link, json!({"kind": "readiness"})),
         json!({
             "epoch": 0,
+            "canAct": false,
             "failures": {},
             "missing": ["houseInventory", "inventory", "map", "player"],
             "state": {"houseInventory": false, "inventory": false, "map": false, "player": false}
@@ -513,6 +514,7 @@ fn readiness_reports_every_key_missing_until_area_and_baselines_arrive() {
         query(&link, json!({"kind": "readiness"})),
         json!({
             "epoch": 0,
+            "canAct": false,
             "failures": {},
             "missing": [],
             "state": {"houseInventory": true, "inventory": true, "map": true, "player": true}

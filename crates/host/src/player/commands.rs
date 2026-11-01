@@ -269,6 +269,8 @@ impl Running {
                 let result = self.invoke_command("auth.logout", vec![]);
                 let output = self.commit_command(|projection| {
                     projection.auth.clear();
+                    projection.connected = Some(false);
+                    projection.refresh_readiness(false);
                     Ok(())
                 })?;
                 result.map(|_| output)

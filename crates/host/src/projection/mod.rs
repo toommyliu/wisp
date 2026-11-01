@@ -20,7 +20,7 @@ pub mod world;
 
 pub use item::decode_item;
 pub use items::{ItemStore, LiveItem};
-pub use readiness::{ReadinessKey, ReadinessReceipts, ReadinessSnapshot};
+pub use readiness::{Avatar, PlayerReadiness, ReadinessKey, ReadinessReceipts, ReadinessSnapshot};
 
 pub use auth::AuthState;
 use lucent_protocol::{Packet, PacketDirection, event::ProjectionEvent, item::ItemContainer};
@@ -53,6 +53,7 @@ pub struct Projection {
     pub auth: AuthState,
     pub items: ItemStore,
     pub receipts: ReadinessReceipts,
+    pub readiness: PlayerReadiness,
     pub quests: quests::QuestStore,
     pub shops: shops::ShopStore,
     pub world: world::WorldStore,
@@ -102,16 +103,34 @@ impl Projection {
     }
 
     pub fn readiness(&self, map_name: &str, self_bound: bool) -> ReadinessSnapshot {
-        self.receipts.inspect(
+        let mut snapshot = self.receipts.inspect(
             self.items.hydration(ItemContainer::House) > 0,
             self.items.hydration(ItemContainer::Inventory) > 0,
             map_name,
             self_bound,
-        )
+        );
+        snapshot.can_act = self.readiness.can_act();
+        snapshot
     }
 
     pub fn current_readiness(&self) -> ReadinessSnapshot {
         self.readiness(&self.world.map.name, self.world.get_me().is_some())
+    }
+
+    pub(crate) fn refresh_readiness(&mut self, joined: bool) {
+        let epoch = self.receipts.epoch();
+        let connected = self.connected == Some(true);
+        let avatar = if joined || epoch != self.readiness.epoch || !connected {
+            Avatar::Unknown
+        } else {
+            self.readiness.avatar
+        };
+        self.readiness = PlayerReadiness {
+            epoch,
+            connected,
+            facts: self.current_readiness().missing.is_empty(),
+            avatar,
+        };
     }
 
     pub fn packet(

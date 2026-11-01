@@ -106,6 +106,10 @@ impl ScriptLink {
         }
     }
 
+    pub(crate) fn projection_handle(&self) -> Arc<RwLock<Projection>> {
+        self.projection.clone()
+    }
+
     pub(crate) fn inbox(&self) -> Inbox {
         self.inbox.clone()
     }

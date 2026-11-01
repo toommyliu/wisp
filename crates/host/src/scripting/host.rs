@@ -151,6 +151,11 @@ pub(crate) enum Item {
         args: serde_json::Value,
         projected: Vec<ProjectionEvent>,
     },
+    Readiness {
+        epoch: u64,
+        #[serde(rename = "canAct")]
+        can_act: bool,
+    },
     Invalidated,
     Operation {
         id: String,
@@ -199,6 +204,7 @@ impl From<ScriptEvent> for Item {
                 projected,
             },
             ScriptEvent::Invalidated => Item::Invalidated,
+            ScriptEvent::Readiness { epoch, can_act } => Item::Readiness { epoch, can_act },
             ScriptEvent::Operation { id, answer } => match answer {
                 Ok(answer) => Item::Operation {
                     id: id.to_string(),
