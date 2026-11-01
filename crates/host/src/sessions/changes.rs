@@ -17,6 +17,9 @@ impl Changes {
         }
     }
     pub fn set<T: PartialEq>(&self, record: &RwLock<T>, next: T) {
+        if *record.read() == next {
+            return;
+        }
         let mut record = record.write();
         if *record == next {
             return;
