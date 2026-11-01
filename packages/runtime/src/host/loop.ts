@@ -15,6 +15,9 @@ import type { ScriptSource } from "../game/scripting/ScriptRunner";
 
 declare global {
   var __host: {
+    url(input: string, base?: string, key?: string, value?: string): string | undefined;
+    form(input: string, serialize: boolean): string;
+    decode(bytes: Uint8Array, fatal: boolean, ignoreBOM: boolean): string | undefined;
     swf(method: string, argsJson: string): string | undefined;
     read(queryJson: string): string;
     command(commandJson: string): string;

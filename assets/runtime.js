@@ -3,6 +3,370 @@
   var __defProp = Object.defineProperty;
   var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
+  // packages/runtime/src/host/web.ts
+  var host = typeof __host === "undefined" ? void 0 : __host;
+  var text = /* @__PURE__ */ __name((value) => `${value}`.toWellFormed(), "text");
+  var requireArguments = /* @__PURE__ */ __name((actual, required) => {
+    if (actual < required) throw new TypeError("Not enough arguments");
+  }, "requireArguments");
+  var bindParams;
+  var replaceParams;
+  var URLSearchParams2 = class _URLSearchParams {
+    static {
+      __name(this, "URLSearchParams");
+    }
+    #pairs = [];
+    #changed;
+    constructor(init = "") {
+      if (typeof init === "object" && init !== null) {
+        if (Symbol.iterator in init) {
+          for (const pair of init) {
+            if (typeof pair !== "object" || pair === null)
+              throw new TypeError("Expected a name/value pair");
+            const entry = [...pair];
+            if (entry.length !== 2)
+              throw new TypeError("Expected a name/value pair");
+            this.#pairs.push([text(entry[0]), text(entry[1])]);
+          }
+        } else
+          this.#pairs = Object.entries(init).map(([k, v]) => [text(k), text(v)]);
+      } else
+        this.#pairs = JSON.parse(
+          host.form(text(init).replace(/^\?/, ""), false)
+        );
+    }
+    get size() {
+      return this.#pairs.length;
+    }
+    append(name, value) {
+      requireArguments(arguments.length, 2);
+      this.#pairs.push([text(name), text(value)]);
+      this.#notify();
+    }
+    delete(name, value) {
+      requireArguments(arguments.length, 1);
+      name = text(name);
+      if (value !== void 0) value = text(value);
+      this.#pairs = this.#pairs.filter(
+        ([k, v]) => k !== name || value !== void 0 && v !== value
+      );
+      this.#notify();
+    }
+    get(name) {
+      requireArguments(arguments.length, 1);
+      return this.#pairs.find(([k]) => k === text(name))?.[1] ?? null;
+    }
+    getAll(name) {
+      requireArguments(arguments.length, 1);
+      name = text(name);
+      return this.#pairs.filter(([k]) => k === name).map(([, v]) => v);
+    }
+    has(name, value) {
+      requireArguments(arguments.length, 1);
+      name = text(name);
+      if (value !== void 0) value = text(value);
+      return this.#pairs.some(
+        ([k, v]) => k === name && (value === void 0 || v === value)
+      );
+    }
+    set(name, value) {
+      requireArguments(arguments.length, 2);
+      name = text(name);
+      value = text(value);
+      const index = this.#pairs.findIndex(([k]) => k === name);
+      if (index < 0) this.#pairs.push([name, value]);
+      else {
+        this.#pairs[index] = [name, value];
+        this.#pairs = this.#pairs.filter(([k], i) => k !== name || i === index);
+      }
+      this.#notify();
+    }
+    sort() {
+      this.#pairs.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+      this.#notify();
+    }
+    *entries() {
+      for (let i = 0; i < this.#pairs.length; i++)
+        yield [...this.#pairs[i]];
+    }
+    *keys() {
+      for (const [k] of this.entries()) yield k;
+    }
+    *values() {
+      for (const [, v] of this.entries()) yield v;
+    }
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+    forEach(callback3, thisArg) {
+      if (typeof callback3 !== "function")
+        throw new TypeError("Callback must be a function");
+      for (const [k, v] of this) callback3.call(thisArg, v, k, this);
+    }
+    toString() {
+      return host.form(JSON.stringify(this.#pairs), true);
+    }
+    #notify() {
+      this.#changed?.(this.toString());
+    }
+    static {
+      bindParams = /* @__PURE__ */ __name((params, changed) => {
+        params.#changed = changed;
+      }, "bindParams");
+      replaceParams = /* @__PURE__ */ __name((params, search) => {
+        params.#pairs = new _URLSearchParams(search).#pairs;
+      }, "replaceParams");
+    }
+  };
+  var URL2 = class _URL {
+    static {
+      __name(this, "URL");
+    }
+    #parts;
+    #params;
+    constructor(input, base) {
+      this.#parts = _URL.#parse(
+        text(input),
+        base === void 0 ? void 0 : text(base)
+      );
+      this.#params = new URLSearchParams2(this.#parts.search);
+      bindParams(this.#params, (search) => {
+        this.#parts = _URL.#parse(this.href, void 0, "search", search);
+      });
+    }
+    static #parse(input, base, key, value) {
+      const result2 = host.url(input, base, key, value);
+      if (result2 === void 0) throw new TypeError("Invalid URL");
+      return JSON.parse(result2);
+    }
+    #set(key, value) {
+      this.#parts = _URL.#parse(this.href, void 0, key, text(value));
+      replaceParams(this.#params, this.search);
+    }
+    get searchParams() {
+      return this.#params;
+    }
+    get href() {
+      return this.#parts.href;
+    }
+    set href(value) {
+      this.#set("href", value);
+    }
+    get origin() {
+      return this.#parts.origin;
+    }
+    get protocol() {
+      return this.#parts.protocol;
+    }
+    set protocol(value) {
+      this.#set("protocol", value);
+    }
+    get username() {
+      return this.#parts.username;
+    }
+    set username(value) {
+      this.#set("username", value);
+    }
+    get password() {
+      return this.#parts.password;
+    }
+    set password(value) {
+      this.#set("password", value);
+    }
+    get host() {
+      return this.#parts.host;
+    }
+    set host(value) {
+      this.#set("host", value);
+    }
+    get hostname() {
+      return this.#parts.hostname;
+    }
+    set hostname(value) {
+      this.#set("hostname", value);
+    }
+    get port() {
+      return this.#parts.port;
+    }
+    set port(value) {
+      this.#set("port", value);
+    }
+    get pathname() {
+      return this.#parts.pathname;
+    }
+    set pathname(value) {
+      this.#set("pathname", value);
+    }
+    get search() {
+      return this.#parts.search;
+    }
+    set search(value) {
+      this.#set("search", value);
+    }
+    get hash() {
+      return this.#parts.hash;
+    }
+    set hash(value) {
+      this.#set("hash", value);
+    }
+    toString() {
+      return this.href;
+    }
+    toJSON() {
+      return this.href;
+    }
+    static parse(input, base) {
+      requireArguments(arguments.length, 1);
+      const value = text(input);
+      const relative = base === void 0 ? void 0 : text(base);
+      try {
+        return new _URL(value, relative);
+      } catch {
+        return null;
+      }
+    }
+    static canParse(input, base) {
+      requireArguments(arguments.length, 1);
+      const value = text(input);
+      const relative = base === void 0 ? void 0 : text(base);
+      return host.url(value, relative) !== void 0;
+    }
+  };
+  var TextDecoder2 = class {
+    static {
+      __name(this, "TextDecoder");
+    }
+    #fatal;
+    #ignoreBOM;
+    get encoding() {
+      return "utf-8";
+    }
+    get fatal() {
+      return this.#fatal;
+    }
+    get ignoreBOM() {
+      return this.#ignoreBOM;
+    }
+    constructor(label = "utf-8", options = {}) {
+      if (!["utf-8", "utf8"].includes(
+        text(label).replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "").toLowerCase()
+      ))
+        throw new RangeError("Unsupported encoding");
+      this.#fatal = Boolean(options.fatal);
+      this.#ignoreBOM = Boolean(options.ignoreBOM);
+    }
+    decode(input, options = {}) {
+      if (options.stream)
+        throw new TypeError("Streaming decoding is unsupported");
+      let bytes;
+      if (input === void 0) bytes = new Uint8Array();
+      else if (ArrayBuffer.isView(input))
+        bytes = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+      else if (input instanceof ArrayBuffer) bytes = new Uint8Array(input);
+      else throw new TypeError("Expected an ArrayBuffer or view");
+      const decoded = host.decode(bytes, this.#fatal, this.#ignoreBOM);
+      if (decoded === void 0)
+        throw new TypeError("The encoded data was not valid UTF-8");
+      return decoded;
+    }
+  };
+  var headerText = /* @__PURE__ */ __name((value) => {
+    const result2 = `${value}`;
+    if (/[^\x00-\xff]/.test(result2)) throw new TypeError("Expected a ByteString");
+    return result2;
+  }, "headerText");
+  var headerName = /* @__PURE__ */ __name((name) => {
+    name = headerText(name);
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name))
+      throw new TypeError("Invalid header name");
+    return name.toLowerCase();
+  }, "headerName");
+  var headerValue = /* @__PURE__ */ __name((value) => {
+    value = headerText(value).replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, "");
+    if (/[\0\r\n]/.test(value)) throw new TypeError("Invalid header value");
+    return value;
+  }, "headerValue");
+  var Headers = class {
+    static {
+      __name(this, "Headers");
+    }
+    #values = /* @__PURE__ */ new Map();
+    #sorted;
+    constructor(init = []) {
+      const entries = Symbol.iterator in init ? init : Object.entries(init);
+      for (const pair of entries) {
+        if (typeof pair !== "object" || pair === null)
+          throw new TypeError("Expected a name/value pair");
+        const entry = [...pair];
+        if (entry.length !== 2) throw new TypeError("Expected a name/value pair");
+        this.append(entry[0], entry[1]);
+      }
+    }
+    append(name, value) {
+      requireArguments(arguments.length, 2);
+      name = headerName(name);
+      value = headerValue(value);
+      const values = this.#values.get(name) ?? [];
+      values.push(value);
+      this.#values.set(name, values);
+      this.#sorted = void 0;
+    }
+    delete(name) {
+      requireArguments(arguments.length, 1);
+      this.#values.delete(headerName(name));
+      this.#sorted = void 0;
+    }
+    get(name) {
+      requireArguments(arguments.length, 1);
+      name = headerName(name);
+      return this.#values.get(name)?.join(name === "cookie" ? "; " : ", ") ?? null;
+    }
+    has(name) {
+      requireArguments(arguments.length, 1);
+      return this.#values.has(headerName(name));
+    }
+    set(name, value) {
+      requireArguments(arguments.length, 2);
+      name = headerName(name);
+      value = headerValue(value);
+      this.#values.set(name, [value]);
+      this.#sorted = void 0;
+    }
+    getSetCookie() {
+      return [...this.#values.get("set-cookie") ?? []];
+    }
+    *entries() {
+      let index = 0;
+      while (true) {
+        const pairs = this.#sorted ??= [...this.#values.keys()].sort().flatMap(
+          (key) => key === "set-cookie" ? this.#values.get(key).map((value) => [key, value]) : [
+            [
+              key,
+              this.#values.get(key).join(key === "cookie" ? "; " : ", ")
+            ]
+          ]
+        );
+        const pair = pairs[index++];
+        if (!pair) return;
+        yield [...pair];
+      }
+    }
+    *keys() {
+      for (const [k] of this) yield k;
+    }
+    *values() {
+      for (const [, v] of this) yield v;
+    }
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+    forEach(callback3, thisArg) {
+      if (typeof callback3 !== "function")
+        throw new TypeError("Callback must be a function");
+      for (const [k, v] of this) callback3.call(thisArg, v, k, this);
+    }
+  };
+
   // packages/runtime/src/host/globals.ts
   var Event = class {
     static {
@@ -169,8 +533,8 @@
       }
     }
   }, "format");
-  var host = typeof __host === "undefined" ? void 0 : __host;
-  var log = /* @__PURE__ */ __name((level) => (...values) => host?.log(level, values.map(format).join(" ")), "log");
+  var host2 = typeof __host === "undefined" ? void 0 : __host;
+  var log = /* @__PURE__ */ __name((level) => (...values) => host2?.log(level, values.map(format).join(" ")), "log");
   var runtimeConsole = Object.freeze({
     log: log("info"),
     info: log("info"),
@@ -180,6 +544,10 @@
   });
   if (typeof __host !== "undefined") {
     Object.assign(globalThis, {
+      URL: URL2,
+      URLSearchParams: URLSearchParams2,
+      TextDecoder: TextDecoder2,
+      Headers,
       Event,
       EventTarget,
       AbortController: AbortController2,
@@ -5218,12 +5586,12 @@ ${prefix}}`;
 
   // packages/runtime/src/host/operations.ts
   var operations = /* @__PURE__ */ new Map();
-  var operate = /* @__PURE__ */ __name((operation, host3, queueDeadline = Date.now() + 5e3) => callback2((resume) => {
+  var operate = /* @__PURE__ */ __name((operation, host4, queueDeadline = Date.now() + 5e3) => callback2((resume) => {
     let id;
     let json2;
     try {
       json2 = JSON.stringify(operation);
-      id = host3.prepareOperation();
+      id = host4.prepareOperation();
     } catch (cause) {
       resume(fail5(cause instanceof Error ? cause : new Error(String(cause))));
       return;
@@ -5233,7 +5601,7 @@ ${prefix}}`;
       if (pending2 === void 0) return;
       operations.delete(id);
       clearTimeout(pending2.timeout);
-      host3.cancelOperation(id);
+      host4.cancelOperation(id);
     }, "cancel");
     const complete = /* @__PURE__ */ __name((answer, error) => {
       const pending2 = operations.get(id);
@@ -5254,7 +5622,7 @@ ${prefix}}`;
       timeout: requiresIssuance ? setTimeout(() => fail7(new Error("The equip permit timed out")), Math.max(0, queueDeadline - Date.now())) : void 0
     });
     try {
-      host3.operate(id, json2);
+      host4.operate(id, json2);
     } catch (cause) {
       fail7(cause instanceof Error ? cause : new Error(String(cause)));
     }
@@ -5284,12 +5652,12 @@ ${prefix}}`;
 
   // packages/runtime/src/host/io.ts
   var pending = /* @__PURE__ */ new Map();
-  var requestIo = /* @__PURE__ */ __name((host3, request, signal) => new Promise((resolve3, reject) => {
+  var requestIo = /* @__PURE__ */ __name((host4, request, signal) => new Promise((resolve3, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
       return;
     }
-    const submitted = JSON.parse(host3.requestIo(JSON.stringify(request)));
+    const submitted = JSON.parse(host4.requestIo(JSON.stringify(request)));
     if ("result" in submitted) {
       resolve3(submitted.result);
       return;
@@ -5298,7 +5666,7 @@ ${prefix}}`;
     const cancel = /* @__PURE__ */ __name(() => {
       pending.delete(id);
       signal?.removeEventListener("abort", cancel);
-      host3.cancelIo(id);
+      host4.cancelIo(id);
       reject(signal?.reason);
     }, "cancel");
     pending.set(id, (result2) => {
@@ -5315,15 +5683,15 @@ ${prefix}}`;
   // packages/runtime/src/host/jobs.ts
   var profileJobHost = globalThis.__host;
   var jobs = /* @__PURE__ */ new Map();
-  var startProfileJob = /* @__PURE__ */ __name((request, host3) => gen2(function* () {
+  var startProfileJob = /* @__PURE__ */ __name((request, host4) => gen2(function* () {
     const id = yield* acquireRelease2(
       sync2(() => {
-        const id2 = host3.startJob(JSON.stringify(request));
+        const id2 = host4.startJob(JSON.stringify(request));
         jobs.set(id2, { listeners: /* @__PURE__ */ new Set() });
         return id2;
       }),
       (id2) => sync2(() => {
-        host3.cancelJob(id2);
+        host4.cancelJob(id2);
         jobs.delete(id2);
       })
     );
@@ -5380,14 +5748,14 @@ ${prefix}}`;
   }, "failJobs");
 
   // packages/runtime/src/host/loop.ts
-  var host2 = __host;
+  var host3 = __host;
   var timers = /* @__PURE__ */ new Map();
   var nextId = 1;
   var schedule = /* @__PURE__ */ __name((callback3, delay3, args2, repeat4) => {
     const ms = Math.max(0, Number(delay3) || 0);
     const timer = {
       id: nextId++,
-      at: host2.now() + ms,
+      at: host3.now() + ms,
       callback: /* @__PURE__ */ __name(() => callback3(...args2), "callback"),
       ...repeat4 ? { repeat: ms } : {}
     };
@@ -5405,7 +5773,7 @@ ${prefix}}`;
     }
   }, "describe");
   var turn = /* @__PURE__ */ __name((itemsJson) => {
-    const now = host2.now();
+    const now = host3.now();
     const due = [...timers.values()].filter((timer) => timer.at <= now).sort((a, b) => a.at - b.at || a.id - b.id);
     const errors = [];
     const invoke = /* @__PURE__ */ __name((callback3) => {
@@ -5456,7 +5824,7 @@ ${prefix}}`;
       if (timer.repeat === void 0) {
         timers.delete(timer.id);
       } else {
-        timers.set(timer.id, { ...timer, at: host2.now() + timer.repeat });
+        timers.set(timer.id, { ...timer, at: host3.now() + timer.repeat });
       }
       invoke(timer.callback);
     }
@@ -5480,7 +5848,7 @@ ${prefix}}`;
     get(_target, method) {
       if (typeof method === "string") {
         return (...args2) => {
-          const reply = host2.swf(method, JSON.stringify(args2));
+          const reply = host3.swf(method, JSON.stringify(args2));
           return reply === void 0 ? void 0 : JSON.parse(reply);
         };
       }
@@ -9001,7 +9369,7 @@ ${prefix}}`;
   var URLString = /* @__PURE__ */ String4.annotate({
     expected: "a string that will be decoded as a URL"
   });
-  var URL2 = /* @__PURE__ */ instanceOf(globalThis.URL, {
+  var URL3 = /* @__PURE__ */ instanceOf(globalThis.URL, {
     representation: {
       id: "effect/schema/URL",
       payload: null
@@ -9113,7 +9481,7 @@ ${prefix}}`;
       }, "encode")
     })), "toCodecJson")
   });
-  var URLSearchParams2 = /* @__PURE__ */ instanceOf(globalThis.URLSearchParams, {
+  var URLSearchParams3 = /* @__PURE__ */ instanceOf(globalThis.URLSearchParams, {
     representation: {
       id: "effect/schema/URLSearchParams",
       payload: null
@@ -12171,15 +12539,15 @@ ${prefix}}`;
   var layer3 = effect(
     HostState,
     gen2(function* () {
-      const host3 = __host;
+      const host4 = __host;
       const diagnosticSink = yield* DiagnosticSink;
       const read = /* @__PURE__ */ __name((query) => sync2(
-        () => JSON.parse(host3.read(JSON.stringify(query)))
+        () => JSON.parse(host4.read(JSON.stringify(query)))
       ), "read");
       const command = /* @__PURE__ */ __name((command2) => sync2(() => {
         try {
           return some2(
-            JSON.parse(host3.command(JSON.stringify(command2)))
+            JSON.parse(host4.command(JSON.stringify(command2)))
           );
         } catch (cause) {
           diagnosticSink.report(
@@ -12203,12 +12571,12 @@ ${prefix}}`;
     const fields = selector;
     return isFiniteNumber(fields["shopItemId"]) || isFiniteNumber(fields["itemId"]) || isFiniteNumber(fields["monsterMapId"]) || typeof fields["name"] === "string";
   }, "isSelectable");
-  var readItem = /* @__PURE__ */ __name((host3, container2, selector) => isSelectable(selector) ? host3.read({ kind: "item", container: container2, selector }).pipe(map5((item) => item === null ? null : toLiveItem(item))) : succeed7(null), "readItem");
-  var readItems = /* @__PURE__ */ __name((host3, container2) => host3.read({ kind: "items", container: container2 }).pipe(map5((items) => items.map(toLiveItem))), "readItems");
-  var itemQuantity = /* @__PURE__ */ __name((host3, container2, selector) => readItem(host3, container2, selector).pipe(
+  var readItem = /* @__PURE__ */ __name((host4, container2, selector) => isSelectable(selector) ? host4.read({ kind: "item", container: container2, selector }).pipe(map5((item) => item === null ? null : toLiveItem(item))) : succeed7(null), "readItem");
+  var readItems = /* @__PURE__ */ __name((host4, container2) => host4.read({ kind: "items", container: container2 }).pipe(map5((items) => items.map(toLiveItem))), "readItems");
+  var itemQuantity = /* @__PURE__ */ __name((host4, container2, selector) => readItem(host4, container2, selector).pipe(
     map5((item) => item?.quantity ?? 0)
   ), "itemQuantity");
-  var isHydrated = /* @__PURE__ */ __name((host3, container2) => host3.read({ kind: "itemHydration", container: container2 }).pipe(map5((version) => version > 0)), "isHydrated");
+  var isHydrated = /* @__PURE__ */ __name((host4, container2) => host4.read({ kind: "itemHydration", container: container2 }).pipe(map5((version) => version > 0)), "isHydrated");
 
   // packages/runtime/src/game/flash/api/Auth.ts
   var Credentials = Struct({
@@ -12233,9 +12601,9 @@ ${prefix}}`;
   var decodeCredentials = decodeUnknownOption2(Credentials);
   var temporaryKickFallbackMs = 6e4;
   var temporaryKickMaximumMs = 7e4;
-  var makeAuth = /* @__PURE__ */ __name((bridge, host3, wait) => {
-    const cached2 = host3.read({ kind: "auth" });
-    const loggedIn = host3.command({ kind: "refreshLoggedIn" }).pipe(
+  var makeAuth = /* @__PURE__ */ __name((bridge, host4, wait) => {
+    const cached2 = host4.read({ kind: "auth" });
+    const loggedIn = host4.command({ kind: "refreshLoggedIn" }).pipe(
       flatMap3(
         match({
           onNone: /* @__PURE__ */ __name(() => cached2.pipe(map5((auth) => auth.loggedIn)), "onNone"),
@@ -12243,7 +12611,7 @@ ${prefix}}`;
         })
       )
     );
-    const currentCredentials = host3.command({ kind: "refreshCredentials" }).pipe(
+    const currentCredentials = host4.command({ kind: "refreshCredentials" }).pipe(
       flatMap3(
         match({
           onNone: /* @__PURE__ */ __name(() => cached2, "onNone"),
@@ -12327,7 +12695,7 @@ ${prefix}}`;
       });
     }, "connectTo");
     const getPassword = /* @__PURE__ */ __name(() => currentCredentials.pipe(map5((current) => current.password)), "getPassword");
-    const getServers = /* @__PURE__ */ __name(() => host3.command({ kind: "refreshServers" }).pipe(
+    const getServers = /* @__PURE__ */ __name(() => host4.command({ kind: "refreshServers" }).pipe(
       flatMap3(
         match({
           onNone: /* @__PURE__ */ __name(() => cached2.pipe(map5((auth) => auth.servers)), "onNone"),
@@ -12350,7 +12718,7 @@ ${prefix}}`;
       }
       return waitForTemporaryKickClear.pipe(
         flatMap3(
-          (ready) => ready ? host3.command({
+          (ready) => ready ? host4.command({
             kind: "login",
             username: credentials.value.username,
             password: credentials.value.password
@@ -12358,7 +12726,7 @@ ${prefix}}`;
         )
       );
     }, "login");
-    const logout = /* @__PURE__ */ __name(() => host3.command({ kind: "logout" }), "logout");
+    const logout = /* @__PURE__ */ __name(() => host4.command({ kind: "logout" }), "logout");
     return {
       connectTo,
       getPassword,
@@ -12514,18 +12882,18 @@ ${prefix}}`;
       (current) => current !== null ? succeed7(true) : house.getAvailableSlots().pipe(map5((available) => available > 0))
     )
   ), "houseCanAccept");
-  var makeBank = fnUntraced2(function* (bridge, host3, auth, inventory, house, wait) {
+  var makeBank = fnUntraced2(function* (bridge, host4, auth, inventory, house, wait) {
     const loads = yield* make15(1);
     const opens = yield* make15(1);
     const isOpen = /* @__PURE__ */ __name(() => bridge.invoke("bank.isOpen", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isOpen");
-    const getAll = /* @__PURE__ */ __name(() => isHydrated(host3, "bank").pipe(
+    const getAll = /* @__PURE__ */ __name(() => isHydrated(host4, "bank").pipe(
       flatMap3(
-        (hydrated) => hydrated ? readItems(host3, "bank") : succeed7([])
+        (hydrated) => hydrated ? readItems(host4, "bank") : succeed7([])
       )
     ), "getAll");
-    const get5 = /* @__PURE__ */ __name((selector) => isHydrated(host3, "bank").pipe(
+    const get5 = /* @__PURE__ */ __name((selector) => isHydrated(host4, "bank").pipe(
       flatMap3(
-        (hydrated) => hydrated ? readItem(host3, "bank", selector) : succeed7(null)
+        (hydrated) => hydrated ? readItem(host4, "bank", selector) : succeed7(null)
       )
     ), "get");
     const getSlots = /* @__PURE__ */ __name(() => bridge.invoke("bank.getSlots", void 0, WireInt).pipe(map5(getOrElse(() => 0))), "getSlots");
@@ -12535,7 +12903,7 @@ ${prefix}}`;
       return loads.withPermits(1)(
         gen2(function* () {
           if (!(yield* auth.isLoggedIn())) return false;
-          const version = yield* host3.read({
+          const version = yield* host4.read({
             kind: "itemHydration",
             container: "bank"
           });
@@ -12551,7 +12919,7 @@ ${prefix}}`;
             timeout: "10 seconds"
           });
           if (!loaded) return false;
-          const refreshed = yield* host3.command({
+          const refreshed = yield* host4.command({
             kind: "refreshContainer",
             container: "bank"
           });
@@ -12606,8 +12974,8 @@ ${prefix}}`;
         );
         if (packet === null || response?.bSuccess === false) return false;
         const [projectedInventoryItem, projectedBankItem] = yield* all2([
-          readItem(host3, "inventory", inventoryItem.itemId),
-          readItem(host3, "bank", inventoryItem.itemId)
+          readItem(host4, "inventory", inventoryItem.itemId),
+          readItem(host4, "bank", inventoryItem.itemId)
         ]);
         return projectedInventoryItem === null && projectedBankItem !== null;
       });
@@ -12644,9 +13012,9 @@ ${prefix}}`;
         );
         if (packet === null || response?.bSuccess === false) return false;
         const [bank, inventoryItem, houseItem] = yield* all2([
-          readItem(host3, "bank", bankItem.itemId),
-          readItem(host3, "inventory", bankItem.itemId),
-          readItem(host3, "house", bankItem.itemId)
+          readItem(host4, "bank", bankItem.itemId),
+          readItem(host4, "inventory", bankItem.itemId),
+          readItem(host4, "house", bankItem.itemId)
         ]);
         return bank === null && (inventoryItem !== null || houseItem !== null);
       });
@@ -12687,9 +13055,9 @@ ${prefix}}`;
         );
         if (packet === null) return false;
         const [newBankItem, newInventoryItem, newHouseItem] = yield* all2([
-          readItem(host3, "bank", inventoryItem.itemId),
-          readItem(host3, "inventory", bankItem.itemId),
-          readItem(host3, "house", bankItem.itemId)
+          readItem(host4, "bank", inventoryItem.itemId),
+          readItem(host4, "inventory", bankItem.itemId),
+          readItem(host4, "house", bankItem.itemId)
         ]);
         return newBankItem !== null && (newInventoryItem !== null || newHouseItem !== null);
       });
@@ -12880,17 +13248,17 @@ ${prefix}}`;
       }, "onSome")
     });
   }, "normalizeSkillInterval");
-  var makeCombat = /* @__PURE__ */ __name((bridge, antiCounter, host3, drops, _events, inventory, map8, monsters, player, _players, settings, temporary, wait) => {
+  var makeCombat = /* @__PURE__ */ __name((bridge, antiCounter, host4, drops, _events, inventory, map8, monsters, player, _players, settings, temporary, wait) => {
     const consumableCasts = makeUnsafe5(1);
     const targetValue = readCombatTarget(bridge);
     const targetAuras = /* @__PURE__ */ __name((options) => targetValue.pipe(
       flatMap3((target2) => {
         if (target2 === null) return succeed7([]);
-        return (target2.type === "monster" ? host3.read({
+        return (target2.type === "monster" ? host4.read({
           kind: "monsterAuras",
           monsterMapId: target2.monsterMapId,
           auraKind: options?.kind ?? null
-        }) : host3.read({
+        }) : host4.read({
           kind: "playerAuras",
           entityId: target2.entityId,
           auraKind: options?.kind ?? null
@@ -12951,7 +13319,7 @@ ${prefix}}`;
         }
         let dispatch;
         let confirmation = null;
-        const projectedSourceId = yield* host3.read({ kind: "selfEntityId" });
+        const projectedSourceId = yield* host4.read({ kind: "selfEntityId" });
         const sourceId = projectedSourceId ?? (yield* bridge.invoke("player.getUserId", void 0, PositiveWireInt).pipe(map5(getOrNull)));
         if (sourceId === null) return null;
         yield* wait.forPacket(
@@ -13173,7 +13541,7 @@ ${prefix}}`;
       );
     }, "fight");
     const killWithRuntime = /* @__PURE__ */ __name((selector, options, runtime2) => gen2(function* () {
-      const startMap = yield* host3.read({ kind: "map" });
+      const startMap = yield* host4.read({ kind: "map" });
       const available = yield* monsters.getAvailable();
       const monster = available.find(
         (candidate) => candidate.matches(selector)
@@ -13193,11 +13561,11 @@ ${prefix}}`;
       ).pipe(map5((event) => event !== null));
       const projectedEnd = wait.untilSome(
         all2([
-          host3.read({
+          host4.read({
             kind: "monster",
             selector: { monsterMapId: monster.monsterMapId }
           }),
-          host3.read({ kind: "map" })
+          host4.read({ kind: "map" })
         ]).pipe(
           map5(
             ([current, currentMap]) => current === null || currentMap.id !== startMap.id || currentMap.name !== startMap.name || currentMap.roomNumber !== startMap.roomNumber ? some2(false) : current.dead ? some2(true) : none2()
@@ -13282,20 +13650,20 @@ ${prefix}}`;
   }, "makeCombat");
 
   // packages/runtime/src/game/flash/api/Drops.ts
-  var makeDrops = fnUntraced2(function* (bridge, host3, auth) {
+  var makeDrops = fnUntraced2(function* (bridge, host4, auth) {
     const operationHost = globalThis.__host;
-    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "drop", selector), "get");
+    const get5 = /* @__PURE__ */ __name((selector) => readItem(host4, "drop", selector), "get");
     const accept = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? operate({ kind: "acceptDrop", selector }, operationHost).pipe(
       map5((answer) => answer.value),
       catch_2(() => succeed7(false))
     ) : succeed7(false), "accept");
     const contains = /* @__PURE__ */ __name((selector) => get5(selector).pipe(map5((drop) => drop !== null)), "contains");
-    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "drop"), "getAll");
+    const getAll = /* @__PURE__ */ __name(() => readItems(host4, "drop"), "getAll");
     const isCustomUiEnabled = /* @__PURE__ */ __name(() => bridge.invoke("drops.isUsingCustomDrops", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isCustomUiEnabled");
     const reject = /* @__PURE__ */ __name((selector) => gen2(function* () {
       if (!(yield* auth.isLoggedIn())) return false;
       if (!isSelectable(selector)) return false;
-      const rejected2 = yield* host3.command({ kind: "rejectDrop", selector });
+      const rejected2 = yield* host4.command({ kind: "rejectDrop", selector });
       return getOrElse(rejected2, () => false);
     }), "reject");
     const toggleUi = /* @__PURE__ */ __name(() => bridge.invoke("drops.toggleUi", void 0, Void2).pipe(asVoid2), "toggleUi");
@@ -13358,14 +13726,14 @@ ${prefix}}`;
   });
 
   // packages/runtime/src/game/flash/api/House.ts
-  var makeHouse = /* @__PURE__ */ __name((bridge, host3) => {
-    const contains = /* @__PURE__ */ __name((selector, quantity) => itemQuantity(host3, "house", selector).pipe(
+  var makeHouse = /* @__PURE__ */ __name((bridge, host4) => {
+    const contains = /* @__PURE__ */ __name((selector, quantity) => itemQuantity(host4, "house", selector).pipe(
       map5((owned) => owned >= normalizeItemQuantity(quantity))
     ), "contains");
-    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "house"), "getAll");
+    const getAll = /* @__PURE__ */ __name(() => readItems(host4, "house"), "getAll");
     const getSlots = /* @__PURE__ */ __name(() => bridge.invoke("house.getSlots", void 0, WireInt).pipe(map5(getOrElse(() => 0))), "getSlots");
-    const getUsedSlots = /* @__PURE__ */ __name(() => host3.read({ kind: "items", container: "house" }).pipe(map5((items) => items.length)), "getUsedSlots");
-    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "house", selector), "get");
+    const getUsedSlots = /* @__PURE__ */ __name(() => host4.read({ kind: "items", container: "house" }).pipe(map5((items) => items.length)), "getUsedSlots");
+    const get5 = /* @__PURE__ */ __name((selector) => readItem(host4, "house", selector), "get");
     const getAvailableSlots = /* @__PURE__ */ __name(() => zipWith2(
       getSlots(),
       getUsedSlots(),
@@ -14076,15 +14444,15 @@ ${prefix}}`;
     bag: "inventory.getSlots",
     misc: "inventory.getMiscSlots"
   };
-  var makeInventory = /* @__PURE__ */ __name((bridge, host3, house, wait) => {
+  var makeInventory = /* @__PURE__ */ __name((bridge, host4, house, wait) => {
     const consumableEquipment = makeUnsafe5(1);
-    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "inventory"), "getAll");
-    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "inventory", selector), "get");
+    const getAll = /* @__PURE__ */ __name(() => readItems(host4, "inventory"), "getAll");
+    const get5 = /* @__PURE__ */ __name((selector) => readItem(host4, "inventory", selector), "get");
     const getSlots = fn2("Inventory.getSlots")(function* (pool = "bag") {
-      if (!(yield* isHydrated(host3, "inventory"))) return 0;
+      if (!(yield* isHydrated(host4, "inventory"))) return 0;
       return yield* bridge.invoke(slotMethods[pool], void 0, WireInt).pipe(map5(getOrElse(() => 0)));
     });
-    const getUsedSlots = /* @__PURE__ */ __name((pool = "bag") => host3.read({ kind: "items", container: "inventory" }).pipe(
+    const getUsedSlots = /* @__PURE__ */ __name((pool = "bag") => host4.read({ kind: "items", container: "inventory" }).pipe(
       map5(
         (items) => items.filter((item) => item.pool === pool).length
       )
@@ -14113,7 +14481,7 @@ ${prefix}}`;
       return yield* bridge.invoke("player.isMember", void 0, Boolean3).pipe(map5(getOrElse(() => false)));
     });
     const getLocalUserId = fn2("Inventory.getLocalUserId")(function* () {
-      const cached2 = yield* host3.read({ kind: "selfEntityId" });
+      const cached2 = yield* host4.read({ kind: "selfEntityId" });
       return cached2 === null ? yield* bridge.invoke("player.getUserId", void 0, PositiveWireInt) : some2(cached2);
     });
     const wearItem = fn2("Inventory.wearItem")(function* (itemId) {
@@ -14274,7 +14642,7 @@ ${prefix}}`;
           Boolean3
         ).pipe(map5(getOrElse(() => false)));
         if (!sent) return false;
-        yield* host3.command({ kind: "refreshEquippedConsumable" });
+        yield* host4.command({ kind: "refreshEquippedConsumable" });
         const current = yield* get5(item.itemId);
         return current?.equipped !== true;
       },
@@ -14300,25 +14668,25 @@ ${prefix}}`;
   }, "makeInventory");
 
   // packages/runtime/src/game/flash/api/Map.ts
-  var makeMap = /* @__PURE__ */ __name((bridge, host3, wait) => {
+  var makeMap = /* @__PURE__ */ __name((bridge, host4, wait) => {
     const isLoaded = /* @__PURE__ */ __name(() => bridge.invoke("world.isLoaded", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isLoaded");
-    const getCellPads = /* @__PURE__ */ __name(() => host3.command({ kind: "refreshCellPads" }).pipe(
+    const getCellPads = /* @__PURE__ */ __name(() => host4.command({ kind: "refreshCellPads" }).pipe(
       flatMap3(
         match({
-          onNone: /* @__PURE__ */ __name(() => host3.read({ kind: "cellPads" }), "onNone"),
+          onNone: /* @__PURE__ */ __name(() => host4.read({ kind: "cellPads" }), "onNone"),
           onSome: succeed7
         })
       )
     ), "getCellPads");
-    const getCells = /* @__PURE__ */ __name(() => host3.command({ kind: "refreshCells" }).pipe(
+    const getCells = /* @__PURE__ */ __name(() => host4.command({ kind: "refreshCells" }).pipe(
       flatMap3(
         match({
-          onNone: /* @__PURE__ */ __name(() => host3.read({ kind: "cells" }), "onNone"),
+          onNone: /* @__PURE__ */ __name(() => host4.read({ kind: "cells" }), "onNone"),
           onSome: succeed7
         })
       )
     ), "getCells");
-    const getMap = /* @__PURE__ */ __name(() => host3.read({ kind: "map" }), "getMap");
+    const getMap = /* @__PURE__ */ __name(() => host4.read({ kind: "map" }), "getMap");
     const getId = /* @__PURE__ */ __name(() => getMap().pipe(map5((map8) => map8.id)), "getId");
     const getMapItem = /* @__PURE__ */ __name((itemId) => {
       if (!Number.isSafeInteger(itemId) || itemId <= 0) return void_3;
@@ -14359,23 +14727,23 @@ ${prefix}}`;
   var monsterDropRequestSpacing = spaced("350 millis").pipe(
     jittered
   );
-  var makeMonsters = fnUntraced2(function* (bridge, host3, wait) {
-    const readMonster = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? host3.read({ kind: "monster", selector }).pipe(
+  var makeMonsters = fnUntraced2(function* (bridge, host4, wait) {
+    const readMonster = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? host4.read({ kind: "monster", selector }).pipe(
       map5(
         (monster) => monster === null ? null : toLiveMonster(monster)
       )
     ) : succeed7(null), "readMonster");
-    const readMonsters = /* @__PURE__ */ __name(() => host3.read({ kind: "monsters" }).pipe(map5((monsters) => monsters.map(toLiveMonster))), "readMonsters");
-    const readDrops = /* @__PURE__ */ __name((monsterMapId) => host3.read({ kind: "monsterDrops", monsterMapId }), "readDrops");
+    const readMonsters = /* @__PURE__ */ __name(() => host4.read({ kind: "monsters" }).pipe(map5((monsters) => monsters.map(toLiveMonster))), "readMonsters");
+    const readDrops = /* @__PURE__ */ __name((monsterMapId) => host4.read({ kind: "monsterDrops", monsterMapId }), "readDrops");
     const requests = yield* unbounded2();
     const inFlight = /* @__PURE__ */ new Map();
     yield* addFinalizer3(() => shutdown2(requests));
     const requestKey = fn2("Monsters.requestKey")(function* (monsterMapId) {
-      const map8 = yield* host3.read({ kind: "map" });
+      const map8 = yield* host4.read({ kind: "map" });
       return `${map8.id}:${map8.name}:${map8.roomNumber}:${monsterMapId}`;
     });
     const isInCurrentCell = fn2("Monsters.isInCurrentCell")(function* (monster) {
-      const player = yield* host3.read({ kind: "me" });
+      const player = yield* host4.read({ kind: "me" });
       return player !== null && monster.isInCell(player.cell);
     });
     const executeRequest = fn2("Monsters.executeDropRequest")(function* (request) {
@@ -14451,7 +14819,7 @@ ${prefix}}`;
     }), "ensureAllDrops");
     const getProjected = /* @__PURE__ */ __name((selector) => readMonster(selector).pipe(
       flatMap3(
-        (current) => current !== null || !isSelectable(selector) ? succeed7(current) : host3.command({ kind: "hydrateMonster", selector }).pipe(
+        (current) => current !== null || !isSelectable(selector) ? succeed7(current) : host4.command({ kind: "hydrateMonster", selector }).pipe(
           map5(
             (hydrated) => isSome2(hydrated) && hydrated.value !== null ? toLiveMonster(hydrated.value) : null
           )
@@ -14478,7 +14846,7 @@ ${prefix}}`;
       )
     ), "getAvailableProjected");
     const ensureCurrentCell = fn2("Monsters.ensureCurrentCell")(function* (monsters) {
-      const player = yield* host3.read({ kind: "me" });
+      const player = yield* host4.read({ kind: "me" });
       if (player === null) return;
       yield* ensureAllDrops(
         monsters.filter((monster) => monster.isInCell(player.cell))
@@ -14539,7 +14907,7 @@ ${prefix}}`;
     "MAP_NAME",
     "PLAYER_NAME"
   ];
-  var makePacket = fnUntraced2(function* (gateway, host3, wait) {
+  var makePacket = fnUntraced2(function* (gateway, host4, wait) {
     const scope3 = yield* scope2;
     const runFork3 = runForkWith2(yield* context2());
     const stream = /* @__PURE__ */ __name((selector) => gateway.packets.pipe(
@@ -14551,8 +14919,8 @@ ${prefix}}`;
       if (!placeholders.some((token) => packet.includes(`{${token}}`))) {
         return packet;
       }
-      const map8 = yield* host3.read({ kind: "map" });
-      const player = yield* host3.read({ kind: "me" });
+      const map8 = yield* host4.read({ kind: "map" });
+      const player = yield* host4.read({ kind: "me" });
       return packet.replaceAll("{MAP_ID}", String(map8.id)).replaceAll("{ROOM_NUMBER}", String(map8.roomNumber)).replaceAll("{MAP_NAME}", map8.name).replaceAll("{PLAYER_NAME}", player?.username ?? "");
     }), "resolve");
     const on = /* @__PURE__ */ __name(((selector, handler) => stream(selector).pipe(
@@ -14738,9 +15106,9 @@ ${prefix}}`;
     },
     name: payload.name
   }), "toOutfit");
-  var makePlayer = /* @__PURE__ */ __name((bridge, host3, auth, inventory, map8, wait) => {
+  var makePlayer = /* @__PURE__ */ __name((bridge, host4, auth, inventory, map8, wait) => {
     const read = /* @__PURE__ */ __name((method, schema, fallback) => bridge.invoke(method, void 0, schema).pipe(map5(getOrElse(() => fallback))), "read");
-    const get5 = /* @__PURE__ */ __name(() => host3.read({ kind: "me" }).pipe(
+    const get5 = /* @__PURE__ */ __name(() => host4.read({ kind: "me" }).pipe(
       map5((player) => player === null ? null : toLivePlayer(player))
     ), "get");
     const readLocation = /* @__PURE__ */ __name((projected, method) => projected !== "" ? succeed7(projected) : map8.isLoaded().pipe(
@@ -14845,10 +15213,10 @@ ${prefix}}`;
     const getClassRank = fn2("Player.getClassRank")(function* (query) {
       const inventoryClass = findClassItem(yield* inventory.getAll(), query);
       if (inventoryClass !== void 0) return inventoryClass.classRank;
-      if (query === void 0 || !(yield* isHydrated(host3, "bank"))) {
+      if (query === void 0 || !(yield* isHydrated(host4, "bank"))) {
         return null;
       }
-      const bankClass = findClassItem(yield* readItems(host3, "bank"), query);
+      const bankClass = findClassItem(yield* readItems(host4, "bank"), query);
       return bankClass?.classRank ?? null;
     });
     const getGender = /* @__PURE__ */ __name(() => read("player.getGender", String4, ""), "getGender");
@@ -14886,7 +15254,7 @@ ${prefix}}`;
       )
     ), "isAlive");
     const isMember = /* @__PURE__ */ __name(() => read("player.isMember", Boolean3, false), "isMember");
-    const isReady = makePlayerReadiness(host3, auth, map8, bridge);
+    const isReady = makePlayerReadiness(host4, auth, map8, bridge);
     const readLiveLocation = /* @__PURE__ */ __name(() => all2({
       cell: bridge.invoke("player.getCell", void 0, String4).pipe(map5(getOrElse(() => ""))),
       pad: bridge.invoke("player.getPad", void 0, String4).pipe(map5(getOrElse(() => "")))
@@ -14939,7 +15307,7 @@ ${prefix}}`;
       const currentPad = yield* getPad();
       const cells = combatExitCells(
         yield* map8.getCells(),
-        yield* host3.read({ kind: "monsters" }),
+        yield* host4.read({ kind: "monsters" }),
         currentCell
       );
       for (const cell of cells.slice(0, maxCombatExitJumps)) {
@@ -14957,7 +15325,7 @@ ${prefix}}`;
       const destination = yield* parseMapTarget(target);
       if (destination.map === "") return false;
       const targetCell = cell ?? (pad === void 0 ? void 0 : "Enter");
-      const currentMap = yield* host3.read({ kind: "map" });
+      const currentMap = yield* host4.read({ kind: "map" });
       const alreadyLoaded = (yield* map8.isLoaded()) && sameText(currentMap.name, destination.name) && (!destination.requireExactRoom || currentMap.roomNumber === destination.roomNumber);
       if (alreadyLoaded) {
         if (!(yield* wait.until(isReady(), { timeout: "10 seconds" })))
@@ -14975,7 +15343,7 @@ ${prefix}}`;
       if (isNone2(yield* bridge.invoke("player.joinMap", args2, Void2)))
         return false;
       const loaded = yield* wait.until(
-        host3.read({ kind: "map" }).pipe(
+        host4.read({ kind: "map" }).pipe(
           flatMap3(
             (current) => map8.isLoaded().pipe(
               map5(
@@ -15059,7 +15427,7 @@ ${prefix}}`;
       walkTo
     };
   }, "makePlayer");
-  var makePlayerReadiness = /* @__PURE__ */ __name((host3, auth, map8, bridge) => () => host3.read({ kind: "readiness" }).pipe(
+  var makePlayerReadiness = /* @__PURE__ */ __name((host4, auth, map8, bridge) => () => host4.read({ kind: "readiness" }).pipe(
     flatMap3(
       (readiness) => readiness.missing.length === 0 ? all2([
         auth.isLoggedIn(),
@@ -15074,14 +15442,14 @@ ${prefix}}`;
   ), "makePlayerReadiness");
 
   // packages/runtime/src/game/flash/api/Players.ts
-  var makePlayers = /* @__PURE__ */ __name((host3) => {
-    const get5 = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? host3.read({ kind: "player", selector }).pipe(
+  var makePlayers = /* @__PURE__ */ __name((host4) => {
+    const get5 = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? host4.read({ kind: "player", selector }).pipe(
       map5(
         (player) => player === null ? null : toLivePlayer(player)
       )
     ) : succeed7(null), "get");
-    const getAll = /* @__PURE__ */ __name(() => host3.read({ kind: "players" }).pipe(map5((players) => players.map(toLivePlayer))), "getAll");
-    const getMe = /* @__PURE__ */ __name(() => host3.read({ kind: "me" }).pipe(
+    const getAll = /* @__PURE__ */ __name(() => host4.read({ kind: "players" }).pipe(map5((players) => players.map(toLivePlayer))), "getAll");
+    const getMe = /* @__PURE__ */ __name(() => host4.read({ kind: "me" }).pipe(
       map5((player) => player === null ? null : toLivePlayer(player))
     ), "getMe");
     return {
@@ -15092,8 +15460,8 @@ ${prefix}}`;
   }, "makePlayers");
 
   // packages/runtime/src/game/flash/api/ProjectionReadiness.ts
-  var makeProjectionReadiness = /* @__PURE__ */ __name((host3) => ({
-    inspect: /* @__PURE__ */ __name(() => host3.read({ kind: "readiness" }), "inspect")
+  var makeProjectionReadiness = /* @__PURE__ */ __name((host4) => ({
+    inspect: /* @__PURE__ */ __name(() => host4.read({ kind: "readiness" }), "inspect")
   }), "makeProjectionReadiness");
   var ProjectionReadiness = class extends Service()("lucent/renderer/flash/ProjectionReadiness") {
     static {
@@ -15103,13 +15471,13 @@ ${prefix}}`;
 
   // packages/runtime/src/game/flash/api/Quests.ts
   var isQuestId = /* @__PURE__ */ __name((questId) => Number.isSafeInteger(questId) && questId > 0, "isQuestId");
-  var makeQuests = /* @__PURE__ */ __name((bridge, host3, wait) => {
+  var makeQuests = /* @__PURE__ */ __name((bridge, host4, wait) => {
     const loads = makeUnsafe5(1);
     let nextLoadAt = 0;
-    const read = /* @__PURE__ */ __name((questId) => host3.read({ kind: "quest", id: questId }).pipe(
+    const read = /* @__PURE__ */ __name((questId) => host4.read({ kind: "quest", id: questId }).pipe(
       map5((quest) => quest === null ? null : toLiveQuest(quest))
     ), "read");
-    const isLoaded = /* @__PURE__ */ __name((questId) => host3.read({ kind: "quest", id: questId }).pipe(map5((quest) => quest !== null)), "isLoaded");
+    const isLoaded = /* @__PURE__ */ __name((questId) => host4.read({ kind: "quest", id: questId }).pipe(map5((quest) => quest !== null)), "isLoaded");
     const waitForLoadSlot = gen2(function* () {
       const delay3 = nextLoadAt - (yield* currentTimeMillis2);
       if (delay3 > 0) yield* sleep2(delay3);
@@ -15242,16 +15610,16 @@ ${prefix}}`;
         )
       );
     }, "get");
-    const getAccepted = /* @__PURE__ */ __name(() => host3.command({ kind: "refreshAcceptedQuests" }).pipe(
+    const getAccepted = /* @__PURE__ */ __name(() => host4.command({ kind: "refreshAcceptedQuests" }).pipe(
       flatMap3(
         match({
-          onNone: /* @__PURE__ */ __name(() => host3.read({ kind: "acceptedQuests" }), "onNone"),
+          onNone: /* @__PURE__ */ __name(() => host4.read({ kind: "acceptedQuests" }), "onNone"),
           onSome: succeed7
         })
       ),
       map5((quests) => quests.map(toLiveQuest))
     ), "getAccepted");
-    const getAll = /* @__PURE__ */ __name(() => host3.read({ kind: "quests" }).pipe(map5((quests) => quests.map(toLiveQuest))), "getAll");
+    const getAll = /* @__PURE__ */ __name(() => host4.read({ kind: "quests" }).pipe(map5((quests) => quests.map(toLiveQuest))), "getAll");
     const isAvailable = /* @__PURE__ */ __name((questId) => {
       if (!isQuestId(questId)) return succeed7(false);
       return bridge.invoke("quests.isAvailable", [questId], Boolean3).pipe(map5(getOrElse(() => false)));
@@ -15278,14 +15646,14 @@ ${prefix}}`;
     antiCounter,
     events,
     gateway,
-    host: host3,
+    host: host4,
     monsters
   }) {
     const ensureCurrentCell = /* @__PURE__ */ __name(() => monsters.lookup.getAll().pipe(flatMap3(monsters.ensureCurrentCell)), "ensureCurrentCell");
     yield* events.on({ type: "join-map" }, ensureCurrentCell);
     yield* events.on(
       { type: "player-location" },
-      (event) => host3.read({ kind: "me" }).pipe(
+      (event) => host4.read({ kind: "me" }).pipe(
         flatMap3(
           (player) => player?.entityId === event.entityId ? ensureCurrentCell() : void_3
         )
@@ -15303,8 +15671,8 @@ ${prefix}}`;
   var layer4 = effectDiscard(flatMap3(ScriptReactions, start));
 
   // packages/runtime/src/game/flash/api/Settings.ts
-  var makeSettings = /* @__PURE__ */ __name((host3) => {
-    const get5 = /* @__PURE__ */ __name(() => host3.read({ kind: "settings" }), "get");
+  var makeSettings = /* @__PURE__ */ __name((host4) => {
+    const get5 = /* @__PURE__ */ __name(() => host4.read({ kind: "settings" }), "get");
     return {
       apply: /* @__PURE__ */ __name((patch) => gen2(function* () {
         for (const field2 of ["frameRate", "walkSpeed"]) {
@@ -15312,7 +15680,7 @@ ${prefix}}`;
             return yield* die3(new Error(`${field2} must be a finite number`));
           }
         }
-        const result2 = yield* host3.command({ kind: "updateSettings", patch });
+        const result2 = yield* host4.command({ kind: "updateSettings", patch });
         if (isNone2(result2)) {
           return yield* die3(new Error("host rejected settings patch"));
         }
@@ -15337,9 +15705,9 @@ ${prefix}}`;
   var decodeShopLoadResponse = decodeUnknownOption2(ShopLoadResponse);
   var isShopId = /* @__PURE__ */ __name((shopId) => Number.isSafeInteger(shopId) && shopId > 0, "isShopId");
   var selectorFor = /* @__PURE__ */ __name((item) => item.shopItemId === void 0 ? { itemId: item.itemId } : { shopItemId: item.shopItemId }, "selectorFor");
-  var makeShops = /* @__PURE__ */ __name((bridge, host3, inventory, wait) => {
-    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "shop", selector), "get");
-    const getCurrent = /* @__PURE__ */ __name(() => host3.read({ kind: "shop" }).pipe(map5((shop) => shop === null ? null : toLiveShop(shop))), "getCurrent");
+  var makeShops = /* @__PURE__ */ __name((bridge, host4, inventory, wait) => {
+    const get5 = /* @__PURE__ */ __name((selector) => readItem(host4, "shop", selector), "get");
+    const getCurrent = /* @__PURE__ */ __name(() => host4.read({ kind: "shop" }).pipe(map5((shop) => shop === null ? null : toLiveShop(shop))), "getCurrent");
     const isOpen = /* @__PURE__ */ __name((shopId) => {
       if (shopId !== void 0 && !isShopId(shopId)) {
         return succeed7(false);
@@ -15351,7 +15719,7 @@ ${prefix}}`;
       ).pipe(
         flatMap3(
           match({
-            onNone: /* @__PURE__ */ __name(() => host3.read({ kind: "shop" }).pipe(
+            onNone: /* @__PURE__ */ __name(() => host4.read({ kind: "shop" }).pipe(
               map5(
                 (shop) => shopId !== void 0 ? shop?.id === shopId : shop !== null
               )
@@ -15379,7 +15747,7 @@ ${prefix}}`;
         );
         if (!settled) return false;
         return getOrElse(
-          yield* host3.command({
+          yield* host4.command({
             kind: "confirmShopClosed",
             shopId: shopId ?? null
           }),
@@ -15392,7 +15760,7 @@ ${prefix}}`;
       if (!isShopId(shopId)) return succeed7(false);
       return gen2(function* () {
         if (yield* isOpen(shopId)) return true;
-        const current = yield* host3.read({ kind: "shop" });
+        const current = yield* host4.read({ kind: "shop" });
         const reopensCachedShop = current?.id === shopId && current.limited === false;
         if (current !== null && current.id !== shopId && (yield* isOpen(current.id))) {
           yield* close2(current.id);
@@ -15427,7 +15795,7 @@ ${prefix}}`;
         );
         if (packet === null) return false;
         const [shop, open] = yield* all2([
-          host3.read({ kind: "shop" }),
+          host4.read({ kind: "shop" }),
           isOpen(shopId)
         ]);
         return shop?.id === shopId && open;
@@ -15452,9 +15820,9 @@ ${prefix}}`;
             return false;
           }
           const startingQuantities = yield* all2({
-            bank: itemQuantity(host3, "bank", item.itemId),
-            house: itemQuantity(host3, "house", item.itemId),
-            inventory: itemQuantity(host3, "inventory", item.itemId)
+            bank: itemQuantity(host4, "bank", item.itemId),
+            house: itemQuantity(host4, "house", item.itemId),
+            inventory: itemQuantity(host4, "inventory", item.itemId)
           });
           let response;
           const packet = yield* wait.forPacket(
@@ -15480,8 +15848,8 @@ ${prefix}}`;
           );
           if (packet === null || response?.bitSuccess !== true) return false;
           const container2 = response.bBank && item.category !== "Class" ? "bank" : item.houseItem ? "house" : "inventory";
-          yield* host3.command({ kind: "refreshContainer", container: container2 });
-          const owned = yield* itemQuantity(host3, container2, item.itemId);
+          yield* host4.command({ kind: "refreshContainer", container: container2 });
+          const owned = yield* itemQuantity(host4, container2, item.itemId);
           return owned >= startingQuantities[container2] + requested;
         });
       })
@@ -15512,7 +15880,7 @@ ${prefix}}`;
         })
       );
     }, "sell");
-    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "shop"), "getAll");
+    const getAll = /* @__PURE__ */ __name(() => readItems(host4, "shop"), "getAll");
     const getMaxBuyQuantity = /* @__PURE__ */ __name((selector) => get5(selector).pipe(
       flatMap3(
         (item) => item === null ? succeed7(0) : bridge.invoke("shops.getMaxBuyQuantity", [selectorFor(item)], WireInt).pipe(map5(getOrElse(() => 0)))
@@ -15521,7 +15889,7 @@ ${prefix}}`;
     const isMergeShop = /* @__PURE__ */ __name(() => bridge.invoke("shops.isMergeShop", void 0, Boolean3).pipe(
       flatMap3(
         match({
-          onNone: /* @__PURE__ */ __name(() => host3.read({ kind: "shop" }).pipe(map5((shop) => shop?.merge ?? false)), "onNone"),
+          onNone: /* @__PURE__ */ __name(() => host4.read({ kind: "shop" }).pipe(map5((shop) => shop?.merge ?? false)), "onNone"),
           onSome: /* @__PURE__ */ __name((merge3) => succeed7(merge3), "onSome")
         })
       )
@@ -15554,12 +15922,12 @@ ${prefix}}`;
   }, "makeShops");
 
   // packages/runtime/src/game/flash/api/TempInventory.ts
-  var makeTempInventory = /* @__PURE__ */ __name((host3) => {
-    const contains = /* @__PURE__ */ __name((selector, quantity) => itemQuantity(host3, "temporary", selector).pipe(
+  var makeTempInventory = /* @__PURE__ */ __name((host4) => {
+    const contains = /* @__PURE__ */ __name((selector, quantity) => itemQuantity(host4, "temporary", selector).pipe(
       map5((owned) => owned >= normalizeItemQuantity(quantity))
     ), "contains");
-    const get5 = /* @__PURE__ */ __name((selector) => readItem(host3, "temporary", selector), "get");
-    const getAll = /* @__PURE__ */ __name(() => readItems(host3, "temporary"), "getAll");
+    const get5 = /* @__PURE__ */ __name((selector) => readItem(host4, "temporary", selector), "get");
+    const getAll = /* @__PURE__ */ __name(() => readItems(host4, "temporary"), "getAll");
     return {
       contains,
       get: get5,
@@ -15670,30 +16038,30 @@ ${prefix}}`;
   var makeApiServices = gen2(function* () {
     const bridge = yield* Bridge;
     const gateway = yield* Gateway;
-    const host3 = yield* HostState;
+    const host4 = yield* HostState;
     const wait = makeWaitApi(bridge, gateway);
     const events = yield* makeEvents(gateway, wait);
-    const packet = yield* makePacket(gateway, host3, wait);
-    const auth = makeAuth(bridge, host3, wait);
-    const house = makeHouse(bridge, host3);
-    const inventory = makeInventory(bridge, host3, house, wait);
-    const bank = yield* makeBank(bridge, host3, auth, inventory, house, wait);
-    const drops = yield* makeDrops(bridge, host3, auth);
-    const map8 = makeMap(bridge, host3, wait);
-    const monsterServices = yield* makeMonsters(bridge, host3, wait);
+    const packet = yield* makePacket(gateway, host4, wait);
+    const auth = makeAuth(bridge, host4, wait);
+    const house = makeHouse(bridge, host4);
+    const inventory = makeInventory(bridge, host4, house, wait);
+    const bank = yield* makeBank(bridge, host4, auth, inventory, house, wait);
+    const drops = yield* makeDrops(bridge, host4, auth);
+    const map8 = makeMap(bridge, host4, wait);
+    const monsterServices = yield* makeMonsters(bridge, host4, wait);
     const monsters = monsterServices.api;
-    const players = makePlayers(host3);
-    const player = makePlayer(bridge, host3, auth, inventory, map8, wait);
-    const projectionReadiness = makeProjectionReadiness(host3);
-    const quests = makeQuests(bridge, host3, wait);
-    const settings = makeSettings(host3);
+    const players = makePlayers(host4);
+    const player = makePlayer(bridge, host4, auth, inventory, map8, wait);
+    const projectionReadiness = makeProjectionReadiness(host4);
+    const quests = makeQuests(bridge, host4, wait);
+    const settings = makeSettings(host4);
     const antiCounter = makeAntiCounter(bridge, settings.isAntiCounterEnabled);
-    const shops = makeShops(bridge, host3, inventory, wait);
-    const tempInventory = makeTempInventory(host3);
+    const shops = makeShops(bridge, host4, inventory, wait);
+    const tempInventory = makeTempInventory(host4);
     const combat = makeCombat(
       bridge,
       antiCounter,
-      host3,
+      host4,
       drops,
       events,
       inventory,
@@ -15731,7 +16099,7 @@ ${prefix}}`;
         antiCounter,
         events,
         gateway,
-        host: host3,
+        host: host4,
         monsters: monsterServices
       }
     };
@@ -16194,7 +16562,7 @@ ${prefix}}`;
       return value;
     }
   }, "decodeSegment");
-  var displayScriptSourceText = /* @__PURE__ */ __name((text) => text.replace(
+  var displayScriptSourceText = /* @__PURE__ */ __name((text2) => text2.replace(
     SCRIPT_SOURCE_PATTERN,
     (_url, identity2) => identity2.split("/").filter(Boolean).map(decodeSegment).join("/")
   ), "displayScriptSourceText");
@@ -17333,7 +17701,7 @@ ${prefix}}`;
         definitionOf(this).missing
       );
     }
-    rejectValue(rejected2, text, missing2) {
+    rejectValue(rejected2, text2, missing2) {
       const previous = definitionOf(this);
       return create({
         ...previous,
@@ -17341,9 +17709,9 @@ ${prefix}}`;
         literals: previous.literals?.filter((value) => value !== rejected2),
         backend: declare2((value, options) => {
           if (value === rejected2)
-            return fail2(issue("invalid_value", text));
+            return fail2(issue("invalid_value", text2));
           const result2 = decode2(previous.backend, value, options);
-          return isSuccess2(result2) && result2.success === rejected2 ? fail2(issue("invalid_value", text)) : result2;
+          return isSuccess2(result2) && result2.success === rejected2 ? fail2(issue("invalid_value", text2)) : result2;
         })
       });
     }
@@ -17383,7 +17751,7 @@ ${prefix}}`;
     refine(predicate, options = {}) {
       if (!isFunction(predicate))
         throw new SchemaUsageError("A refinement requires a predicate.");
-      const text = message(options, "The value does not satisfy this check.");
+      const text2 = message(options, "The value does not satisfy this check.");
       const path = validatePath(options.path ?? []);
       if (options.rule !== void 0 && typeof options.rule !== "string")
         throw new SchemaUsageError("A rule name must be a string.");
@@ -17393,7 +17761,7 @@ ${prefix}}`;
           throw new SchemaUsageError("A refinement must return a boolean.");
         if (!accepted)
           context3.addIssue({
-            message: text,
+            message: text2,
             path,
             ...options.rule === void 0 ? {} : { rule: options.rule }
           });
@@ -17463,10 +17831,10 @@ ${prefix}}`;
     readonly() {
       return create(definitionOf(this));
     }
-    describe(text) {
-      if (typeof text !== "string")
+    describe(text2) {
+      if (typeof text2 !== "string")
         throw new SchemaUsageError("A description must be a string.");
-      return create({ ...definitionOf(this), description: text });
+      return create({ ...definitionOf(this), description: text2 });
     }
     meta(metadata) {
       if (!isObject(metadata))
@@ -17477,11 +17845,11 @@ ${prefix}}`;
         metadata: Object.freeze({ ...previous.metadata, ...metadata })
       });
     }
-    constraint(predicate, code, text) {
+    constraint(predicate, code, text2) {
       const previous = definitionOf(this);
       const backend = previous.backend.check(
         makeFilter2(
-          (value) => predicate(value) || issue(code, text)
+          (value) => predicate(value) || issue(code, text2)
         )
       );
       return { ...previous, backend };
@@ -17558,11 +17926,11 @@ ${prefix}}`;
   var primitive = /* @__PURE__ */ __name((backend, options) => {
     message(options, "Invalid value.");
     if (options?.message === void 0) return baseDefinition(backend);
-    const text = options.message;
+    const text2 = options.message;
     return baseDefinition(
       declare2((input, parseOptions) => {
         const result2 = decode2(backend, input, parseOptions);
-        return isSuccess2(result2) ? result2 : fail2(issue("invalid_type", text));
+        return isSuccess2(result2) ? result2 : fail2(issue("invalid_type", text2));
       })
     );
   }, "primitive");
@@ -17838,7 +18206,7 @@ ${prefix}}`;
   var custom = /* @__PURE__ */ __name((predicate, options) => {
     if (!isFunction(predicate))
       throw new SchemaUsageError("A custom schema requires a predicate.");
-    const text = message(options, "The value does not match the required type.");
+    const text2 = message(options, "The value does not match the required type.");
     return create(
       baseDefinition(
         declare(
@@ -17850,7 +18218,7 @@ ${prefix}}`;
               );
             return accepted;
           },
-          { title: text }
+          { title: text2 }
         )
       )
     );
@@ -17858,14 +18226,14 @@ ${prefix}}`;
   var decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
   var decimalInput = Union2([Finite, String4]);
   var coercion = /* @__PURE__ */ __name((source, convert, options, expected) => {
-    const text = message(options, expected);
+    const text2 = message(options, expected);
     return baseDefinition(
       declare2((input, parseOptions) => {
         const accepted = decode2(source, input, parseOptions);
         if (isFailure2(accepted))
-          return fail2(issue("invalid_type", text));
+          return fail2(issue("invalid_type", text2));
         const value = convert(accepted.success);
-        return value === rejected ? fail2(issue("invalid_value", text)) : succeed2(value);
+        return value === rejected ? fail2(issue("invalid_value", text2)) : succeed2(value);
       })
     );
   }, "coercion");
@@ -17968,13 +18336,13 @@ ${prefix}}`;
         ([key, schema]) => [key, definitionOf(schema)]
       );
       const knownKeys = new Set(entries.map(([key]) => key));
-      const text = message(options, "Expected a plain object.");
+      const text2 = message(options, "Expected a plain object.");
       super(
         baseDefinition(
           declare2((input, parseOptions) => {
             const accepted = decode2(plainObject, input, parseOptions);
             if (isFailure2(accepted))
-              return fail2(issue("invalid_type", text));
+              return fail2(issue("invalid_type", text2));
             const source = accepted.success;
             return container(source, parseOptions, () => {
               const output = {};
@@ -18102,13 +18470,13 @@ ${prefix}}`;
     element;
     constructor(element, options, definition) {
       const childDefinition = definitionOf(element);
-      const text = message(options, "Expected an array.");
+      const text2 = message(options, "Expected an array.");
       super(
         definition ?? baseDefinition(
           declare2((input, parseOptions) => {
             const accepted = decode2(arrayValue, input, parseOptions);
             if (isFailure2(accepted))
-              return fail2(issue("invalid_type", text));
+              return fail2(issue("invalid_type", text2));
             const source = accepted.success;
             return container(source, parseOptions, () => {
               const output = [];
@@ -18217,7 +18585,7 @@ ${prefix}}`;
       );
       if (orderValidated) validateOrder();
       const tail = rest === void 0 ? void 0 : definitionOf(rest);
-      const text = message(options, "Expected an array tuple.");
+      const text2 = message(options, "Expected an array tuple.");
       super(
         baseDefinition(
           declare2((input, parseOptions) => {
@@ -18227,7 +18595,7 @@ ${prefix}}`;
             }
             const accepted = decode2(arrayValue, input, parseOptions);
             if (isFailure2(accepted))
-              return fail2(issue("invalid_type", text));
+              return fail2(issue("invalid_type", text2));
             const source = accepted.success;
             return container(source, parseOptions, () => {
               const output = [];
@@ -18272,13 +18640,13 @@ ${prefix}}`;
     constructor(key, value, options, definition) {
       const keyDefinition = definitionOf(key);
       const valueDefinition = definitionOf(value);
-      const text = message(options, "Expected a plain object record.");
+      const text2 = message(options, "Expected a plain object record.");
       super(
         definition ?? baseDefinition(
           declare2((input, parseOptions) => {
             const accepted = decode2(plainObject, input, parseOptions);
             if (isFailure2(accepted))
-              return fail2(issue("invalid_type", text));
+              return fail2(issue("invalid_type", text2));
             const source = accepted.success;
             return container(source, parseOptions, () => {
               const output = {};
@@ -18377,7 +18745,7 @@ ${prefix}}`;
     if (!Array.isArray(members) || members.length === 0)
       throw new SchemaUsageError("A union needs at least one schema.");
     const definitions2 = members.map(definitionOf);
-    const text = message(
+    const text2 = message(
       options,
       "Expected one of the allowed values or shapes."
     );
@@ -18395,7 +18763,7 @@ ${prefix}}`;
               {
                 code: "invalid_union",
                 path: [],
-                message: text,
+                message: text2,
                 branches: failures.map(
                   (failure2) => flatten6(failure2, {
                     maxIssues: stateOf(parseOptions).maxIssues
@@ -18431,14 +18799,14 @@ ${prefix}}`;
         branches.set(value, definitionOf(member).backend);
       }
     }
-    const text = message(options, `Use a recognized ${key} value.`);
+    const text2 = message(options, `Use a recognized ${key} value.`);
     return create(
       baseDefinition(
         declare2((input, parseOptions) => {
           if (!isObject(input) || !Object.hasOwn(input, key))
-            return fail2(issue("invalid_union", text, [key]));
+            return fail2(issue("invalid_union", text2, [key]));
           const backend = branches.get(input[key]);
-          return backend === void 0 ? fail2(issue("invalid_union", text, [key])) : decode2(backend, input, parseOptions);
+          return backend === void 0 ? fail2(issue("invalid_union", text2, [key])) : decode2(backend, input, parseOptions);
         })
       )
     );
@@ -18502,7 +18870,7 @@ ${prefix}}`;
   }, "lazy");
   var json = /* @__PURE__ */ __name((schema, options) => {
     const target = definitionOf(schema);
-    const text = message(options, "Use valid JSON text.");
+    const text2 = message(options, "Use valid JSON text.");
     return create(
       baseDefinition(
         declare2((input, parseOptions) => {
@@ -18514,7 +18882,7 @@ ${prefix}}`;
             parsed = JSON.parse(accepted.success);
           } catch (error) {
             if (!(error instanceof SyntaxError)) throw error;
-            return fail2(issue("invalid_json", text));
+            return fail2(issue("invalid_json", text2));
           }
           return decode2(target.backend, parsed, parseOptions);
         })
@@ -18686,13 +19054,13 @@ ${prefix}}`;
     ...path === void 0 ? {} : { path }
   }), "makeError");
   var isJson2 = is2(Json2);
-  var tooLarge = /* @__PURE__ */ __name((text) => {
+  var tooLarge = /* @__PURE__ */ __name((text2) => {
     let bytes = 0;
-    for (let index = 0; index < text.length; index++) {
-      const code = text.charCodeAt(index);
+    for (let index = 0; index < text2.length; index++) {
+      const code = text2.charCodeAt(index);
       if (code < 128) bytes++;
       else if (code < 2048) bytes += 2;
-      else if (code >= 55296 && code <= 56319 && index + 1 < text.length && text.charCodeAt(index + 1) >= 56320 && text.charCodeAt(index + 1) <= 57343) {
+      else if (code >= 55296 && code <= 56319 && index + 1 < text2.length && text2.charCodeAt(index + 1) >= 56320 && text2.charCodeAt(index + 1) <= 57343) {
         bytes += 4;
         index++;
       } else bytes += 3;
@@ -20019,9 +20387,9 @@ ${prefix}}`;
     ...status.attemptsRemaining === null ? {} : { attemptsRemaining: status.attemptsRemaining },
     ...status.lastError === null ? {} : { lastError: status.lastError }
   }), "publicReloginState");
-  var makeAutoReloginService = /* @__PURE__ */ __name((host3) => {
-    const getState = /* @__PURE__ */ __name(() => sync2(() => publicReloginState(JSON.parse(host3.read('{"kind":"autoRelogin"}')))), "getState");
-    const set4 = /* @__PURE__ */ __name((payload) => sync2(() => publicReloginState(JSON.parse(host3.command(JSON.stringify(payload))))), "set");
+  var makeAutoReloginService = /* @__PURE__ */ __name((host4) => {
+    const getState = /* @__PURE__ */ __name(() => sync2(() => publicReloginState(JSON.parse(host4.read('{"kind":"autoRelogin"}')))), "getState");
+    const set4 = /* @__PURE__ */ __name((payload) => sync2(() => publicReloginState(JSON.parse(host4.command(JSON.stringify(payload))))), "set");
     return {
       getState,
       getDelayMs: /* @__PURE__ */ __name(() => getState().pipe(map5((state) => state.delayMs)), "getDelayMs"),
@@ -20034,16 +20402,16 @@ ${prefix}}`;
   }, "makeAutoReloginService");
 
   // packages/runtime/src/host/autoZone.ts
-  var makeAutoZoneService = /* @__PURE__ */ __name((host3) => {
+  var makeAutoZoneService = /* @__PURE__ */ __name((host4) => {
     const state = /* @__PURE__ */ __name((config) => ({
       enabled: config.enabled,
       map: config.map ?? void 0
     }), "state");
     const getState = /* @__PURE__ */ __name(() => sync2(() => state(
-      JSON.parse(host3.read(JSON.stringify({ kind: "autoZone" })))
+      JSON.parse(host4.read(JSON.stringify({ kind: "autoZone" })))
     )), "getState");
     const patch = /* @__PURE__ */ __name((patch2) => sync2(() => state(
-      JSON.parse(host3.command(JSON.stringify({ kind: "patchAutoZone", patch: patch2 })))
+      JSON.parse(host4.command(JSON.stringify({ kind: "patchAutoZone", patch: patch2 })))
     )), "patch");
     return {
       getState,
@@ -20056,8 +20424,8 @@ ${prefix}}`;
 
   // packages/runtime/src/host/filesystem.ts
   var isJson3 = is2(Json2);
-  var makeFileSystemBridge = /* @__PURE__ */ __name((host3) => {
-    const request = /* @__PURE__ */ __name((operation, path, signal, contents) => requestIo(host3, { service: "filesystem", operation, path: path?.toWellFormed(), contents }, signal).then((result2) => result2.ok || path === void 0 ? result2 : { ok: false, error: { ...result2.error, path } }), "request");
+  var makeFileSystemBridge = /* @__PURE__ */ __name((host4) => {
+    const request = /* @__PURE__ */ __name((operation, path, signal, contents) => requestIo(host4, { service: "filesystem", operation, path: path?.toWellFormed(), contents }, signal).then((result2) => result2.ok || path === void 0 ? result2 : { ok: false, error: { ...result2.error, path } }), "request");
     return {
       exists: /* @__PURE__ */ __name((path, signal) => request("exists", path, signal), "exists"),
       list: /* @__PURE__ */ __name((path, signal) => request("list", path, signal), "list"),
@@ -20080,10 +20448,10 @@ ${prefix}}`;
   }, "makeFileSystemBridge");
 
   // packages/runtime/src/host/environment.ts
-  var makeEnvironmentService = /* @__PURE__ */ __name((host3, unavailable) => {
+  var makeEnvironmentService = /* @__PURE__ */ __name((host4, unavailable) => {
     const identifier2 = /* @__PURE__ */ __name((value) => Number.isFinite(value) ? value : 0, "identifier");
-    const getState = /* @__PURE__ */ __name(() => sync2(() => JSON.parse(host3.read('{"kind":"environment"}'))), "getState");
-    const set4 = /* @__PURE__ */ __name((edit) => try_2(() => JSON.parse(host3.command(JSON.stringify({ kind: "updateEnvironment", edit })))), "set");
+    const getState = /* @__PURE__ */ __name(() => sync2(() => JSON.parse(host4.read('{"kind":"environment"}'))), "getState");
+    const set4 = /* @__PURE__ */ __name((edit) => try_2(() => JSON.parse(host4.command(JSON.stringify({ kind: "updateEnvironment", edit })))), "set");
     const setAutomation = /* @__PURE__ */ __name((capability, enabled) => set4({ kind: "setAutomationEnabled", capability, enabled }), "setAutomation");
     const setDropPolicy = /* @__PURE__ */ __name((patch) => set4({ kind: "updateDropPolicy", patch }), "setDropPolicy");
     const setQuestAutoRegister = /* @__PURE__ */ __name((options) => set4({ kind: "setQuestAutoRegister", ...options }), "setQuestAutoRegister");
