@@ -17,7 +17,7 @@ pub(super) fn segments(path: &str) -> Result<Vec<&str>, &'static str> {
             "con" | "prn" | "aux" | "nul" | "conin$" | "conout$"
         ) || ["com", "lpt"].iter().any(|prefix| {
             stem.strip_prefix(prefix).is_some_and(|suffix| {
-                (suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'0'..=b'9'))
+                (suffix.len() == 1 && suffix.as_bytes()[0].is_ascii_digit())
                     || matches!(suffix, "¹" | "²" | "³")
             })
         });
