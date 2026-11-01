@@ -147,6 +147,9 @@ impl Running {
             Command::RefreshCombatState {} => self
                 .refresh_combat_state()
                 .map(|snapshot| serde_json::to_string(&snapshot).unwrap()),
+            Command::UpdateScriptOptions { .. } | Command::ResetScriptOptions {} => Err(
+                Error::Unavailable("script options require a session record".into()),
+            ),
             Command::UpdateEnvironment { .. } => Err(Error::Unavailable(
                 "environment requires a session record".into(),
             )),

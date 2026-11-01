@@ -24,39 +24,33 @@ fn auras(auras: Vec<LiveAura>, kind: Option<AuraKind>) -> Vec<AuraData> {
 }
 
 struct State<'a> {
-    environment: &'a parking_lot::RwLock<lucent_protocol::environment::EnvironmentState>,
+    records: &'a crate::sessions::Records,
     projection: &'a Projection,
     settings: &'a GameSettings,
-    auto_attack: &'a parking_lot::RwLock<lucent_protocol::auto_attack::AutoAttackRecords>,
-    auto_relogin: &'a parking_lot::RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>,
-    auto_zone: &'a parking_lot::RwLock<AutoZoneConfig>,
 }
 
-pub fn answer(
+pub(crate) fn answer(
     projection: &Projection,
     settings: &GameSettings,
-    auto_zone: &parking_lot::RwLock<AutoZoneConfig>,
-    auto_attack: &parking_lot::RwLock<lucent_protocol::auto_attack::AutoAttackRecords>,
-    auto_relogin: &parking_lot::RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>,
-    environment: &parking_lot::RwLock<lucent_protocol::environment::EnvironmentState>,
+    records: &crate::sessions::Records,
     query: Query,
 ) -> String {
     lucent_protocol::query::answer(
         &State {
-            environment,
+            records,
             projection,
             settings,
-            auto_zone,
-            auto_attack,
-            auto_relogin,
         },
         query,
     )
 }
 
 impl Answer for State<'_> {
+    fn script_options(&self) -> lucent_protocol::script_options::ScriptOptions {
+        self.records.script_options()
+    }
     fn environment(&self) -> lucent_protocol::environment::EnvironmentState {
-        self.environment.read().clone()
+        self.records.environment.read().clone()
     }
     fn combat_state(
         &self,
@@ -69,13 +63,13 @@ impl Answer for State<'_> {
         )
     }
     fn auto_attack(&self) -> lucent_protocol::auto_attack::AutoAttackRecords {
-        self.auto_attack.read().clone()
+        self.records.auto_attack.records.read().clone()
     }
     fn auto_relogin(&self) -> lucent_protocol::auto_relogin::AutoReloginRecords {
-        self.auto_relogin.read().clone()
+        self.records.auto_relogin.read().clone()
     }
     fn auto_zone(&self) -> AutoZoneConfig {
-        self.auto_zone.read().clone()
+        self.records.auto_zone.read().clone()
     }
 
     fn settings(&self) -> GameSettings {

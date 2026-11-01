@@ -8,6 +8,9 @@ use lucent_protocol::script::{Script, ScriptStatus};
 use std::sync::atomic::AtomicBool;
 use std::task::Waker;
 mod environment;
+mod script_options;
+use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
+pub use script_options::OptionsError;
 mod environment_order;
 pub use controller::{ScriptControls, ScriptRequest, Supervisor};
 mod reaper;
@@ -32,8 +35,9 @@ pub(crate) struct Records {
     pub(crate) auto_attack: Arc<auto_attack::Shared>,
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
-    environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
-    auto_zone: Arc<RwLock<AutoZoneConfig>>,
+    pub(crate) environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
+    script_options: Arc<RwLock<ScriptOptions>>,
+    pub(crate) auto_zone: Arc<RwLock<AutoZoneConfig>>,
     pub(crate) auto_relogin: Arc<RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>>,
     pub(crate) relogin: Arc<relogin::Shared>,
 }
@@ -144,6 +148,7 @@ impl Host {
             auto_attack,
             jobs: Arc::default(),
             environment: Arc::default(),
+            script_options: Arc::default(),
             auto_relogin: relogin.records.clone(),
             relogin,
             next_attachment: 0,
@@ -200,6 +205,7 @@ pub struct Session {
     auto_attack: Arc<auto_attack::Shared>,
     jobs: Arc<crate::game::jobs::JobRequests>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
+    script_options: Arc<RwLock<ScriptOptions>>,
     auto_relogin: Arc<RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>>,
     relogin: Arc<relogin::Shared>,
     player: Option<player::Handle>,
@@ -254,6 +260,16 @@ impl Session {
     pub fn respond_dialog(&self, id: u64, response: lucent_protocol::script::ScriptDialogResponse) {
         self.dialogs.respond(id, response);
     }
+    pub fn script_options(&self) -> ScriptOptions {
+        self.records().script_options()
+    }
+    pub fn update_script_options(&self, patch: ScriptOptionsPatch) -> Result<(), OptionsError> {
+        self.records().update_script_options(patch).map(|_| ())
+    }
+    pub fn reset_script_options(&self) {
+        self.update_script_options(ScriptOptions::default().into())
+            .unwrap();
+    }
     pub fn script_status(&self) -> ScriptStatus {
         self.script_status.read().clone()
     }
@@ -289,6 +305,7 @@ impl Session {
             changes: self.changes.clone(),
             jobs: self.jobs.clone(),
             environment: self.environment.clone(),
+            script_options: self.script_options.clone(),
             settings: self.settings.clone(),
             auto_zone: self.auto_zone.clone(),
             auto_relogin: self.auto_relogin.clone(),
