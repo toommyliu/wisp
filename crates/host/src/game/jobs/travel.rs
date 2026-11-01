@@ -3,7 +3,7 @@ use crate::bridge::Value;
 use crate::game::travel::{self, Effects, Event, Outcome, Reads, Reply, Snapshot, TravelJob};
 
 pub(crate) enum TravelOwner {
-    Script(AttachmentId),
+    Script(crate::bridge::ScriptCompletions),
     Session(Option<crate::bridge::Reply<Outcome>>),
 }
 impl From<crate::bridge::Reply<Outcome>> for TravelOwner {
@@ -15,14 +15,11 @@ impl TravelOwner {
     fn script(&self) -> bool {
         matches!(self, Self::Script(_))
     }
-    pub(super) fn complete(&mut self, outcome: Outcome, id: JobId, inbox: &Inbox) {
+    pub(super) fn complete(&mut self, outcome: Outcome, id: JobId) {
         match self {
-            Self::Script(attachment) => {
+            Self::Script(completions) => {
                 if let Outcome::Returned(value) = outcome {
-                    inbox.post(Msg::OperationAnswer(
-                        *attachment,
-                        ScriptEvent::TravelDone { id: id.0, value },
-                    ));
+                    completions.send(ScriptEvent::TravelDone { id: id.0, value });
                 }
             }
             Self::Session(reply) => {
@@ -72,7 +69,7 @@ impl ScriptJobs {
             Ok(executor) => executor,
             Err(_) => return Ok(None),
         };
-        self.submit_travel(executor, TravelOwner::Script(self.attachment))
+        self.submit_travel(executor, TravelOwner::Script(self.completions.clone()))
             .map(Some)
     }
     pub(crate) fn submit_travel(
@@ -143,11 +140,9 @@ impl ProfileJobs {
 impl Travel {
     pub(super) fn cancel(&mut self) {
         self.request.gate.close();
-        self.request.owner.complete(
-            Outcome::Cancelled,
-            self.request.id,
-            &self.request.player.inbox,
-        );
+        self.request
+            .owner
+            .complete(Outcome::Cancelled, self.request.id);
         self.request
             .executor
             .advance(&self.snapshot, Event::Cancel, 0);
@@ -175,9 +170,7 @@ impl Travel {
             self.request.gate.close();
             self.waiting = None;
             self.due = None;
-            self.request
-                .owner
-                .complete(outcome, self.request.id, &link.inbox());
+            self.request.owner.complete(outcome, self.request.id);
         } else if let Some(command) = effects.command {
             let deadline = now + REPLY_TIMEOUT;
             let (reply, pending) = Pending::channel();
@@ -329,6 +322,14 @@ mod tests {
     fn an_unanswered_travel_action_fails_at_its_reply_deadline() {
         let host = testing::headless_host();
         let (_session, link) = testing::start_probe(&host, testing::ProbeMovie::new());
+        while link.try_event().unwrap().is_some() {}
+        let (entered, arrived) = std::sync::mpsc::channel();
+        let (release, held) = std::sync::mpsc::channel();
+        let _hold = link.inbox().read_projection(move |_| {
+            let _ = entered.send(());
+            let _ = held.recv();
+        });
+        arrived.recv_timeout(Duration::from_secs(5)).unwrap();
         let now = Instant::now();
         let clock = JobClock { origin: now };
         let mut executor = TravelJob::new(travel::Request::Jump {
@@ -345,7 +346,7 @@ mod tests {
         let mut job = Travel {
             request: Request {
                 id: JobId::next(),
-                owner: TravelOwner::Script(link.jobs.attachment),
+                owner: TravelOwner::Script(link.jobs.completions.clone()),
                 detached: Arc::default(),
                 player: link.jobs.player.clone(),
                 gate,
@@ -369,15 +370,15 @@ mod tests {
         assert!(!job.done);
         job.turn(now + Duration::from_secs(5), clock, &link, Waker::noop());
         assert!(job.done);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if let Ok(Some(ScriptEvent::TravelDone { value, .. })) = link.try_event() {
-                assert!(!value);
-                break;
-            }
-            assert!(Instant::now() < deadline, "travel did not finish");
-            std::thread::yield_now();
-        }
+        let answer = link.try_event();
+        let _ = release.send(());
+        assert_eq!(
+            answer,
+            Ok(Some(ScriptEvent::TravelDone {
+                id: job.request.id.0,
+                value: false
+            }))
+        );
     }
 }
 
@@ -482,7 +483,7 @@ mod observation_deadline_tests {
         let mut job = Travel {
             request: Request {
                 id: JobId::next(),
-                owner: TravelOwner::Script(link.jobs.attachment),
+                owner: TravelOwner::Script(link.jobs.completions.clone()),
                 detached: Arc::default(),
                 player: link.jobs.player.clone(),
                 gate: Arc::new(JobGate::new(link.packets.binding())),

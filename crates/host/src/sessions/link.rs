@@ -51,6 +51,7 @@ impl ScriptLink {
             player.clone(),
             operations.clone(),
             records.jobs.clone(),
+            events.completions(),
         );
         Self {
             jobs,

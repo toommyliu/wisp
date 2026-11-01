@@ -54,6 +54,7 @@ pub(crate) struct ScriptJobs {
     pub(super) player: Endpoint,
     pub(super) operations: Arc<Shared>,
     pub(super) requests: Arc<JobRequests>,
+    pub(super) completions: crate::bridge::ScriptCompletions,
     pub(super) live: Mutex<HashMap<JobId, Arc<JobGate>>>,
 }
 
@@ -108,6 +109,7 @@ impl ScriptJobs {
         player: Endpoint,
         operations: Arc<Shared>,
         requests: Arc<JobRequests>,
+        completions: crate::bridge::ScriptCompletions,
     ) -> Self {
         Self {
             attachment,
@@ -115,6 +117,7 @@ impl ScriptJobs {
             player,
             operations,
             requests,
+            completions,
             live: Mutex::default(),
         }
     }

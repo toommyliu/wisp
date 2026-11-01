@@ -488,11 +488,9 @@ impl Drop for ProfileJobs {
         handoff.queue.clear();
         for mut request in handoff.travel.drain(..) {
             request.gate.close();
-            request.owner.complete(
-                super::travel::Outcome::Cancelled,
-                request.id,
-                &request.player.inbox,
-            );
+            request
+                .owner
+                .complete(super::travel::Outcome::Cancelled, request.id);
         }
         handoff.travel_live = 0;
         for travel in &mut self.travel {
