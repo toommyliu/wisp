@@ -11,10 +11,22 @@ use crate::bridge::ScriptEvent;
 use crate::player::{Clipboard, Movie, surface::noop_gpu};
 use crate::{Host, ScriptLink, Session, Surface, ViewEvent, Viewport};
 
+pub use crate::data::FileStage;
+
 pub fn headless_host() -> Host {
-    Host::with_services(
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    headless_host_with_data(std::env::temp_dir().join(format!(
+        "lucent-headless-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )))
+}
+
+pub fn headless_host_with_data(root: impl Into<std::path::PathBuf>) -> Host {
+    Host::with_services_and_data_root(
         Clipboard::memory().expect("couldn't start the in-memory clipboard"),
         || Box::new(NullAudioBackend::new()),
+        root.into(),
     )
     .expect("couldn't start the headless host")
 }
