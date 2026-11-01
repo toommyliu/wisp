@@ -33,3 +33,5 @@ The host service implementations in `host/services.ts` fail explicitly until the
 `host/web.ts` supplies `URL`, `URLSearchParams`, `TextDecoder`, and `Headers`. URL components use the host's `url` crate through a private synchronous binding; form-urlencoded parsing and serialization use a second binding. UTF-8 decoding uses a native byte-view binding. `TextDecoder` accepts `utf-8` and `utf8`, supports `fatal` and `ignoreBOM`, and rejects streaming and other encodings. Headers normalize names, preserve separate `set-cookie` values, and iterate in sorted order. These bindings are captured before the runtime hides `__host`.
 
 `node scripts/gen-globals-corpus.mjs --check` checks the Node-generated fixtures replayed by the host's globals integration tests.
+
+`host/http.ts` routes script requests through the run's asynchronous I/O registry. HTTP shares its 16 pending requests with files and dialogs. The host owns a separate HTTP client without a cookie store, a launcher user agent, or system proxy discovery. Cancellation and run teardown abort requests. Response metadata crosses as JSON, and `takeIoBody` transfers body bytes into a V8 ArrayBuffer.

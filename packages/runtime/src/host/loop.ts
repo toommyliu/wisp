@@ -33,7 +33,8 @@ declare global {
     startJob(requestJson: string): string;
     engageJob(id: string, engaged: boolean): void;
     cancelJob(id: string): void;
-    requestIo(requestJson: string): string;
+    requestIo(requestJson: string, body?: Uint8Array): string;
+    takeIoBody(id: string): ArrayBuffer;
     cancelIo(id: string): void;
     now(): number;
     log(level: "info" | "warn" | "error" | "debug", text: string): void;

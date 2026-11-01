@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 import { ArmyError, ArmyLoopTauntError } from "../game/army/ArmyErrors";
 import type { ScriptDialogsShape } from "../game/scripting/ScriptDialogs";
 import type { ScriptServicesShape } from "../game/scripting/ScriptServices";
-import { HttpError } from "../shared/http";
 
 export class HostServiceUnavailable extends Error {
   constructor(readonly service: string) {
@@ -53,19 +52,7 @@ export const unavailableScriptServices = {
     fetchBoosts: failure("environment"),
     syncToAll: failure("environment"),
   }),
-  http: () =>
-    Effect.succeed({
-      HttpError,
-      request: (url: string | URL) =>
-        Effect.fail(
-          new HttpError({
-            reason: "request",
-            url: String(url),
-            detail: new HostServiceUnavailable("http").message,
-          }),
-        ),
-    }),
-} satisfies Omit<ScriptServicesShape, "autoZone" | "autoRelogin" | "fileSystem">;
+} satisfies Omit<ScriptServicesShape, "autoZone" | "autoRelogin" | "fileSystem" | "http">;
 
 export const unavailableScriptDialogs = {
   alert: defect("dialogs"),

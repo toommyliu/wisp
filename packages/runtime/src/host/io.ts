@@ -2,13 +2,13 @@ const pending = new Map<string, (result: unknown) => void>();
 
 type Host = Pick<typeof __host, "requestIo" | "cancelIo">;
 
-export const requestIo = <A>(host: Host, request: unknown, signal?: AbortSignal): Promise<A> =>
+export const requestIo = <A>(host: Host, request: unknown, signal?: AbortSignal, body?: Uint8Array): Promise<A> =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
       return;
     }
-    const submitted = JSON.parse(host.requestIo(JSON.stringify(request))) as
+    const submitted = JSON.parse(host.requestIo(JSON.stringify(request), body)) as
       | { id: string }
       | { result: A };
     if ("result" in submitted) {
