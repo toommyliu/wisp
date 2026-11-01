@@ -17,6 +17,7 @@ pub mod hydration;
 pub mod query;
 pub mod readiness;
 
+pub mod auto_attack;
 pub mod auto_relogin;
 pub mod auto_zone;
 pub mod command;

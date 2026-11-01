@@ -53,9 +53,11 @@ impl Logs {
                     < count
             })
             .unwrap();
+        let messages = entries.clone();
+        drop(entries);
         assert!(
             !timeout.timed_out(),
-            "did not receive {expected:?} {count} times: {entries:?}"
+            "did not receive {expected:?} {count} times: {messages:?}"
         );
     }
 

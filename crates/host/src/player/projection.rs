@@ -636,7 +636,14 @@ mod tests {
         sender.send(Msg::Read(request)).unwrap();
         sender.send(Msg::Stop).unwrap();
         assert!(
-            first_viewport(&receiver, false, &Default::default(), &Default::default()).is_none()
+            first_viewport(
+                &receiver,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .is_none()
         );
         assert_eq!(
             reply.recv_timeout(Duration::ZERO),
