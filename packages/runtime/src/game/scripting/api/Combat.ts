@@ -1,5 +1,5 @@
 import type { ApiService } from "../../flash/api/Api";
-import type { ScriptCombatApi } from "../ScriptApi";
+import type { ScriptCombatApi } from "@lucent/scripting-api/contract";
 
 export const makeScriptCombatApi = (
   combat: ApiService["combat"],

@@ -38,7 +38,7 @@ import type {
   ParseResult,
   RecoveryContext,
   RefineOptions,
-} from "./public";
+} from "@lucent/scripting-api/schema";
 
 /** Base implementation keeps Effect and traversal state out of the scripting API. */
 export class SchemaImpl<Output = unknown> {

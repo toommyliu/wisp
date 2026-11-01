@@ -1,7 +1,7 @@
 import * as Duration from "effect/Duration";
 
 import { HttpError, type HttpRequestPayload } from "../../../shared/http";
-import type { HttpRequestOptions } from "../ScriptApi";
+import type { HttpRequestOptions } from "@lucent/scripting-api/contract";
 
 const encoder = new TextEncoder();
 const DEFAULT_TIMEOUT_MS = 20_000;

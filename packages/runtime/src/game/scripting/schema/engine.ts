@@ -13,7 +13,7 @@ import type {
   Metadata,
   ParseOptions,
   Path,
-} from "./public";
+} from "@lucent/scripting-api/schema";
 
 export type Backend = Native.Codec<unknown>;
 export type Decoded<Output = unknown> = Result.Result<

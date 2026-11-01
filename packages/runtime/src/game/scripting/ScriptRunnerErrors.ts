@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import type { ScriptExitOptions } from "./ScriptApi";
+import type { ScriptExitOptions } from "@lucent/scripting-api/contract";
 
 export class ScriptLoadError extends Schema.TaggedError<ScriptLoadError>()(
   "ScriptLoadError",

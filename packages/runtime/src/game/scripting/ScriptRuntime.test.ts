@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 
 import type { ScriptInputValues } from "@lucent/schemas/scriptInputs";
 
-import type { ScriptRuntimeOptions } from "./ScriptApi";
+import type { ScriptRuntimeOptions } from "@lucent/scripting-api/contract";
 import {
   makeScriptRuntimeApi,
   snapshotScriptRuntimeOptions,

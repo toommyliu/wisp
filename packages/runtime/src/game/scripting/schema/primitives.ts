@@ -15,7 +15,7 @@ import {
   type Definition,
 } from "./engine";
 import { issue, SchemaUsageError } from "./issues";
-import type { MessageOptions } from "./public";
+import type { MessageOptions } from "@lucent/scripting-api/schema";
 import { create, SchemaImpl } from "./Schema";
 
 export const primitive = (
