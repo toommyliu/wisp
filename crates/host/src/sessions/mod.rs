@@ -13,12 +13,11 @@ use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
 pub use script_options::OptionsError;
 mod environment_order;
 pub use controller::{ScriptControls, ScriptRequest, Supervisor};
-mod reaper;
-pub(crate) mod relogin;
-pub use reaper::reap;
 pub(crate) mod claims;
 pub mod lifecycle;
 mod link;
+mod reaper;
+pub(crate) mod relogin;
 pub use claims::ClaimGrant;
 pub(crate) mod operations;
 pub use link::{PlayerStatus, ScriptLink};
@@ -60,6 +59,7 @@ pub struct Host {
 }
 
 struct Shared {
+    reapers: Arc<reaper::Reapers>,
     files: Arc<crate::data::Files>,
     net: tokio::runtime::Runtime,
     clipboard: Clipboard,
@@ -108,6 +108,7 @@ impl Host {
             .map_err(HostError::NetRuntime)?;
         Ok(Host {
             shared: Arc::new(Shared {
+                reapers: Arc::default(),
                 files: Arc::new(crate::data::Files::start(root).map_err(HostError::Files)?),
                 net,
                 clipboard,
@@ -142,6 +143,7 @@ impl Host {
         let auto_attack = Arc::new(auto_attack::Shared::new(changes.clone()));
         Ok(Session {
             supervisor: None,
+            controller: None,
             script_status: Arc::default(),
             lifecycle_status: Arc::new(RwLock::new(
                 lifecycle::Lifecycle::new(lifecycle::Binding {
@@ -207,6 +209,7 @@ struct PlayerRecords {
 pub struct Session {
     dialogs: Arc<dialogs::Dialogs>,
     supervisor: Option<Supervisor>,
+    controller: Option<Arc<controller::Shutdown>>,
     script_status: Arc<RwLock<ScriptStatus>>,
     lifecycle_status: Arc<RwLock<lifecycle::Status>>,
     changes: Arc<Changes>,
@@ -497,5 +500,21 @@ impl Host {
 impl Drop for Session {
     fn drop(&mut self) {
         self.detached.store(true, Ordering::Release);
+        if let Some(controller) = &self.controller {
+            controller.stop();
+        }
+    }
+}
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        self.reapers.shutdown();
+    }
+}
+
+#[cfg(feature = "testing")]
+impl Session {
+    pub fn wait_for_script_reaping(&self, timeout: std::time::Duration) -> bool {
+        self.host.shared.reapers.barrier(self.id, timeout)
     }
 }

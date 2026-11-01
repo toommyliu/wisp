@@ -14,7 +14,6 @@ pub use player::view::{
     Ime, Key, KeyCode, Modifiers, MouseButton, NamedKey, Point, ViewEvent, Viewport, WheelDelta,
 };
 pub use ruffle_render_wgpu::wgpu;
-pub use sessions::reap;
 pub use sessions::{Host, HostError, OptionsError, PlayerStatus, ScriptLink, Session};
 
 #[cfg(feature = "testing")]

@@ -24,13 +24,6 @@ fn wait_idle(session: &Session) {
             .unwrap();
     }
 }
-fn reaper_barrier() {
-    let (tx, rx) = mpsc::channel();
-    lucent_host::reap(move || {
-        let _ = tx.send(());
-    });
-    rx.recv_timeout(TIMEOUT).unwrap();
-}
 #[test]
 fn logout_finishes_before_idle() {
     let logs = Logs::default();
@@ -63,7 +56,7 @@ fn logout_finishes_before_idle() {
         )
         .unwrap();
     logout.wait();
-    reaper_barrier();
+    assert!(session.wait_for_script_reaping(TIMEOUT));
     controls.status();
     let deadline = Instant::now() + TIMEOUT;
     let line = loop {
