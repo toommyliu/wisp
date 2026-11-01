@@ -5795,6 +5795,8 @@ ${prefix}}`;
         invoke(() => window.onHostEventsLost?.());
       } else if (item.type === "jobprepared") {
         prepareJob(item.id, item.label, item.warnings, item.classNames);
+      } else if (item.type === "jobwarning") {
+        host3.log("warn", item.warning);
       } else if (item.type === "jobfailed") {
         failJob(item.id, item.error);
       } else if (item.type === "operationresponsibility") {

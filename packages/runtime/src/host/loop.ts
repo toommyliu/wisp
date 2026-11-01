@@ -56,6 +56,7 @@ declare global {
 type ScriptEvent =
   | { type: "io"; id: string; result: unknown }
   | { type: "jobprepared"; id: string; label: string; classNames: string[]; warnings: string[] }
+  | { type: "jobwarning"; id: string; warning: string }
   | { type: "jobfailed"; id: string; error: string }
   | { type: "operationresponsibility"; id: string; responsible: boolean }
   | { type: "operationstarted" | "operationissued"; id: string }
@@ -141,6 +142,8 @@ export const turn = (itemsJson: string): string[] => {
       invoke(() => window.onHostEventsLost?.());
     } else if (item.type === "jobprepared") {
       prepareJob(item.id, item.label, item.warnings, item.classNames);
+    } else if (item.type === "jobwarning") {
+      host.log("warn", item.warning);
     } else if (item.type === "jobfailed") {
       failJob(item.id, item.error);
     } else if (item.type === "operationresponsibility") {
