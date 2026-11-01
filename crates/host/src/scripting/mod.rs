@@ -3,6 +3,7 @@ mod cpu_time;
 mod engine;
 mod host;
 mod interrupt;
+pub(crate) mod io;
 mod modules;
 
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -63,6 +64,7 @@ pub struct Runtime {
 }
 
 enum Command {
+    Io,
     Wake,
     StopScript,
     StartScript,
@@ -73,6 +75,17 @@ enum Command {
         source: String,
         reply: mpsc::Sender<Result<String, RuntimeError>>,
     },
+}
+
+struct IoWake(mpsc::Sender<Command>);
+
+impl Wake for IoWake {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        let _ = self.0.send(Command::Io);
+    }
 }
 
 struct EventWake {
@@ -220,6 +233,7 @@ impl Runtime {
             commands: commands.clone(),
             queued: AtomicBool::new(false),
         });
+        let io_wake = Waker::from(Arc::new(IoWake(commands.clone())));
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
         let thread = thread::Builder::new()
             .name(format!("lucent-js-{}", link.id()))
@@ -249,7 +263,7 @@ impl Runtime {
                 let result = (|| {
                     link.set_waker(Waker::from(wake.clone()));
                     tracing::debug!("script worker booting");
-                    let engine = Engine::new(link, interrupt.clone())?;
+                    let engine = Engine::new(link, interrupt.clone(), io_wake)?;
                     run(
                         engine,
                         execution,
@@ -377,6 +391,7 @@ fn run(
     loop {
         interrupt.begin_turn();
         let items = match command {
+            Ok(Command::Io) => engine.take_io(),
             Ok(Command::Eval {
                 name,
                 source,

@@ -222,3 +222,21 @@ pub enum ScriptOutcome {
     #[serde(rename = "externally-stopped")]
     Stopped { reason: Option<String> },
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ScriptPhase {
+    #[default]
+    Idle,
+    Waiting,
+    Starting,
+    Running,
+    Stopping,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptStatus {
+    pub phase: ScriptPhase,
+    pub script: Option<String>,
+    pub last_end: Option<String>,
+}

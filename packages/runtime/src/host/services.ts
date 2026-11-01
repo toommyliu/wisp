@@ -17,8 +17,6 @@ const defect = (service: string) => () =>
   Effect.die(new HostServiceUnavailable(service));
 const failure = (service: string) => () =>
   Effect.fail(new HostServiceUnavailable(service));
-const reject = (service: string) => () =>
-  Promise.reject(new HostServiceUnavailable(service));
 const armyFailure =
   <E>(ErrorClass: new (message: string, cause: unknown) => E) => () => {
     const cause = new HostServiceUnavailable("army");
@@ -55,15 +53,6 @@ export const unavailableScriptServices = {
     fetchBoosts: failure("environment"),
     syncToAll: failure("environment"),
   }),
-  fileSystem: {
-    exists: reject("fileSystem"),
-    list: reject("fileSystem"),
-    readJson: reject("fileSystem"),
-    readText: reject("fileSystem"),
-    remove: reject("fileSystem"),
-    writeJson: reject("fileSystem"),
-    writeText: reject("fileSystem"),
-  },
   http: () =>
     Effect.succeed({
       HttpError,
@@ -76,7 +65,7 @@ export const unavailableScriptServices = {
           }),
         ),
     }),
-} satisfies Omit<ScriptServicesShape, "autoZone" | "autoRelogin">;
+} satisfies Omit<ScriptServicesShape, "autoZone" | "autoRelogin" | "fileSystem">;
 
 export const unavailableScriptDialogs = {
   alert: defect("dialogs"),
