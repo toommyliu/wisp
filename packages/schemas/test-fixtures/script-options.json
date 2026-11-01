@@ -75,5 +75,24 @@
   {"name": "invalid {\"safeStartStop\":\"true\"}", "steps": [
     {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
     {"patch": {"safeStartStop": "true"},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "array patch", "steps": [
+    {"patch": [true,{"kind": "public"},false],"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "random-private"},"safeStartStop": true}}
+  ]},
+  {"name": "null patch", "steps": [
+    {"patch": null,"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "random-private"},"safeStartStop": true}}
+  ]},
+  {"name": "boolean patch", "steps": [
+    {"patch": true,"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "random-private"},"safeStartStop": true}}
+  ]},
+  {"name": "number patch", "steps": [
+    {"patch": 42,"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "random-private"},"safeStartStop": true}}
+  ]},
+  {"name": "string patch", "steps": [
+    {"patch": "bad","valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "random-private"},"safeStartStop": true}}
+  ]},
+  {"name": "integer JSON number representations", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 1.0}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 1},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 99999.0}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 99999},"safeStartStop": true}}
   ]}
 ]

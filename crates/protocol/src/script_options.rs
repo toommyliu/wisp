@@ -7,7 +7,19 @@
 pub enum RoomPolicy {
     Public,
     RandomPrivate,
-    Specific { room_number: u32 },
+    Specific {
+        #[serde(deserialize_with = "room_number")]
+        room_number: u32,
+    },
+}
+
+fn room_number<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+    let number = <f64 as serde::Deserialize>::deserialize(deserializer)?;
+    if number.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&number) {
+        Ok(number as u32)
+    } else {
+        Err(serde::de::Error::custom("expected an unsigned integer"))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
@@ -29,33 +41,37 @@ impl Default for ScriptOptions {
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(
+    rename_all = "camelCase",
+    try_from = "serde_json::Map<String, serde_json::Value>"
+)]
 #[ts(optional_fields)]
 pub struct ScriptOptionsPatch {
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "present"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub restart_after_reconnect: Option<bool>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "present"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub room_policy: Option<RoomPolicy>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "present"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub safe_start_stop: Option<bool>,
 }
 
-fn present<'de, D: serde::Deserializer<'de>, T: serde::Deserialize<'de>>(
-    deserializer: D,
-) -> Result<Option<T>, D::Error> {
-    T::deserialize(deserializer).map(Some)
+impl TryFrom<serde_json::Map<String, serde_json::Value>> for ScriptOptionsPatch {
+    type Error = serde_json::Error;
+
+    fn try_from(
+        mut fields: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Self, Self::Error> {
+        fn field<T: serde::de::DeserializeOwned>(
+            value: Option<serde_json::Value>,
+        ) -> Result<Option<T>, serde_json::Error> {
+            value.map(serde_json::from_value).transpose()
+        }
+        Ok(Self {
+            restart_after_reconnect: field(fields.remove("restartAfterReconnect"))?,
+            room_policy: field(fields.remove("roomPolicy"))?,
+            safe_start_stop: field(fields.remove("safeStartStop"))?,
+        })
+    }
 }
 
 impl From<ScriptOptions> for ScriptOptionsPatch {
