@@ -34,4 +34,4 @@ The host service implementations in `host/services.ts` fail explicitly until the
 
 `node scripts/gen-globals-corpus.mjs --check` checks the Node-generated fixtures replayed by the host's globals integration tests.
 
-`host/http.ts` routes script requests through the run's asynchronous I/O registry. HTTP shares its 16 pending requests with files and dialogs. The host owns a separate HTTP client without cookies, a launcher user agent, or system proxy discovery. Cancellation and run teardown abort requests. Response metadata crosses as JSON, and `takeIoBody` transfers body bytes into a V8 ArrayBuffer.
+`host/http.ts` routes script requests through the run's asynchronous I/O registry. HTTP shares its 16 pending requests with files and dialogs. The host owns a separate HTTP client without a cookie store, a launcher user agent, or system proxy discovery. Cancellation and run teardown abort requests. Response metadata crosses as JSON, and `takeIoBody` transfers body bytes into a V8 ArrayBuffer.
