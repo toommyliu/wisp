@@ -16,8 +16,10 @@ impl GameWindow {
                 )
             });
         }
-        if let (Ok(player), Some(bar)) = (&self.player, &self.bar) {
+        if let (Ok(player), Some(bar), Some(dialog)) = (&self.player, &self.bar, &self.dialog) {
+            let return_focus = dialog.focus_handle(cx);
             bar.update(cx, |bar, cx| {
+                bar.return_focus = return_focus;
                 bar.state.read(player.read(cx).session());
                 bar.refresh(window, cx);
             });

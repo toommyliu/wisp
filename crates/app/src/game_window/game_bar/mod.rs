@@ -31,7 +31,7 @@ pub struct GameBar {
     pub state: BarState,
     open: Option<Menu>,
     focus: FocusHandle,
-    return_focus: FocusHandle,
+    pub(super) return_focus: FocusHandle,
     fields: Vec<Entity<TextField>>,
     subscriptions: Vec<Subscription>,
 }

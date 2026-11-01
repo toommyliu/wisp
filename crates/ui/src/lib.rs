@@ -148,7 +148,7 @@ pub fn floating(panel: impl IntoElement) -> impl IntoElement {
             .snap_to_window_with_margin(px(8.))
             .child(panel),
     )
-    .priority(1)
+    .priority(3)
 }
 
 pub struct Tooltip(pub SharedString);

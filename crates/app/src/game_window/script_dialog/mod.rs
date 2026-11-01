@@ -62,18 +62,10 @@ impl ScriptDialogModal {
             })),
             _ => None,
         });
-        let focus = if current.is_some() {
-            self.field
-                .as_ref()
-                .map(|field| field.focus_handle(cx))
-                .unwrap_or_else(|| self.ok_focus.clone())
-        } else {
-            self.return_focus.clone()
-        };
         self.message_scroll.set_offset(point(px(0.), px(0.)));
         self.current = current;
         self.answered = false;
-        window.focus(&focus, cx);
+        window.focus(&self.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -123,6 +115,17 @@ impl ScriptDialogModal {
     }
 }
 
+impl Focusable for ScriptDialogModal {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        match self.current.as_ref().map(|dialog| &dialog.kind) {
+            Some(ScriptDialogKind::Alert) => self.ok_focus.clone(),
+            Some(ScriptDialogKind::Confirm) => self.cancel_focus.clone(),
+            Some(ScriptDialogKind::Prompt { .. }) => self.field.as_ref().unwrap().focus_handle(cx),
+            None => self.return_focus.clone(),
+        }
+    }
+}
+
 impl Render for ScriptDialogModal {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(dialog) = &self.current else {
@@ -169,7 +172,7 @@ impl Render for ScriptDialogModal {
                             .as_ref()
                             .is_some_and(|field| field.read(cx).is_composing())
                         {
-                            this.answer(true, cx);
+                            this.answer(!this.cancel_focus.is_focused(window), cx);
                             cx.stop_propagation();
                         }
                     }

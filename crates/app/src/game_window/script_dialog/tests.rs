@@ -70,11 +70,6 @@ fn setup(
         let game = cx.focus_handle();
         let actions: Rc<RefCell<Vec<BarAction>>> = Default::default();
         let recorded_actions = actions.clone();
-        let bar = cx.new(|cx| GameBar::new(game.clone(), window, cx));
-        cx.subscribe(&bar, move |_, _, action: &BarAction, _| {
-            recorded_actions.borrow_mut().push(action.clone());
-        })
-        .detach();
         let modal = cx.new(|cx| {
             let mut modal = ScriptDialogModal::new(game.clone(), cx);
             cx.subscribe_self(move |_, response: &DialogAnswered, _| {
@@ -95,6 +90,11 @@ fn setup(
             );
             modal
         });
+        let bar = cx.new(|cx| GameBar::new(modal.focus_handle(cx), window, cx));
+        cx.subscribe(&bar, move |_, _, action: &BarAction, _| {
+            recorded_actions.borrow_mut().push(action.clone());
+        })
+        .detach();
         Harness {
             modal,
             bar,
