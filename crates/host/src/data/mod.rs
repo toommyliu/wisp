@@ -15,6 +15,21 @@ use std::thread;
 use crate::scripting::io::Ticket;
 use path::{TEMP_PREFIX, segments};
 
+pub(crate) fn data_root(
+    documents: impl FnOnce() -> Option<PathBuf>,
+    home: impl FnOnce() -> Option<PathBuf>,
+) -> io::Result<PathBuf> {
+    documents()
+        .or_else(|| home().map(|path| path.join("Documents")))
+        .map(|path| path.join("Lucent/data"))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "Documents directory is unavailable",
+            )
+        })
+}
+
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Deserialize)]
@@ -452,5 +467,30 @@ fn require_file(info: &Metadata) -> Result<()> {
         Err("not-file")
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_root_prefers_documents_and_falls_back_to_home() {
+        assert_eq!(
+            data_root(
+                || Some(PathBuf::from("configured")),
+                || panic!("home lookup is unnecessary")
+            )
+            .unwrap(),
+            PathBuf::from("configured/Lucent/data")
+        );
+        assert_eq!(
+            data_root(|| None, || Some(PathBuf::from("home"))).unwrap(),
+            PathBuf::from("home/Documents/Lucent/data")
+        );
+        assert_eq!(
+            data_root(|| None, || None).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
     }
 }

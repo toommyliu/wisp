@@ -524,3 +524,93 @@ fn json_reads_preserve_javascript_strings_and_nested_values() {
         json!([55296, 0, 55296])
     );
 }
+
+#[test]
+fn full_host_file_queue_rejects_without_blocking_scripts_or_sessions() {
+    let logs = common::logs::Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let workspace = Workspace::new();
+    let host = workspace.host();
+    let (entered, waiting) = std::sync::mpsc::sync_channel(1);
+    let (release, released) = std::sync::mpsc::sync_channel(1);
+    let released = std::sync::Mutex::new(released);
+    let (queued, queued_rx) = std::sync::mpsc::channel();
+    host.set_file_probe(move |stage, path| {
+        if stage == testing::FileStage::BeforeRename && path == "blocker" {
+            entered.send(()).unwrap();
+            let _ = released.lock().unwrap().recv();
+        }
+        if stage == testing::FileStage::Queued && path.starts_with("pending") {
+            queued.send(path.to_owned()).unwrap();
+        }
+    });
+    let (_blocker_session, blocker) =
+        start_body(&host, r#"yield* fs.writeText("blocker", "whole");"#);
+    waiting.recv_timeout(TIMEOUT).unwrap();
+    let mut runs = Vec::new();
+    for session in 0..4 {
+        runs.push(start_body(
+            &host,
+            &format!(
+                r#"
+            let completed = 0, finish;
+            const done = new Promise(resolve => {{ finish = resolve; }});
+            const requests = Array.from({{length: 16}}, (_, i) =>
+                fs.writeText("pending-{session}-" + i, "whole").pipe(
+                    Effect.tap(() => Effect.sync(() => {{ if (++completed === 16) finish(); }})),
+                    Effect.flatMap(() => Effect.tryPromise(() => done))));
+            yield* requests.reduceRight((rest, request) => Effect.raceFirst(request, rest),
+                Effect.tryPromise(() => done));
+        "#
+            ),
+        ));
+        for _ in 0..16 {
+            queued_rx.recv_timeout(TIMEOUT).unwrap();
+        }
+    }
+    assert_eq!(
+        run(
+            &host,
+            r#"
+        return [yield* fs.exists("overflow").pipe(match({onFailure: e => e.reason, onSuccess: () => "admitted"})), 1 + 1];
+    "#
+        ),
+        json!(["busy", 2])
+    );
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    log_in(&observer);
+    let (request, controls) = lucent_host::ScriptRequest::new(loose(&[(
+        "responsive.js",
+        r#"
+        import * as api from "lucent/api";
+        export default function* () {
+            yield* api.packet.sendToClient("started");
+        }
+    "#,
+    )]));
+    let _supervisor = lucent_host::Supervisor::start(&mut session, Some(request)).unwrap();
+    assert_eq!(
+        await_event(&observer, "onDebug", None).args,
+        vec![lucent_protocol::bridge::Value::String("started".into())]
+    );
+    logs.wait_for(
+        tracing::Level::DEBUG,
+        &format!("session {}: script worker reaped", observer.id()),
+    );
+    controls.status();
+    logs.wait_for(
+        tracing::Level::INFO,
+        &format!("session {}: no script is running", observer.id()),
+    );
+    release.send(()).unwrap();
+    assert_eq!(blocker.wait(TIMEOUT).unwrap(), ScriptOutcome::Completed);
+    for (_session, run) in runs {
+        assert_eq!(run.wait(TIMEOUT).unwrap(), ScriptOutcome::Completed);
+    }
+    assert_eq!(fs::read_dir(workspace.root()).unwrap().count(), 65);
+    assert_eq!(
+        run(&host, r#"return yield* fs.exists("blocker");"#),
+        json!(true)
+    );
+}

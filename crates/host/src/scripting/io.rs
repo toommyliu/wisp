@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::data::{Files, Request};
 
-const MAX_REQUESTS: usize = 64;
+const MAX_REQUESTS: usize = 16;
 
 #[derive(Deserialize)]
 #[serde(tag = "service", rename_all = "camelCase")]
@@ -188,6 +188,42 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn a_run_at_capacity_leaves_room_for_another_session() {
+        let root = std::env::temp_dir().join(format!("lucent-io-fair-{}", std::process::id()));
+        let files = Arc::new(Files::start(root.clone()).unwrap());
+        let (entered, waiting) = mpsc::sync_channel(1);
+        let (release, released) = mpsc::sync_channel(1);
+        let released = Mutex::new(released);
+        files.set_probe(Arc::new(move |stage, path| {
+            if stage == crate::data::FileStage::Issued && path == "blocker" {
+                entered.send(()).unwrap();
+                let _ = released.lock().recv();
+            }
+        }));
+        let blocker = Io::new(files.clone(), Waker::noop().clone());
+        blocker
+            .submit(r#"{"service":"filesystem","operation":"exists","path":"blocker"}"#)
+            .unwrap();
+        waiting.recv_timeout(Duration::from_secs(10)).unwrap();
+        let first = Io::new(files.clone(), Waker::noop().clone());
+        let second = Io::new(files.clone(), Waker::noop().clone());
+        let request = r#"{"service":"filesystem","operation":"exists","path":"missing"}"#;
+        for _ in 0..16 {
+            let reply: Value = serde_json::from_str(&first.submit(request).unwrap()).unwrap();
+            assert!(reply["id"].is_string());
+        }
+        let reply: Value = serde_json::from_str(&first.submit(request).unwrap()).unwrap();
+        assert_eq!(reply["result"]["error"]["reason"], "busy");
+        let reply: Value = serde_json::from_str(&second.submit(request).unwrap()).unwrap();
+        assert!(reply["id"].is_string());
+        release.send(()).unwrap();
+        drop(files);
+        let items = serde_json::to_value(second.take()).unwrap();
+        assert_eq!(items[0]["result"], json!({"ok":true,"value":false}));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn closing_a_run_completes_pending_io_and_rejects_new_requests() {
         let root = std::env::temp_dir().join(format!("lucent-io-close-{}", std::process::id()));
         let files = Arc::new(Files::start(root.clone()).unwrap());
@@ -266,7 +302,7 @@ mod tests {
             .iter()
             .map(|item| item["id"].as_str().unwrap().parse::<u64>().unwrap())
             .collect();
-        assert_eq!(ids, (1..=64).collect::<Vec<_>>());
+        assert_eq!(ids, (1..=16).collect::<Vec<_>>());
         for item in items.as_array().unwrap() {
             assert_eq!(item["result"], json!({"ok":true,"value":false}));
         }

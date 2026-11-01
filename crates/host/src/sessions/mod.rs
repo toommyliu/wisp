@@ -72,13 +72,9 @@ impl Host {
     }
 
     pub(crate) fn with_services(clipboard: Clipboard, audio: Audio) -> Result<Host, HostError> {
-        let documents = dirs::document_dir().ok_or_else(|| {
-            HostError::Files(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "Documents directory is unavailable",
-            ))
-        })?;
-        Self::with_services_and_data_root(clipboard, audio, documents.join("Lucent/data"))
+        let root =
+            crate::data::data_root(dirs::document_dir, dirs::home_dir).map_err(HostError::Files)?;
+        Self::with_services_and_data_root(clipboard, audio, root)
     }
 
     pub(crate) fn with_services_and_data_root(
