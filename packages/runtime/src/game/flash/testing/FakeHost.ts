@@ -29,6 +29,9 @@ import type {
 } from "@lucent/game/protocol";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+
+import { completeOperation } from "../../../host/operations";
 
 import { makeApi } from "../api/Api";
 import { Bridge, makeBridge } from "../bridge/Bridge";
@@ -493,6 +496,48 @@ export const makeFakeHost = (
 
 export const emitExtension = (target: Window, dataObj: object): void => {
   target.onExtensionResponse?.(JSON.stringify({ dataObj, type: "json" }));
+};
+
+const BankOperation = Schema.Struct({
+  kind: Schema.Literals(["loadBank", "openBank"]),
+  force: Schema.Boolean,
+});
+
+export const makeFakeBankOperations = (target: Window, state: FakeHostState) => {
+  let nextOperation = 0;
+  const host = makeFakeHost(state, target);
+  return {
+    prepareOperation: () => String(++nextOperation),
+    operate: (id: string, json: string) => {
+      try {
+        const operation = Schema.decodeUnknownSync(BankOperation)(
+          JSON.parse(json),
+        );
+        const load = () => {
+          if (!target.swf["auth.isLoggedIn"]()) return false;
+          if (state.hydration.bank > 0 && !operation.force) return true;
+          target.swf["bank.loadItems"](true);
+          if (!target.swf["bank.isLoaded"]()) return false;
+          return Option.isSome(
+            Effect.runSync(host.command({
+              kind: "refreshContainer", container: "bank",
+            })),
+          );
+        };
+        let value = load();
+        if (
+          value && operation.kind === "openBank" && !target.swf["bank.isOpen"]()
+        ) {
+          target.swf["bank.open"]();
+          value = target.swf["bank.isOpen"]();
+        }
+        completeOperation(id, { kind: operation.kind, value }, null);
+      } catch (error) {
+        completeOperation(id, null, String(error));
+      }
+    },
+    cancelOperation: () => {},
+  };
 };
 
 export const makeFakeApi = (target: Window, state: FakeHostState) =>

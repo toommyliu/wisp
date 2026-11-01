@@ -318,6 +318,7 @@ mod tests {
         worker
             .sender
             .send(Some(crate::sessions::operations::Request {
+                binding: running.operation_packets.binding(),
                 id: 42,
                 owner: crate::sessions::claims::Owner::script(crate::sessions::AttachmentId(0)),
                 recipient: crate::sessions::AttachmentId(0),
