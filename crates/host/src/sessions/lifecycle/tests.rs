@@ -1046,3 +1046,43 @@ fn disabling_restart_while_the_loader_read_is_pending_cancels_the_attempt() {
         );
     }
 }
+
+#[test]
+fn reconnect_compares_normalized_account_names() {
+    for (username, restart) in [("ÉOWYN", true), ("other", false)] {
+        let mut machine = Lifecycle::new(binding());
+        let opts = Options {
+            restart_after_reconnect: true,
+            ..options()
+        };
+        let account = Readiness {
+            username: "Éowyn".into(),
+            ..readiness()
+        };
+        machine.advance(
+            Event::Command(Command::Start(request())),
+            &account,
+            &opts,
+            0,
+        );
+        let run = machine.status().active.unwrap().run;
+        machine.advance(Event::PlayerReady { run, ready: true }, &account, &opts, 1);
+        machine.advance(Event::ConnectionLost(binding()), &account, &opts, 2);
+        machine.advance(Event::Reaped(run), &account, &opts, 3);
+        let account = Readiness {
+            username: username.into(),
+            ..account
+        };
+        machine.advance(
+            Event::ConnectionRestored(Binding {
+                connection: ConnectionEpoch(2),
+                ..binding()
+            }),
+            &account,
+            &opts,
+            4,
+        );
+        assert_eq!(machine.status().waiting_to_restart, restart);
+        assert_eq!(machine.status().active.is_some(), restart);
+    }
+}

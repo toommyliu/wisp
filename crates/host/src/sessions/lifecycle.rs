@@ -386,7 +386,7 @@ impl Lifecycle {
         }
         if let Some(Pending::Restart { username, .. }) = &self.pending
             && !readiness.username.trim().is_empty()
-            && !username.eq_ignore_ascii_case(readiness.username.trim())
+            && username != &readiness.username.trim().to_lowercase()
         {
             self.cancel_restart();
         }
