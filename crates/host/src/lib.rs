@@ -15,7 +15,7 @@ pub use player::view::{
 };
 pub use ruffle_render_wgpu::wgpu;
 pub use sessions::reap;
-pub use sessions::{Host, HostError, PlayerStatus, ScriptLink, Session};
+pub use sessions::{Host, HostError, OptionsError, PlayerStatus, ScriptLink, Session};
 
 #[cfg(feature = "testing")]
 pub mod testing;

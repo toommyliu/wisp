@@ -245,6 +245,18 @@ impl ScriptLink {
         if self.stopped.load(Ordering::Acquire) {
             return Err(bridge::Error::Stopped);
         }
+        if matches!(query, Some(Query::ScriptOptions {})) {
+            let options = self
+                .records
+                .script_options
+                .try_read_for(timeout)
+                .ok_or(bridge::Error::Timeout)?;
+            if self.stopped.load(Ordering::Acquire) {
+                return Err(bridge::Error::Stopped);
+            }
+            query.take();
+            return Ok(serde_json::to_string(&*options).unwrap());
+        }
         if matches!(query, Some(Query::Environment {})) {
             let state = self
                 .records
@@ -302,15 +314,7 @@ impl ScriptLink {
             return Ok(serde_json::to_string(&*settings).unwrap());
         }
         self.read_for(timeout.saturating_sub(start.elapsed()), |projection| {
-            answer(
-                projection,
-                &settings,
-                &self.records.auto_zone,
-                &self.records.auto_attack.records,
-                &self.records.auto_relogin,
-                &self.records.environment,
-                query.take().unwrap(),
-            )
+            answer(projection, &settings, &self.records, query.take().unwrap())
         })
     }
 
@@ -374,6 +378,13 @@ pub(super) fn route_command(
             .submit(edit, detached.clone(), Instant::now())
     };
     let command = match command {
+        Command::UpdateScriptOptions { patch } => return write_script_options(records, patch),
+        Command::ResetScriptOptions {} => {
+            return write_script_options(
+                records,
+                lucent_protocol::script_options::ScriptOptions::default().into(),
+            );
+        }
         Command::EnableAutoAttack {
             profile,
             target_priority,
@@ -417,6 +428,22 @@ pub(super) fn route_command(
     };
     let (reply, pending) = Pending::channel();
     inbox.post(crate::player::Msg::Command(command, reply));
+    pending
+}
+
+fn write_script_options(
+    records: &super::Records,
+    patch: lucent_protocol::script_options::ScriptOptionsPatch,
+) -> Pending<String> {
+    let (reply, pending) = Pending::channel();
+    let result = records
+        .update_script_options(patch)
+        .map(|options| serde_json::to_string(&options).unwrap())
+        .map_err(|error| bridge::Error::CommandFailed {
+            operation: "script.options.update".into(),
+            reason: error.to_string(),
+        });
+    let _ = reply.send(result);
     pending
 }
 

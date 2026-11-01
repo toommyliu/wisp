@@ -24,6 +24,7 @@ pub mod command;
 pub mod operation;
 
 pub mod script;
+pub mod script_options;
 
 pub mod settings;
 
