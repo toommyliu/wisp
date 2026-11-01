@@ -102,6 +102,7 @@ impl GameBar {
             "attack" => Some(Menu::Attack),
             _ => None,
         };
+        tracing::info!(menu = name, "game bar capture menu opened");
         cx.notify();
     }
 
