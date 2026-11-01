@@ -19,6 +19,8 @@ struct Expected {
     args: Vec<String>,
     patch: Value,
     reply: bool,
+    #[serde(default)]
+    delay_ms: u64,
 }
 #[derive(Deserialize)]
 struct Update {
@@ -95,6 +97,16 @@ fn replay(corpus: &str) {
                 );
                 assert_eq!(now, expected.at, "{}: command clock", scenario.name);
                 patch(&mut snapshot, &expected.patch);
+                let reply_at = now + expected.delay_ms;
+                if effects
+                    .next_deadline
+                    .is_some_and(|deadline| deadline < reply_at)
+                {
+                    now = effects.next_deadline.unwrap();
+                    event = Event::Tick;
+                    continue;
+                }
+                now = reply_at;
                 event = Event::Completed {
                     id: command.id,
                     reply: if matches!(command.action, Action::CellReady(_)) {
@@ -176,5 +188,47 @@ fn rejects_unbounded_input_and_requires_a_valid_random_draw() {
         })
         .unwrap_err(),
         InputError::RandomRoomRequired
+    );
+}
+
+#[test]
+fn cell_readiness_cannot_outlive_the_jump_deadline() {
+    let mut job = TravelJob::new(Request::Jump {
+        cell: "r2".into(),
+        pad: None,
+    })
+    .unwrap();
+    let mut snapshot: Snapshot = serde_json::from_value(
+        serde_json::from_str::<Vec<Scenario>>(include_str!(
+            "../../../tests/fixtures/travel/transcripts.json"
+        ))
+        .unwrap()[0]
+            .initial
+            .clone(),
+    )
+    .unwrap();
+    snapshot.live_cell = "r2".into();
+    let command = job.advance(&snapshot, Event::Tick, 0).command.unwrap();
+    let effects = job.advance(
+        &snapshot,
+        Event::Completed {
+            id: command.id,
+            reply: Reply::Accepted,
+        },
+        0,
+    );
+    let effects = if effects.command.is_none() {
+        job.advance(&snapshot, Event::Tick, 0)
+    } else {
+        effects
+    };
+    assert!(matches!(
+        effects.command.unwrap().action,
+        Action::CellReady(_)
+    ));
+    assert_eq!(effects.next_deadline, Some(3000));
+    assert_eq!(
+        job.advance(&snapshot, Event::Tick, 3000).outcome,
+        Some(Outcome::Returned(false))
     );
 }
