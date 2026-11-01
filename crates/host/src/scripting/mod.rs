@@ -39,6 +39,8 @@ pub enum Kill {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error("a script is already active")]
+    Busy,
     #[error("couldn't start the script thread: {0}")]
     Thread(#[from] std::io::Error),
     #[error("the script runtime has stopped")]
@@ -263,6 +265,11 @@ impl Runtime {
                 let result = (|| {
                     link.set_waker(Waker::from(wake.clone()));
                     tracing::debug!("script worker booting");
+                    tracing::debug!(
+                        "script worker {} on {:?}",
+                        thread::current().name().unwrap(),
+                        thread::current().id()
+                    );
                     let engine = Engine::new(link, interrupt.clone(), io_wake)?;
                     run(
                         engine,

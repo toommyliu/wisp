@@ -216,6 +216,8 @@ pub enum ScriptOutcome {
     StoppedByScript { reason: Option<String> },
     #[serde(rename = "script-exited")]
     Exited {
+        #[serde(default)]
+        logout: bool,
         #[serde(rename = "closeClient")]
         close_client: bool,
     },
@@ -228,9 +230,11 @@ pub enum ScriptPhase {
     #[default]
     Idle,
     Waiting,
+    Preparing,
     Starting,
     Running,
     Stopping,
+    Finishing,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

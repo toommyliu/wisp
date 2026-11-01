@@ -22,3 +22,5 @@ pub mod testing;
 
 pub mod scripting;
 pub use sessions::{ScriptControls, ScriptRequest, Supervisor};
+
+pub use sessions::lifecycle;

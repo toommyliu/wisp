@@ -41,6 +41,7 @@ pub fn ready_movie() -> ProbeMovie {
         .raising("flash.sendClientPacket", "onDebug", "started")
         .constant("auth.isLoggedIn", json!(true))
         .constant("flash.getGameObjectS", json!("\"player-a\""))
+        .constant("auth.logout", json!(null))
         .constant("flash.callGameFunction0", json!("true"))
         .constant("player.isLoaded", json!(true))
         .constant("world.isLoaded", json!(true))
@@ -134,6 +135,12 @@ pub fn log_in(link: &lucent_host::ScriptLink) {
         )
         .recv_timeout(TIMEOUT)
         .unwrap();
+    }
+    for command in [
+        lucent_protocol::command::Command::RefreshCredentials {},
+        lucent_protocol::command::Command::RefreshLoggedIn {},
+    ] {
+        link.command(command).recv_timeout(TIMEOUT).unwrap();
     }
 }
 

@@ -1,5 +1,3 @@
-#![allow(dead_code, reason = "This module has no controller caller.")]
-
 pub mod queue;
 mod types;
 pub use queue::{Command as QueueCommand, QueuePhase};

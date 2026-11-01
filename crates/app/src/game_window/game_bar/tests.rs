@@ -536,9 +536,11 @@ fn script_phases_have_readable_labels() {
     for (phase, label) in [
         (Phase::Idle, "Idle"),
         (Phase::Waiting, "Waiting for login"),
+        (Phase::Preparing, "Preparing"),
         (Phase::Starting, "Starting"),
         (Phase::Running, "Running"),
         (Phase::Stopping, "Stopping"),
+        (Phase::Finishing, "Finishing"),
     ] {
         let state = BarState {
             phase,

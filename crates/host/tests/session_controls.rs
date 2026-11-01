@@ -25,7 +25,10 @@ impl Wake for Transition {
     fn wake(self: Arc<Self>) {
         let (tx, rx) = mpsc::channel();
         if self.0.send(tx).is_ok() {
-            rx.recv_timeout(TIMEOUT).unwrap();
+            assert!(!matches!(
+                rx.recv_timeout(TIMEOUT),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ));
         }
     }
 }
@@ -93,10 +96,12 @@ fn session_starts_stops_and_kills_scripts() {
     session.start_script(loose(&[("wait.js", source)])).unwrap();
     transition(&session, &changes, ScriptPhase::Waiting);
     log_in(&observer);
+    transition(&session, &changes, ScriptPhase::Preparing);
     transition(&session, &changes, ScriptPhase::Starting);
     transition(&session, &changes, ScriptPhase::Running);
     session.stop_script();
     transition(&session, &changes, ScriptPhase::Stopping);
+    transition(&session, &changes, ScriptPhase::Finishing);
     transition(&session, &changes, ScriptPhase::Idle);
     assert_eq!(
         session.script_status().last_end.as_deref(),
@@ -104,10 +109,11 @@ fn session_starts_stops_and_kills_scripts() {
     );
     session.start_script(loose(&[("wait.js", source)])).unwrap();
     transition(&session, &changes, ScriptPhase::Waiting);
+    transition(&session, &changes, ScriptPhase::Preparing);
     transition(&session, &changes, ScriptPhase::Starting);
     transition(&session, &changes, ScriptPhase::Running);
     session.kill_script();
-    transition(&session, &changes, ScriptPhase::Stopping);
+    transition(&session, &changes, ScriptPhase::Finishing);
     transition(&session, &changes, ScriptPhase::Idle);
     assert_eq!(
         session.script_status().last_end.as_deref(),
@@ -120,8 +126,10 @@ fn session_starts_stops_and_kills_scripts() {
         .start_script(loose(&[("done.js", "export default function* () {}")]))
         .unwrap();
     transition(&session, &changes, ScriptPhase::Waiting);
+    transition(&session, &changes, ScriptPhase::Preparing);
     transition(&session, &changes, ScriptPhase::Starting);
     transition(&session, &changes, ScriptPhase::Running);
+    transition(&session, &changes, ScriptPhase::Finishing);
     transition(&session, &changes, ScriptPhase::Idle);
     assert_eq!(
         session.script_status().last_end.as_deref(),
@@ -182,11 +190,12 @@ fn stopping_a_waiting_script_cancels_it_without_starting_a_runtime() {
         .unwrap();
     transition(&session, &changes, ScriptPhase::Waiting);
     session.stop_script();
+    transition(&session, &changes, ScriptPhase::Finishing);
     transition(&session, &changes, ScriptPhase::Idle);
     assert_eq!(session.script_status().script, None);
     assert_eq!(
         session.script_status().last_end.as_deref(),
-        Some("wait.js was cancelled before it started")
+        Some("wait.js was stopped")
     );
     drop(changes);
 }
