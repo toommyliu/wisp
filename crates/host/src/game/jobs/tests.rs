@@ -94,7 +94,7 @@ fn stale_incarnations_make_no_loader_calls_before_a_fresh_attack() {
         let first_stale = AtomicBool::new(true);
         session.set_profile_action_probe(move |stale| {
             let _ = completed.send(stale);
-            if stale && first_stale.swap(false, Ordering::AcqRel) {
+            if stale && change != "player" && first_stale.swap(false, Ordering::AcqRel) {
                 settled.lock().recv_timeout(TIMEOUT).unwrap();
             }
         });

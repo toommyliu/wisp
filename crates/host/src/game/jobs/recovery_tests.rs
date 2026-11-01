@@ -438,3 +438,89 @@ fn session_jobs_idle_before_the_first_viewport() {
         }
     }
 }
+
+#[test]
+fn auto_attack_waits_for_its_cast_and_no_target_deadlines() {
+    for (delay, has_target, expected_ms) in [(1, true, 50), (400, true, 400), (1, false, 250)] {
+        let (_session, observer, mut jobs, _owner) = manual_jobs();
+        if !has_target {
+            emit(
+                &observer,
+                json!({"cmd":"cb","m":{"2":{"intHP":0,"intState":0}}}),
+            );
+        }
+        enable_auto(
+            &mut jobs,
+            &observer,
+            json!({"delayMs":delay,"steps":[{"skill":1}]}),
+        );
+        let mut now = Instant::now();
+        let deadline = Instant::now() + TIMEOUT;
+        let mut seen = Vec::new();
+        loop {
+            assert!(Instant::now() < deadline, "{seen:?}");
+            jobs.advance(now);
+            seen.extend(calls(&observer));
+            let job = &jobs.jobs[0];
+            if matches!(job.waiting, Waiting::None) && job.due.is_some_and(|due| due > now) {
+                if seen.iter().any(|name| name == "combat.getTarget") {
+                    break;
+                }
+                now = job.due.unwrap();
+            }
+        }
+        if has_target {
+            let combat: Vec<_> = seen
+                .iter()
+                .filter(|name| matches!(name.as_str(), "combat.attackMonster" | "combat.useSkill"))
+                .map(String::as_str)
+                .collect();
+            assert_eq!(combat, ["combat.attackMonster", "combat.useSkill"]);
+        } else {
+            assert!(
+                !seen
+                    .iter()
+                    .any(|name| name.starts_with("combat.") && name != "combat.getTarget")
+            );
+        }
+        let due = jobs.jobs[0].due.unwrap();
+        assert_eq!(jobs.clock.ms(due) - jobs.clock.ms(now), expected_ms);
+        for _ in 0..4 {
+            jobs.advance(due - Duration::from_millis(1));
+            assert!(calls(&observer).is_empty());
+        }
+        let mut resumed = Vec::new();
+        loop {
+            assert!(Instant::now() < deadline, "{resumed:?}");
+            jobs.advance(due);
+            resumed.extend(calls(&observer));
+            if matches!(jobs.jobs[0].waiting, Waiting::None)
+                && jobs.jobs[0].due.is_some_and(|next| next > due)
+            {
+                break;
+            }
+        }
+        assert!(resumed.iter().any(|name| name == "combat.getTarget"));
+        assert_eq!(
+            resumed
+                .iter()
+                .filter(|name| *name == "combat.useSkill")
+                .count(),
+            usize::from(has_target)
+        );
+    }
+}
+
+#[test]
+fn player_automation_commands_require_a_session_controller() {
+    let (_session, observer, _jobs, _owner) = manual_jobs();
+    let (reply, pending) = Pending::channel();
+    observer.inbox().post(Msg::Command(
+        serde_json::from_value(json!({"kind":"disableAutoAttack"})).unwrap(),
+        reply,
+    ));
+    assert_eq!(
+        pending.recv_timeout(TIMEOUT).unwrap_err().to_string(),
+        "session automation failed: a session controller is required"
+    );
+}

@@ -76,10 +76,10 @@ impl Running {
         }
         let hydration = self.refresh_combat_state()?;
         if area != self.profile_area || binding != self.operation_packets.binding() {
-            return Err(crate::projection::commands::decode_error(
-                "combat observation",
-                "area or connection changed",
-            ));
+            return Err(Error::CommandFailed {
+                operation: "combat observation".into(),
+                reason: "area or connection changed".into(),
+            });
         }
         let at = Instant::now();
         let state = self.projection.read();
@@ -178,10 +178,10 @@ impl Running {
             CombatTarget::Player { alive, .. } => SelectedTarget::Player { alive },
             CombatTarget::Monster { monster_map_id } => {
                 let monster = state.world.get_monster(monster_map_id).ok_or_else(|| {
-                    crate::projection::commands::decode_error(
-                        "combat observation",
-                        "selected monster has no projected generation",
-                    )
+                    Error::CommandFailed {
+                        operation: "combat observation".into(),
+                        reason: "selected monster has no projected generation".into(),
+                    }
                 })?;
                 SelectedTarget::Monster(TargetKey {
                     monster_map_id,
@@ -301,10 +301,7 @@ impl Running {
         if let Err(error) = &result {
             tracing::warn!(%error, "combat profile action rejected");
         }
-        Ok(DispatchReply::Accepted(matches!(
-            result,
-            Ok(Value::Bool(true))
-        )))
+        result.map(|value| DispatchReply::Accepted(matches!(value, Value::Bool(true))))
     }
     pub(super) fn stop_profile(&mut self, binding: crate::sessions::claims::Binding) {
         if self.operation_packets.binding() == binding {

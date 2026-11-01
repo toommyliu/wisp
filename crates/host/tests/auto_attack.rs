@@ -174,9 +174,9 @@ fn enabling_attacks_and_publishes_the_profile() {
 #[test]
 fn priorities_precede_fallback_and_a_better_target_takes_over() {
     let (_session, observer, _supervisor) = setup();
-    for (priority, expected) in [vec!["Slime"], vec!["Nobody"], vec![]]
+    for (priority, expected) in [vec!["Slime"], vec!["id:3"], vec!["Nobody"], vec![]]
         .into_iter()
-        .zip([3, 2, 2])
+        .zip([3, 3, 2, 2])
     {
         enable(&observer, json!({"steps":[{"skill":1}]}), &priority);
         assert_eq!(
@@ -561,7 +561,7 @@ fn a_script_kill_waits_for_the_player_to_return() {
         import * as api from "lucent/api";
         import * as script from "lucent/script";
         export default function* () {
-            const killed = yield* api.combat.kill("Frogzard", {profile:{steps:[{skill:1}]}});
+            const killed = yield* api.combat.killForItem("Frogzard", {item:"Never drops",quantity:1}, {profile:{steps:[{skill:1}]}});
             yield* script.stop(String(killed));
         }
     "#,
@@ -589,6 +589,10 @@ fn a_script_kill_waits_for_the_player_to_return() {
     call(&observer, Some(&run), "combat.useSkill");
     packet(
         &observer,
+        json!({"cmd":"loadInventoryBig","items":[{"ItemID":999,"sName":"Never drops","iQty":1}]}),
+    );
+    packet(
+        &observer,
         json!({"cmd":"ct","m":{"2":{"intHP":0,"intState":0}}}),
     );
     assert_eq!(
@@ -611,7 +615,7 @@ fn script_repreparation_logs_each_new_warning_once() {
             "fight.js",
             r#"
         import * as api from "lucent/api";
-        export default function* () {yield* api.combat.kill("Frogzard", {profile:{consumable:"Potion",steps:[{skill:5}]}});}
+        export default function* () {yield* api.combat.killForItem("Frogzard", {item:"Never drops",quantity:1}, {profile:{consumable:"Potion",steps:[{skill:5}]}});}
     "#,
         )]),
         Default::default(),
@@ -651,5 +655,100 @@ fn script_repreparation_logs_each_new_warning_once() {
                 == "Potion cannot be equipped. Skill 5 will use whichever consumable is equipped.")
             .count(),
         1
+    );
+}
+
+#[test]
+fn dispatch_errors_disable_auto_attack_but_leave_script_jobs_running() {
+    for method in ["combat.attackMonster", "combat.useSkill"] {
+        let (mut session, observer, _supervisor) =
+            setup_with(|movie| movie.throwing(method, "dispatch failed").recording(method));
+        enable(&observer, json!({"steps":[{"skill":1}]}), &[]);
+        let mut stopped = Vec::new();
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "dispatch error did not stop auto attack"
+            );
+            let event = await_event(&observer, "onProbeCall", None);
+            if let Some(Value::String(name)) = event.args.first() {
+                if name.starts_with("combat.cancel") {
+                    stopped.push(name.clone());
+                }
+                if name == "combat.cancelTarget" {
+                    break;
+                }
+            }
+        }
+        assert_eq!(stopped, ["combat.cancelAutoAttack", "combat.cancelTarget"]);
+        let failed = state(&observer);
+        assert_eq!(failed["config"]["enabled"], false);
+        assert_eq!(failed["status"]["running"], false);
+        let error = failed["status"]["lastError"].as_str().unwrap();
+        assert!(
+            error.contains(method) && error.contains("dispatch failed"),
+            "{error}"
+        );
+        assert_eq!(state(&observer), failed);
+        assert!(
+            !drain(&observer)
+                .iter()
+                .any(|name| name.starts_with("combat.cancel"))
+        );
+        assert!(disable(&observer)["status"]["lastError"].is_null());
+        let run = start(
+            &mut session,
+            loose(&[(
+                "fight.js",
+                r#"
+            import * as api from "lucent/api";
+            export default function* () {
+                yield* api.combat.killForItem("Frogzard", {item:"Never drops",quantity:1}, {profile:{steps:[{skill:1}]}});
+            }
+        "#,
+            )]),
+            Default::default(),
+        );
+        for _ in 0..3 {
+            call(&observer, Some(&run), method);
+        }
+        assert!(run.wait(Duration::ZERO).is_err());
+    }
+}
+
+#[test]
+fn an_unprojected_selected_monster_reports_an_observation_failure() {
+    let (_session, observer, _supervisor) = setup_with(|movie| {
+        movie.constant(
+            "combat.getTarget",
+            json!({"type":"monster","monsterMapId":999}),
+        )
+    });
+    enable(&observer, json!({"steps":[{"skill":1}]}), &[]);
+    call(&observer, None, "combat.cancelTarget");
+    assert_eq!(
+        state(&observer)["status"]["lastError"],
+        "combat profile observation failed for 5 seconds: combat observation failed: selected monster has no projected generation"
+    );
+}
+
+#[test]
+fn an_area_change_during_observation_reports_what_changed() {
+    let data = json!({"type":"json","dataObj":{"cmd":"moveToArea","areaId":1,"areaName":"test-1","uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100,"intState":1}],"monBranch":[]}});
+    let (_session, observer, _supervisor) = setup_with(|movie| {
+        movie.responding(
+            "combat.getTarget",
+            [(
+                json!(null),
+                vec![("onExtensionResponse".into(), data.to_string())],
+            )],
+        )
+    });
+    enable(&observer, json!({"steps":[{"skill":1}]}), &[]);
+    call(&observer, None, "combat.cancelTarget");
+    assert_eq!(
+        state(&observer)["status"]["lastError"],
+        "combat profile observation failed for 5 seconds: combat observation failed: area or connection changed"
     );
 }

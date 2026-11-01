@@ -35,6 +35,8 @@ pub enum Error {
     Overflow,
     #[error("the projection read panicked")]
     ReadPanicked,
+    #[error("{operation} failed: {reason}")]
+    CommandFailed { operation: String, reason: String },
     #[error("couldn't decode {callback}: {reason}")]
     CommandDecode { callback: String, reason: String },
 }

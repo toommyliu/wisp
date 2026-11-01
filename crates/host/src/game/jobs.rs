@@ -735,7 +735,11 @@ impl Job {
                         },
                     });
                 }
-                Some(Err(_)) => {
+                Some(Err(error)) => {
+                    if matches!(self.request.kind, JobKind::AutoAttack(_)) {
+                        self.fail(&link.inbox(), error.to_string());
+                        return;
+                    }
                     self.next = Some(ProfileEvent::Completed {
                         id: command.id,
                         reply: Reply::Accepted(false),

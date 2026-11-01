@@ -154,12 +154,10 @@ impl Running {
             | Command::DisableAutoAttack {}
             | Command::SetAutoReloginEnabled { .. }
             | Command::SetAutoReloginDelay { .. }
-            | Command::SetAutoReloginServer { .. } => {
-                Err(crate::projection::commands::decode_error(
-                    "session automation",
-                    "a session controller is required",
-                ))
-            }
+            | Command::SetAutoReloginServer { .. } => Err(Error::CommandFailed {
+                operation: "session automation".into(),
+                reason: "a session controller is required".into(),
+            }),
             Command::PatchAutoZone { patch } => Ok(super::patch_auto_zone(
                 &self.auto_zone,
                 patch,
