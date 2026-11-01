@@ -101,6 +101,7 @@ pub fn menu(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Statefu
     div()
         .id(id)
         .role(accesskit::Role::Menu)
+        .tab_group()
         .aria_label(label)
         .occlude()
         .flex()

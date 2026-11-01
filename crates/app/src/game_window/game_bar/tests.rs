@@ -174,7 +174,15 @@ fn clicks_emit_script_and_zone_actions(cx: &mut gpui::TestAppContext) {
     cx.simulate_click(bounds.center(), Default::default());
     cx.run_until_parked();
     cx.simulate_keystrokes("down");
-    cx.simulate_keystrokes("space");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear());
+    let keystroke = Keystroke::parse("space").unwrap();
+    cx.simulate_event(KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    cx.simulate_event(KeyUpEvent { keystroke });
     assert_eq!(
         actions.borrow().last(),
         Some(&BarAction::Toggle(Toggle::InfiniteRange, true))
