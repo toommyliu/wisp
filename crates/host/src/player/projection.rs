@@ -200,6 +200,7 @@ mod tests {
             Running {
                 settings: Default::default(),
                 auto_zone: Default::default(),
+                changes: Default::default(),
                 settings_applied: false,
                 rejected_settings: Default::default(),
                 operation_packets: Default::default(),
@@ -636,7 +637,14 @@ mod tests {
         sender.send(Msg::Read(request)).unwrap();
         sender.send(Msg::Stop).unwrap();
         assert!(
-            first_viewport(&receiver, false, &Default::default(), &Default::default()).is_none()
+            first_viewport(
+                &receiver,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .is_none()
         );
         assert_eq!(
             reply.recv_timeout(Duration::ZERO),

@@ -664,8 +664,14 @@ mod tests {
             Viewport::new(100.0, 100.0, 1.0).unwrap(),
         )))
         .unwrap();
-        let _attachment =
-            first_viewport(&rx, false, &Default::default(), &Default::default()).unwrap();
+        let _attachment = first_viewport(
+            &rx,
+            false,
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         for stream in [&events, &second_events] {
             assert_eq!(
                 stream.try_recv(),
@@ -711,7 +717,14 @@ mod tests {
                 )))
                 .unwrap();
                 _attachments = Some(
-                    first_viewport(&rx, false, &Default::default(), &Default::default()).unwrap(),
+                    first_viewport(
+                        &rx,
+                        false,
+                        &Default::default(),
+                        &Default::default(),
+                        &Default::default(),
+                    )
+                    .unwrap(),
                 );
             } else {
                 _attachments = None;
@@ -748,8 +761,14 @@ mod tests {
         tx.send(Msg::Attach(AttachmentId(2), last)).unwrap();
         tx.send(Msg::Detach(AttachmentId(1))).unwrap();
         tx.send(Msg::View(ViewEvent::Resized(viewport))).unwrap();
-        let (received, muted, producers) =
-            first_viewport(&rx, false, &Default::default(), &Default::default()).unwrap();
+        let (received, muted, producers) = first_viewport(
+            &rx,
+            false,
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!((received, muted), (viewport, false));
         assert_eq!(producers.len(), 2);
         for stream in [&first_events, &removed_events, &last_events] {
@@ -782,7 +801,16 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         tx.send(Msg::Stop).unwrap();
         tx.send(Msg::Attach(AttachmentId(0), producer)).unwrap();
-        assert!(first_viewport(&rx, false, &Default::default(), &Default::default()).is_none());
+        assert!(
+            first_viewport(
+                &rx,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .is_none()
+        );
         drop(rx);
         assert_eq!(events.try_recv(), Err(BridgeError::Stopped));
     }
@@ -793,7 +821,16 @@ mod tests {
         let (call, pending) = Call::new("player.rest".into(), vec![]);
         tx.send(Msg::Call(call)).unwrap();
         tx.send(Msg::Stop).unwrap();
-        assert!(first_viewport(&rx, false, &Default::default(), &Default::default()).is_none());
+        assert!(
+            first_viewport(
+                &rx,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .is_none()
+        );
         assert_eq!(
             pending.recv_timeout(Duration::ZERO),
             Err(BridgeError::NotReady)
@@ -828,8 +865,14 @@ mod tests {
         tx.send(Msg::Mute(true)).unwrap();
         tx.send(Msg::View(ViewEvent::Resized(viewport))).unwrap();
         assert_eq!(
-            first_viewport(&rx, false, &Default::default(), &Default::default())
-                .map(|(viewport, muted, _)| (viewport, muted)),
+            first_viewport(
+                &rx,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .map(|(viewport, muted, _)| (viewport, muted)),
             Some((viewport, true))
         );
     }
@@ -840,8 +883,14 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         tx.send(Msg::View(ViewEvent::Resized(viewport))).unwrap();
         assert_eq!(
-            first_viewport(&rx, true, &Default::default(), &Default::default())
-                .map(|(viewport, muted, _)| (viewport, muted)),
+            first_viewport(
+                &rx,
+                true,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .map(|(viewport, muted, _)| (viewport, muted)),
             Some((viewport, true))
         );
     }
