@@ -232,3 +232,71 @@ fn cell_readiness_cannot_outlive_the_jump_deadline() {
         Some(Outcome::Returned(false))
     );
 }
+
+#[test]
+fn public_rooms_are_reused_and_private_or_invalid_rooms_join_exactly() {
+    for (target, joined) in [
+        (" battleon ", None),
+        ("battleon-1", None),
+        ("battleon-999", None),
+        ("battleon-1000", None),
+        ("battleon-1001", Some(("battleon-1001", 1001))),
+        ("battleon-99999", Some(("battleon-99999", 99999))),
+        ("battleon-100000", None),
+        ("battleon-private", Some(("battleon-10000", 10000))),
+        ("battleon-0", Some(("battleon-10000", 10000))),
+        ("battleon-1.5", Some(("battleon-10000", 10000))),
+    ] {
+        let mut job = TravelJob::new(Request::Join {
+            target: target.into(),
+            cell: None,
+            pad: None,
+            random_room: Some(10000),
+        })
+        .unwrap();
+        let mut snapshot = Snapshot {
+            map: "battleon".into(),
+            room: 1,
+            loaded: true,
+            ready: true,
+            tfer: true,
+            alive: true,
+            ..Default::default()
+        };
+        let mut event = Event::Tick;
+        let mut joins = Vec::new();
+        let mut outcome = None;
+        for _ in 0..20 {
+            let effects = job.advance(&snapshot, event, 0);
+            if let Some(value) = effects.outcome {
+                outcome = Some(value);
+                break;
+            }
+            if let Some(command) = effects.command {
+                let (map, room) = joined.unwrap_or_else(|| panic!("unexpected join for {target}"));
+                assert_eq!(
+                    command.action.loader_call(),
+                    ("player.joinMap", vec![map.into()])
+                );
+                joins.push(map.to_owned());
+                snapshot.room = room;
+                event = Event::Completed {
+                    id: command.id,
+                    reply: Reply::Accepted,
+                };
+            } else {
+                assert_eq!(effects.next_deadline, Some(0), "{target}");
+                event = Event::Tick;
+            }
+        }
+        assert_eq!(outcome, Some(Outcome::Returned(true)), "{target}");
+        assert_eq!(
+            joins,
+            joined
+                .map(|(map, _)| map.to_owned())
+                .into_iter()
+                .collect::<Vec<_>>(),
+            "{target}"
+        );
+    }
+}
