@@ -20440,7 +20440,7 @@ ${prefix}}`;
     method: String4,
     headers: Record(String4, String4),
     body: optionalKey2(Uint8Array2),
-    deadline: optionalKey2(Finite),
+    deadline: Finite,
     redirect: Literals(["follow", "manual", "error"]),
     maxRedirects: Int.check(isGreaterThanOrEqualTo2(0))
   });
