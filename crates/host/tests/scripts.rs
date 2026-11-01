@@ -439,11 +439,11 @@ fn dropping_a_script_run_detaches_its_link() {
 fn an_unavailable_host_service_fails_the_script_with_its_name() {
     let (_host, mut session, _runtime) = ready_runtime();
     let script = loose(&[(
-        "http.js",
+        "army.js",
         r#"
-        import * as http from "lucent/http";
+        import * as api from "lucent/api";
         export default function* () {
-            yield* http.request("https://example.com");
+            yield* api.army.start("group");
         }
     "#,
     )]);
@@ -454,7 +454,7 @@ fn an_unavailable_host_service_fails_the_script_with_its_name() {
         ScriptOutcome::Failed { message, .. } => {
             assert_eq!(
                 message,
-                "http.js:4:25: The http service is not available yet."
+                "army.js:4:29: The army service is not available yet."
             )
         }
         other => panic!("{other:?}"),

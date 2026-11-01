@@ -2,6 +2,7 @@ mod alarm;
 mod cpu_time;
 mod engine;
 mod host;
+pub(crate) mod http;
 mod interrupt;
 pub(crate) mod io;
 mod modules;
