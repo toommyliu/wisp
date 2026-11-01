@@ -991,3 +991,58 @@ fn starts_are_refused_while_a_run_is_active() {
         assert_eq!(machine.status().active.unwrap().run, run);
     }
 }
+
+#[test]
+fn disabling_restart_while_the_loader_read_is_pending_cancels_the_attempt() {
+    for loader_reply in [false, true] {
+        let mut machine = Lifecycle::new(binding());
+        let run = start(&mut machine);
+        let opts = Options {
+            restart_after_reconnect: true,
+            ..options()
+        };
+        machine.advance(Event::ConnectionLost(binding()), &readiness(), &opts, 10);
+        machine.advance(Event::Reaped(run), &readiness(), &opts, 11);
+        machine.advance(
+            Event::ConnectionRestored(Binding {
+                connection: ConnectionEpoch(2),
+                ..binding()
+            }),
+            &readiness(),
+            &opts,
+            12,
+        );
+        let retry = machine.status().active.unwrap().run;
+        assert_ne!(run, retry);
+        let event = if loader_reply {
+            Event::PlayerReady {
+                run: retry,
+                ready: true,
+            }
+        } else {
+            Event::OptionsChanged
+        };
+        let canceled = send(&mut machine, event, 13);
+        assert_eq!(
+            terminals(&canceled),
+            vec![Outcome::Stopped(StopReason::Requested(
+                "Restart after reconnect disabled".into()
+            ))]
+        );
+        assert!(machine.status().active.is_none());
+        assert!(!machine.status().waiting_to_restart);
+        assert!(
+            !send(
+                &mut machine,
+                Event::PlayerReady {
+                    run: retry,
+                    ready: true
+                },
+                14
+            )
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::Spawn { .. }))
+        );
+    }
+}
