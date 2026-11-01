@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 
 import { HttpError, type DesktopHttpBridge } from "../../shared/http";
-import type { HttpRequestOptions, ScriptHttpApi } from "./ScriptApi";
+import type { HttpRequestOptions, ScriptHttpApi } from "@lucent/scripting-api/contract";
 import { prepareRequest } from "./http/request";
 import { executeRequest, requestFailure } from "./http/execute";
 import type { ScriptAsyncScope } from "./scriptAsyncScope";

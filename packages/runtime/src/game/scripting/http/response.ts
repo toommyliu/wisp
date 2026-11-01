@@ -4,7 +4,7 @@ import {
   HttpError,
   type HttpResponsePayload,
 } from "../../../shared/http";
-import type { HttpResponse } from "../ScriptApi";
+import type { HttpResponse } from "@lucent/scripting-api/contract";
 
 export const makeHttpResponse = (
   payload: HttpResponsePayload,

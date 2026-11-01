@@ -9,7 +9,7 @@ import type {
   ArmyLoopTauntRuntimePlan,
 } from "../../army/ArmyLoopTaunt";
 import { ScriptExecutionError } from "../ScriptRunnerErrors";
-import type { ScriptArmyApi } from "../ScriptApi";
+import type { ScriptArmyApi } from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "../scriptAsyncScope";
 import { normalizeScriptCallbackResult } from "./Callbacks";
 

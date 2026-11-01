@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import { vi } from "vitest";
 
 import type { DesktopFileSystemBridge } from "../../shared/desktopBridge";
-import type { FileSystemError } from "./ScriptApi";
+import type { FileSystemError } from "@lucent/scripting-api/contract";
 import { makeScriptFileSystemApi } from "./ScriptFileSystem";
 import { makeScriptAsyncScope } from "./scriptAsyncScope";
 

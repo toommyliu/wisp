@@ -22,7 +22,7 @@ import {
 } from "./engine";
 import { fromIssues, issue, SchemaUsageError } from "./issues";
 import { EnumImpl, string } from "./primitives";
-import type { Issue, MessageOptions } from "./public";
+import type { Issue, MessageOptions } from "@lucent/scripting-api/schema";
 import { SchemaImpl } from "./Schema";
 
 const plainObject = Native.declare<Record<string, unknown>>(

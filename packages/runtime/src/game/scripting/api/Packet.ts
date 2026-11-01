@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 
 import type { ApiService } from "../../flash/api/Api";
 import type { Packet, PacketSelector } from "../../flash/contract/Packet";
-import type { ScriptPacketApi, ScriptPacketOn } from "../ScriptApi";
+import type { ScriptPacketApi, ScriptPacketOn } from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "../scriptAsyncScope";
 import {
   notifyScriptCallbackFailure,

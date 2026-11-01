@@ -23,7 +23,7 @@ import {
 } from "../../shared/desktopBridge";
 import { Api, type ApiService } from "../flash/api/Api";
 import { isDirectInventoryConsumable } from "../flash/api/Inventory";
-import type { ScriptArmyApi } from "../scripting/ScriptApi";
+import type { ScriptArmyApi } from "@lucent/scripting-api/contract";
 import { ArmyError, ArmyLoopTauntError } from "./ArmyErrors";
 import {
   type ArmyLoopTauntHandle,

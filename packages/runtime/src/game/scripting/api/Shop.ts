@@ -14,7 +14,7 @@ import { EnhancementSelectorSchema } from "../../EnhancementSelectors";
 import type { ApiService } from "../../flash/api/Api";
 import type { BridgeService } from "../../flash/bridge/Bridge";
 import type { Packet } from "../../flash/contract/Packet";
-import type { ScriptEnhanceItemOptions, ScriptShopApi } from "../ScriptApi";
+import type { ScriptEnhanceItemOptions, ScriptShopApi } from "@lucent/scripting-api/contract";
 
 interface ScriptShopDependencies {
   readonly inventory: Pick<ApiService["inventory"], "get">;
