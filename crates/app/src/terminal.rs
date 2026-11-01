@@ -42,3 +42,11 @@ pub fn spawn(commands: async_channel::Sender<Command>) -> io::Result<()> {
         })?;
     Ok(())
 }
+
+pub fn apply(session: &lucent_host::Session, command: Command) {
+    match command {
+        Command::Stop => session.stop_script(),
+        Command::Kill => session.kill_script(),
+        Command::Status => tracing::info!("{:?}", session.script_status()),
+    }
+}

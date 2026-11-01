@@ -66,12 +66,8 @@ impl PlayerView {
                 cx.spawn(async move |this, cx| {
                     while let Ok(command) = commands.recv().await {
                         if this
-                            .update(cx, |this: &mut Self, _| match command {
-                                crate::terminal::Command::Stop => this.session.stop_script(),
-                                crate::terminal::Command::Kill => this.session.kill_script(),
-                                crate::terminal::Command::Status => {
-                                    tracing::info!("{:?}", this.session.script_status())
-                                }
+                            .update(cx, |this: &mut Self, _| {
+                                crate::terminal::apply(&this.session, command)
                             })
                             .is_err()
                         {
