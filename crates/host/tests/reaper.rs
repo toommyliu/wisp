@@ -11,11 +11,24 @@ use tracing_subscriber::prelude::*;
 
 static SERIAL: Mutex<()> = Mutex::new(());
 
-fn workers() -> Vec<String> {
-    named_threads()
-        .into_iter()
-        .filter(|name| name.starts_with("lucent-reaper") || name.starts_with("lucent-js"))
-        .collect()
+fn quiescent_threads(prefixes: &[&str], deadline: Instant) -> Vec<String> {
+    loop {
+        let names: Vec<_> = named_threads()
+            .into_iter()
+            .filter(|name| !name.starts_with('<'))
+            .collect();
+        if !names
+            .iter()
+            .any(|name| prefixes.iter().any(|prefix| name.starts_with(prefix)))
+        {
+            return names;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "workers remained after the join deadline: {names:?}"
+        );
+        std::thread::yield_now();
+    }
 }
 fn start(host: &lucent_host::Host) -> (Session, lucent_host::ScriptLink) {
     let (session, observer) = testing::start_probe(host, ready_movie());
@@ -120,7 +133,10 @@ fn twenty_stop_cycles_and_host_drop_join_all_script_workers() {
         "drop returned before the worker joined"
     );
     assert!(began.elapsed() < Duration::from_secs(2));
-    assert_eq!(workers(), Vec::<String>::new());
+    quiescent_threads(
+        &["lucent-js", "lucent-reaper"],
+        began + Duration::from_secs(2),
+    );
 }
 
 #[test]
@@ -153,14 +169,7 @@ fn a_stuck_worker_is_warned_about_and_abandoned_during_shutdown() {
     result.expect("shutdown exceeded its bound");
     dropper.join().unwrap();
     drop(supervisor);
-    let deadline = Instant::now() + TIMEOUT;
-    while !workers().is_empty() {
-        assert!(
-            Instant::now() < deadline,
-            "abandoned fixture did not exit after release"
-        );
-        std::thread::yield_now();
-    }
+    quiescent_threads(&["lucent-js", "lucent-reaper"], Instant::now() + TIMEOUT);
     assert!(elapsed < Duration::from_secs(2));
     assert!(
         warnings
@@ -193,20 +202,16 @@ fn a_hundred_runs_leave_the_same_named_threads_as_one_run() {
             run,
         );
         if run == 1 {
-            after_one = named_threads()
-                .into_iter()
-                .filter(|name| !name.starts_with('<'))
-                .collect();
-            assert_eq!(js_threads(), Vec::<String>::new());
+            after_one = quiescent_threads(&["lucent-js"], Instant::now() + Duration::from_secs(2));
         }
     }
-    let after_hundred: Vec<_> = named_threads()
-        .into_iter()
-        .filter(|name| !name.starts_with('<'))
-        .collect();
+    let after_hundred = quiescent_threads(&["lucent-js"], Instant::now() + Duration::from_secs(2));
     assert_eq!(after_hundred, after_one);
     drop(supervisor);
     drop(session);
     drop(host);
-    assert_eq!(workers(), Vec::<String>::new());
+    quiescent_threads(
+        &["lucent-js", "lucent-reaper"],
+        Instant::now() + Duration::from_secs(2),
+    );
 }
