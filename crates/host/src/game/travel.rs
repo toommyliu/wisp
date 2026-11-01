@@ -362,6 +362,10 @@ impl TravelJob {
                     }
                     let next = now.saturating_add(100).min(jump.expires);
                     self.phase = Phase::Jump { jump, next };
+                    return Effects {
+                        next_deadline: Some(next),
+                        ..Default::default()
+                    };
                 }
                 Pending::Stop => return self.issue(Action::CancelTarget, Pending::ClearTarget),
                 Pending::ClearTarget => {

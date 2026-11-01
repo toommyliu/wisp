@@ -8,8 +8,13 @@ use lucent_host::{
     scripting::{Kill, RuntimeError},
     testing,
 };
-use lucent_protocol::script::ScriptOutcome;
+use lucent_protocol::script::{ScriptDialog, ScriptDialogResponse, ScriptOutcome};
 use serde_json::json;
+use std::{
+    sync::{Arc, Mutex, mpsc},
+    task::{Wake, Waker},
+    time::{Duration, Instant},
+};
 
 fn setup() -> (lucent_host::Session, lucent_host::ScriptLink, Supervisor) {
     setup_with(|movie| movie)
@@ -52,6 +57,158 @@ fn await_no_travel(session: &lucent_host::Session) {
         );
         std::thread::yield_now();
     }
+}
+
+fn await_dialog(
+    session: &lucent_host::Session,
+    run: &lucent_host::scripting::ScriptRun,
+    timeout: Duration,
+) -> ScriptDialog {
+    struct Unpark(std::thread::Thread);
+    impl Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    session.watch(Waker::from(Arc::new(Unpark(std::thread::current()))));
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(dialog) = session.script_dialog() {
+            return dialog;
+        }
+        let outcome = run.wait(Duration::ZERO);
+        assert!(matches!(outcome, Err(RuntimeError::Timeout)), "{outcome:?}");
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "the script did not publish its dialog"
+        );
+        std::thread::park_timeout(remaining.min(Duration::from_millis(10)));
+    }
+}
+
+#[test]
+fn a_jump_reads_its_location_once_per_readiness_poll() {
+    let (mut session, observer, _supervisor) = setup_with(|movie| {
+        movie.responding(
+            "world.isCellReady",
+            [false, false, true].map(|ready| (json!(ready), vec![])),
+        )
+    });
+    let run = start(
+        &mut session,
+        loose(&[(
+            "poll.js",
+            r#"
+        import * as api from "lucent/api";
+        import * as script from "lucent/script";
+        export default function* () {
+            yield* script.stop(String(yield* api.player.jumpToCell("r2", "Left")));
+        }
+    "#,
+        )]),
+        Default::default(),
+    );
+    assert_eq!(
+        run.wait(TIMEOUT).unwrap(),
+        ScriptOutcome::StoppedByScript {
+            reason: Some("true".into())
+        }
+    );
+    observer
+        .call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    let mut calls = Vec::new();
+    while let Some(event) = observer.try_event().unwrap() {
+        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event
+            && event.name == "onProbeCall"
+        {
+            calls.push(event.args[0].clone());
+        }
+    }
+    let expected = std::iter::once("player.jump")
+        .chain(["player.getCell", "player.getPad", "world.isCellReady"].repeat(3))
+        .map(|method| Value::String(method.into()))
+        .collect::<Vec<_>>();
+    assert_eq!(calls, expected);
+    await_no_travel(&session);
+}
+
+#[test]
+fn an_unanswered_travel_action_returns_false_near_five_seconds() {
+    let (mut session, _observer, _supervisor) = setup();
+    let run = start(
+        &mut session,
+        loose(&[(
+            "deadline.js",
+            r#"
+        import * as api from "lucent/api";
+        import * as script from "lucent/script";
+        export default function* () {
+            yield* script.alert("ready");
+            yield* script.alert(String(yield* api.player.jumpToCell("r2", "Left")));
+        }
+    "#,
+        )]),
+        Default::default(),
+    );
+    let ready = await_dialog(&session, &run, TIMEOUT);
+    assert_eq!(ready.message, "ready");
+    let (entered, arrived) = mpsc::channel();
+    let (release, held) = mpsc::channel::<()>();
+    let _hold = session.read_projection(move |_| {
+        let _ = entered.send(());
+        let _ = held.recv();
+    });
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    let began = Instant::now();
+    session.respond_dialog(ready.id, ScriptDialogResponse::Dismissed);
+    let result = await_dialog(&session, &run, Duration::from_secs(8));
+    let elapsed = began.elapsed();
+    drop(release);
+    assert_eq!(result.message, "false");
+    assert!(elapsed >= Duration::from_secs(5), "{elapsed:?}");
+    assert!(elapsed < Duration::from_secs(8), "{elapsed:?}");
+    session.respond_dialog(result.id, ScriptDialogResponse::Dismissed);
+    assert_eq!(run.wait(TIMEOUT).unwrap(), ScriptOutcome::Completed);
+    await_no_travel(&session);
+}
+
+#[test]
+fn a_travel_completion_reaches_its_script_while_the_player_is_held() {
+    let (mut session, _observer, _supervisor) = setup();
+    let (entered, arrived) = mpsc::channel();
+    let (release, held) = mpsc::channel::<()>();
+    let held = Mutex::new(held);
+    session.set_travel_observation_probe(move |reads, _| {
+        if reads.contains(Reads::LIVE) {
+            let _ = entered.send(());
+            let _ = held.lock().unwrap().recv();
+        }
+    });
+    let run = start(
+        &mut session,
+        loose(&[(
+            "completion.js",
+            r#"
+        import * as api from "lucent/api";
+        import * as script from "lucent/script";
+        export default function* () {
+            yield* script.alert(String(yield* api.player.jumpToCell("r2", "Left")));
+        }
+    "#,
+        )]),
+        Default::default(),
+    );
+    let release_player = release;
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    await_no_travel(&session);
+    let result = await_dialog(&session, &run, TIMEOUT);
+    drop(release_player);
+    assert_eq!(result.message, "false");
+    session.respond_dialog(result.id, ScriptDialogResponse::Dismissed);
+    assert_eq!(run.wait(TIMEOUT).unwrap(), ScriptOutcome::Completed);
 }
 
 #[test]
@@ -290,11 +447,15 @@ fn a_fiber_timeout_cancels_travel_while_its_run_continues() {
             "timeout.js",
             r#"
         import * as api from "lucent/api";
+        import * as script from "lucent/script";
         import { Effect } from "effect";
         export default function* () {
             yield* api.player.joinMap("doom").pipe(Effect.timeoutOption("300 millis"));
             yield* api.packet.sendToClient("started");
-            yield* Effect.never;
+            yield* Effect.raceFirst(
+                Effect.sleep("1 hour"),
+                script.confirm("continue")
+            );
         }
     "#,
         )]),
@@ -310,15 +471,12 @@ fn a_fiber_timeout_cancels_travel_while_its_run_continues() {
         .recv_timeout(TIMEOUT)
         .unwrap();
     await_no_travel(&session);
-    assert!(matches!(
-        run.wait(std::time::Duration::ZERO),
-        Err(RuntimeError::Timeout)
-    ));
-    run.kill();
-    assert!(matches!(
-        run.wait(TIMEOUT),
-        Err(RuntimeError::Killed(Kill::Requested))
-    ));
+    let dialog = await_dialog(&session, &run, TIMEOUT);
+    assert_eq!(dialog.message, "continue");
+    let outcome = run.wait(std::time::Duration::ZERO);
+    assert!(matches!(outcome, Err(RuntimeError::Timeout)), "{outcome:?}");
+    session.respond_dialog(dialog.id, ScriptDialogResponse::Confirmed(true));
+    assert_eq!(run.wait(TIMEOUT).unwrap(), ScriptOutcome::Completed);
 }
 
 #[test]
