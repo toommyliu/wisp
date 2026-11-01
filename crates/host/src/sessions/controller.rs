@@ -1,4 +1,13 @@
+use super::lifecycle::{self as lc, Lifecycle, RunId};
+use crate::scripting::{Kill, RuntimeError, ScriptRun};
+use crate::{
+    HostError, ScriptLink, Session, Surface,
+    automation::{AutoZonePolicy, ReloginPolicy, SettingsPolicy},
+    bridge, reap,
+};
+use lucent_protocol::script::{Script, ScriptOutcome, ScriptPhase, ScriptStatus};
 use std::{
+    collections::{BTreeSet, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -8,30 +17,25 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-
-use crate::{
-    HostError, ScriptLink, Session, Surface,
-    automation::{AutoZonePolicy, ReloginPolicy, SettingsPolicy},
-    bridge, reap,
-};
-use lucent_protocol::script::{Script, ScriptOutcome, ScriptPhase, ScriptStatus};
 use tracing::{Level, info, warn};
-
-use crate::scripting::{Kill, RuntimeError, ScriptRun};
 
 pub struct ScriptRequest {
     script: Script,
     inbox: mpsc::Sender<Msg>,
     messages: mpsc::Receiver<Msg>,
 }
-
 #[derive(Clone)]
-pub struct ScriptControls(mpsc::Sender<Msg>);
-
+pub struct ScriptControls {
+    inbox: mpsc::Sender<Msg>,
+    run: RunId,
+}
 impl ScriptRequest {
     pub fn new(script: Script) -> (Self, ScriptControls) {
         let (inbox, messages) = mpsc::channel();
-        let controls = ScriptControls(inbox.clone());
+        let controls = ScriptControls {
+            inbox: inbox.clone(),
+            run: RunId(1),
+        };
         (
             Self {
                 script,
@@ -42,47 +46,64 @@ impl ScriptRequest {
         )
     }
 }
-
 impl ScriptControls {
     pub fn stop(&self) {
-        let _ = self.0.send(Msg::Stop);
+        let _ = self
+            .inbox
+            .send(Msg::Event(lc::Event::Command(lc::Command::Stop {
+                run: self.run,
+                reason: String::new(),
+            })));
     }
     pub fn kill(&self) {
-        let _ = self.0.send(Msg::Kill);
+        let _ = self
+            .inbox
+            .send(Msg::Event(lc::Event::Command(lc::Command::Kill {
+                run: self.run,
+            })));
     }
     pub fn status(&self) {
-        let _ = self.0.send(Msg::Status);
+        let _ = self.inbox.send(Msg::Status);
     }
 }
-
 pub struct Supervisor {
     inbox: mpsc::Sender<Msg>,
-    has_script: bool,
+    active: Arc<parking_lot::RwLock<lc::Status>>,
     thread: Option<thread::JoinHandle<()>>,
 }
-
 enum Msg {
     Player(Box<Player>),
     Wake,
-    Start(Box<(Script, ScriptLink)>),
-    RunReady(u64),
-    RunExited(u64),
-    Reaped(u64),
-    Stop,
-    Kill,
+    Start(Box<(Script, mpsc::Sender<Result<RunId, RuntimeError>>)>),
+    Queue(lc::QueueCommand, mpsc::Sender<Result<(), RuntimeError>>),
+    Event(lc::Event),
+    RunReady(RunId),
+    RunExited(RunId),
     Status,
     Shutdown,
 }
 struct Player {
-    watch: Option<ScriptLink>,
+    watch: ScriptLink,
     relogin: ScriptLink,
     auto_zone: ScriptLink,
     jobs: ScriptLink,
 }
-
 impl Supervisor {
-    pub(super) fn controls(&self) -> ScriptControls {
-        ScriptControls(self.inbox.clone())
+    pub(super) fn controls(&self) -> Option<ScriptControls> {
+        let status = self.active.read();
+        let run = status
+            .active
+            .as_ref()
+            .map(|active| active.run)
+            .or_else(|| {
+                status
+                    .waiting_to_restart
+                    .then(|| status.latest.as_ref().unwrap().run)
+            })?;
+        Some(ScriptControls {
+            inbox: self.inbox.clone(),
+            run,
+        })
     }
     pub fn start(
         session: &mut Session,
@@ -99,57 +120,78 @@ impl Supervisor {
                 (inbox, messages, None)
             }
         };
-        let has_script = script.is_some();
-        let first = attach(session, has_script).ok_or(RuntimeError::Stopped)?;
+        let first = attach(session).ok_or(RuntimeError::Stopped)?;
+        let binding = lc::Binding {
+            player: lc::PlayerId(1),
+            connection: lc::ConnectionEpoch(0),
+        };
+        let machine = Lifecycle::new(binding);
+        let active = session.lifecycle_status.clone();
         let supervision = Supervision {
             status: session.script_status.clone(),
+            active: active.clone(),
             changes: session.changes.clone(),
-            session: first.relogin.id(),
+            session: first.watch.id(),
             notify: Arc::new(Notify {
                 inbox: inbox.clone(),
                 queued: AtomicBool::new(false),
             }),
-            script: match script {
-                Some(script) => ScriptState::Waiting {
-                    script,
-                    watch: None,
-                },
-                None => ScriptState::Idle,
-            },
-            next_run: 0,
+            machine,
+            worker: None,
+            watch: None,
+            readiness: lc::Readiness::default(),
+            binding,
+            connected: None,
+            username: String::new(),
+            ready_read: None,
+            auth_reads: Vec::new(),
+            auth_retry: 0,
+            logout: None,
+            clock: Instant::now(),
+            deadlines: BTreeSet::new(),
             settings: None,
             relogin: None,
             auto_zone: None,
             jobs: None,
             deadline: None,
         };
+        session
+            .changes
+            .watch(Waker::from(supervision.notify.clone()));
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
         let thread = thread::Builder::new()
-            .name(format!("lucent-supervisor-{}", first.relogin.id()))
+            .name(format!("lucent-supervisor-{}", first.watch.id()))
             .spawn(move || {
                 let _dispatch = tracing::dispatcher::set_default(&dispatch);
-                supervision.run(first, messages);
+                supervision.run(first, script, messages);
             })?;
         Ok(Self {
             inbox,
-            has_script,
+            active,
             thread: Some(thread),
         })
     }
-
     pub fn start_script(
         &mut self,
-        session: &mut Session,
+        _session: &mut Session,
         script: Script,
     ) -> Result<ScriptControls, RuntimeError> {
-        let watch = session
-            .attach(bridge::EventInterests::ALL)
-            .ok_or(RuntimeError::Stopped)?;
-        self.has_script = true;
+        let (reply, answer) = mpsc::channel();
         self.inbox
-            .send(Msg::Start(Box::new((script, watch))))
+            .send(Msg::Start(Box::new((script, reply))))
             .map_err(|_| RuntimeError::Stopped)?;
-        Ok(ScriptControls(self.inbox.clone()))
+        let run = answer.recv().map_err(|_| RuntimeError::Stopped)??;
+        Ok(ScriptControls {
+            inbox: self.inbox.clone(),
+            run,
+        })
+    }
+    pub fn script_queue(&self, command: lc::QueueCommand) -> Result<(), RuntimeError> {
+        let (reply, answer) = mpsc::channel();
+        self.inbox
+            .send(Msg::Queue(command, reply))
+            .map_err(|_| RuntimeError::Stopped)?;
+        answer.recv().map_err(|_| RuntimeError::Stopped)?
     }
 
     pub fn restart_player(
@@ -158,13 +200,12 @@ impl Supervisor {
         surface: Surface,
     ) -> Result<(), HostError> {
         session.restart(surface)?;
-        if let Some(player) = attach(session, self.has_script) {
+        if let Some(player) = attach(session) {
             let _ = self.inbox.send(Msg::Player(Box::new(player)));
         }
         Ok(())
     }
 }
-
 impl Drop for Supervisor {
     fn drop(&mut self) {
         let _ = self.inbox.send(Msg::Shutdown);
@@ -173,21 +214,21 @@ impl Drop for Supervisor {
         }
     }
 }
-
-fn attach(session: &mut Session, has_script: bool) -> Option<Player> {
-    let watch = if has_script {
-        Some(session.attach(bridge::EventInterests::ALL)?)
-    } else {
-        None
-    };
+fn attach(session: &mut Session) -> Option<Player> {
     Some(Player {
-        watch,
+        watch: session.attach(bridge::EventInterests::new(&[
+            bridge::EventKind::Connection,
+            bridge::EventKind::Invalidated,
+            bridge::EventKind::Login,
+            bridge::EventKind::Logout,
+            bridge::EventKind::JoinMap,
+            bridge::EventKind::PlayersChanged,
+        ]))?,
         relogin: session.attach(ReloginPolicy::INTERESTS)?,
         auto_zone: session.attach(AutoZonePolicy::INTERESTS)?,
         jobs: session.attach(crate::game::jobs::ProfileJobs::INTERESTS)?,
     })
 }
-
 struct Notify {
     inbox: mpsc::Sender<Msg>,
     queued: AtomicBool,
@@ -202,43 +243,48 @@ impl Wake for Notify {
         }
     }
 }
-
+struct Worker {
+    id: RunId,
+    run: ScriptRun,
+    revoke: Option<Box<dyn FnOnce() + Send>>,
+}
+struct ReadyRead {
+    run: RunId,
+    binding: lc::Binding,
+    deadline: u64,
+    world: bridge::PendingCall,
+    player: bridge::PendingCall,
+    world_ready: Option<bool>,
+    player_ready: Option<bool>,
+}
 struct Supervision {
     status: Arc<parking_lot::RwLock<ScriptStatus>>,
+    active: Arc<parking_lot::RwLock<lc::Status>>,
     changes: Arc<super::Changes>,
     session: u64,
     notify: Arc<Notify>,
-    script: ScriptState,
-    next_run: u64,
+    machine: Lifecycle,
+    worker: Option<Worker>,
+    watch: Option<ScriptLink>,
+    readiness: lc::Readiness,
+    binding: lc::Binding,
+    connected: Option<bool>,
+    username: String,
+    ready_read: Option<ReadyRead>,
+    auth_reads: Vec<bridge::Pending<String>>,
+    auth_retry: u64,
+    logout: Option<(RunId, bridge::Pending<String>)>,
+    clock: Instant,
+    deadlines: BTreeSet<u64>,
     settings: Option<SettingsPolicy>,
     relogin: Option<ReloginPolicy>,
     auto_zone: Option<AutoZonePolicy>,
     jobs: Option<crate::game::jobs::ProfileJobs>,
     deadline: Option<Instant>,
 }
-struct CurrentRun {
-    id: u64,
-    name: String,
-    run: ScriptRun,
-    stopping: bool,
-}
-enum ScriptState {
-    Idle,
-    Waiting {
-        script: Script,
-        watch: Option<ScriptLink>,
-    },
-    Booting(CurrentRun),
-    Running(CurrentRun),
-    Reaping {
-        id: u64,
-        next: Option<(Script, ScriptLink)>,
-    },
-}
-
 struct RunNotify {
     inbox: mpsc::Sender<Msg>,
-    id: u64,
+    id: RunId,
     ready: bool,
 }
 impl Wake for RunNotify {
@@ -253,18 +299,66 @@ impl Wake for RunNotify {
         });
     }
 }
-
 impl Supervision {
-    fn run(mut self, first: Player, messages: mpsc::Receiver<Msg>) {
+    fn now(&self) -> u64 {
+        self.clock
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX)
+    }
+    fn options(&self) -> lc::Options {
+        use lucent_protocol::script_options::RoomPolicy;
+        let options = self.watch.as_ref().unwrap().records.script_options();
+        lc::Options {
+            room_policy: match options.room_policy {
+                RoomPolicy::Public => lc::RoomPolicy::Public,
+                RoomPolicy::RandomPrivate => lc::RoomPolicy::RandomPrivate,
+                RoomPolicy::Specific { room_number } => lc::RoomPolicy::Specific(room_number),
+            },
+            safe_start_stop: options.safe_start_stop,
+            restart_after_reconnect: options.restart_after_reconnect,
+        }
+    }
+    fn transition(&mut self, event: lc::Event) -> lc::Transition {
+        self.machine
+            .advance(event, &self.readiness, &self.options(), self.now())
+    }
+    fn advance(&mut self, event: lc::Event) {
+        let result = self.transition(event);
+        self.effects(result.effects);
+    }
+    fn request(
+        &mut self,
+        script: Script,
+        reply: Option<mpsc::Sender<Result<RunId, RuntimeError>>>,
+    ) {
+        let name = script.entry().to_string();
+        let result = self.transition(lc::Event::Command(lc::Command::Start(lc::Request {
+            name: name.clone(),
+            reference: name,
+            script: Arc::new(script),
+            inputs: Default::default(),
+        })));
+        let answer = if result.rejection.is_some() {
+            Err(RuntimeError::Busy)
+        } else {
+            Ok(self.machine.status().active.as_ref().unwrap().run)
+        };
+        self.effects(result.effects);
+        if let Some(reply) = reply {
+            let _ = reply.send(answer);
+        }
+    }
+    fn run(mut self, first: Player, script: Option<Script>, messages: mpsc::Receiver<Msg>) {
         self.player(first);
-        self.publish();
+        if let Some(script) = script {
+            self.request(script, None);
+        }
         loop {
             self.settle();
-            self.publish();
             let message = match self.deadline {
-                Some(deadline) => {
-                    messages.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                }
+                Some(at) => messages.recv_timeout(at.saturating_duration_since(Instant::now())),
                 None => messages
                     .recv()
                     .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
@@ -273,79 +367,79 @@ impl Supervision {
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) | Ok(Msg::Shutdown) => break,
                 Ok(Msg::Player(player)) => self.player(*player),
-                Ok(Msg::Wake) => self.notify.queued.store(false, Ordering::Release),
-                Ok(Msg::Start(request)) => {
-                    let (script, watch) = *request;
-                    self.request(script, watch);
+                Ok(Msg::Wake) => {
+                    self.notify.queued.store(false, Ordering::Release);
+                    self.advance(lc::Event::OptionsChanged);
                 }
-                Ok(Msg::RunReady(id)) => {
-                    if matches!(&self.script, ScriptState::Booting(run) if run.id == id) {
-                        let ScriptState::Booting(run) =
-                            std::mem::replace(&mut self.script, ScriptState::Idle)
-                        else {
-                            unreachable!()
-                        };
-                        if run.run.take_ready() {
-                            info!("session {}: {} started", self.session, run.name);
-                            self.script = ScriptState::Running(run);
-                        } else {
-                            self.script = ScriptState::Booting(run);
+                Ok(Msg::Start(request)) => {
+                    let (script, reply) = *request;
+                    self.request(script, Some(reply));
+                }
+                Ok(Msg::Queue(command, reply)) => {
+                    let result = self.transition(lc::Event::Command(lc::Command::Queue(command)));
+                    let _ = reply.send(match result.rejection {
+                        None => Ok(()),
+                        Some(lc::Rejection::Busy) => Err(RuntimeError::Busy),
+                        Some(error) => {
+                            Err(RuntimeError::JavaScript(format!("script queue: {error:?}")))
                         }
+                    });
+                    self.effects(result.effects);
+                }
+                Ok(Msg::Event(event)) => self.advance(event),
+                Ok(Msg::RunReady(id)) => {
+                    if self
+                        .worker
+                        .as_ref()
+                        .is_some_and(|w| w.id == id && w.run.take_ready())
+                    {
+                        self.advance(lc::Event::RunReady(id));
                     }
                 }
                 Ok(Msg::RunExited(id)) => {
-                    if matches!(&self.script, ScriptState::Booting(run) | ScriptState::Running(run) if run.id == id)
+                    if let Some(worker) = &self.worker
+                        && worker.id == id
                     {
-                        self.finish_run(None);
+                        let outcome = outcome(worker.run.wait(Duration::ZERO));
+                        self.advance(lc::Event::RunExited { run: id, outcome });
                     }
                 }
-                Ok(Msg::Reaped(id)) => {
-                    if matches!(&self.script, ScriptState::Reaping { id: current, .. } if *current == id)
-                    {
-                        let ScriptState::Reaping { next, .. } =
-                            std::mem::replace(&mut self.script, ScriptState::Idle)
-                        else {
-                            unreachable!()
-                        };
-                        if let Some((script, watch)) = next {
-                            self.script = ScriptState::Waiting {
-                                script,
-                                watch: Some(watch),
-                            };
-                        }
-                        tracing::debug!("session {}: script worker reaped", self.session);
-                    }
-                }
-                Ok(Msg::Stop) => self.control(false),
-                Ok(Msg::Kill) => self.control(true),
-                Ok(Msg::Status) => self.status(),
+                Ok(Msg::Status) => self.print_status(),
             }
-            self.publish();
         }
-        if matches!(
-            self.script,
-            ScriptState::Booting(_) | ScriptState::Running(_)
-        ) {
-            self.finish_run(Some(Err(RuntimeError::Stopped)));
+        let mut binding = self.binding;
+        binding.player.0 += 1;
+        self.advance(lc::Event::PlayerReplaced(binding));
+        if let Some(worker) = self.worker.take() {
+            worker.run.kill();
+            if let Some(revoke) = worker.revoke {
+                revoke();
+            }
+            reap(move || drop(worker.run));
         }
     }
-
     fn player(&mut self, player: Player) {
+        let replacing = self.watch.is_some();
+        self.ready_read = None;
+        self.logout = None;
+        self.auth_reads.clear();
+        self.auth_retry = 0;
+        self.connected = None;
+        self.username.clear();
+        self.readiness = lc::Readiness::default();
+        if replacing {
+            self.binding.player.0 += 1;
+            self.binding.connection.0 = 0;
+            self.advance(lc::Event::PlayerReplaced(self.binding));
+        }
         let Player {
             watch,
             relogin,
             auto_zone,
             jobs,
         } = player;
-        if matches!(
-            self.script,
-            ScriptState::Booting(_) | ScriptState::Running(_)
-        ) {
-            self.finish_run(Some(Err(RuntimeError::Stopped)));
-        }
-        if let ScriptState::Reaping { next, .. } = &mut self.script {
-            *next = None;
-        }
+        watch.set_waker(Waker::from(self.notify.clone()));
+        self.watch = Some(watch);
         info!("session {}: supervisor started", self.session);
         self.jobs = None;
         self.jobs = Some(crate::game::jobs::ProfileJobs::new(
@@ -364,272 +458,460 @@ impl Supervision {
             relogin,
             Waker::from(self.notify.clone()),
         ));
-
-        if let ScriptState::Waiting {
-            script,
-            watch: slot,
-        } = &mut self.script
-        {
-            if let Some(link) = &watch {
-                link.set_waker(Waker::from(self.notify.clone()));
-            }
-            *slot = watch;
-            info!(
-                "session {}: {} is waiting for login",
-                self.session,
-                script.entry()
-            );
-        }
     }
-
-    fn request(&mut self, script: Script, watch: ScriptLink) {
-        watch.set_waker(Waker::from(self.notify.clone()));
-        match &mut self.script {
-            ScriptState::Idle => {
-                self.script = ScriptState::Waiting {
-                    script,
-                    watch: Some(watch),
-                }
-            }
-            ScriptState::Reaping {
-                next: slot @ None, ..
-            } => *slot = Some((script, watch)),
-            _ => warn!("session {}: a script is already active", self.session),
-        }
-    }
-
     fn settle(&mut self) {
         self.deadline = self
             .settings
             .as_mut()
-            .and_then(|settings| settings.advance(Instant::now()));
-        if let Some(at) = self
-            .relogin
-            .as_mut()
-            .and_then(|policy| policy.advance(Instant::now()))
+            .and_then(|p| p.advance(Instant::now()));
+        for at in [
+            self.relogin
+                .as_mut()
+                .and_then(|p| p.advance(Instant::now())),
+            self.auto_zone
+                .as_mut()
+                .and_then(|p| p.advance(Instant::now())),
+            self.jobs.as_mut().and_then(|p| p.advance(Instant::now())),
+        ]
+        .into_iter()
+        .flatten()
         {
-            self.deadline = Some(self.deadline.map_or(at, |deadline| deadline.min(at)));
+            self.schedule(at);
         }
-        self.deadline = self
-            .deadline
-            .into_iter()
-            .chain(
-                self.auto_zone
-                    .as_mut()
-                    .and_then(|policy| policy.advance(Instant::now())),
-            )
-            .min();
-        if let ScriptState::Waiting {
-            watch: Some(watch), ..
-        } = &self.script
-        {
-            match logged_in(watch) {
-                Ok(WatchReadiness::Ready) => self.start_run(),
-                Ok(WatchReadiness::Waiting) => {}
-                Ok(WatchReadiness::Draining) => self.deadline = Some(Instant::now()),
-                Err(bridge::Error::Timeout) => {
-                    self.deadline = Some(Instant::now() + Duration::from_millis(1))
+        self.projection();
+        self.completions();
+        let now = self.now();
+        if self.deadlines.first().is_some_and(|at| *at <= now) {
+            self.deadlines.retain(|at| *at > now);
+            self.advance(lc::Event::Deadline);
+        }
+        if let Some(&at) = self.deadlines.first() {
+            self.schedule(self.clock + Duration::from_millis(at));
+        }
+    }
+    fn schedule(&mut self, at: Instant) {
+        self.deadline = Some(self.deadline.map_or(at, |old| old.min(at)));
+    }
+    fn projection(&mut self) {
+        let Some(watch) = &self.watch else {
+            return;
+        };
+        let mut connections = Vec::new();
+        let mut draining = false;
+        let mut stopped = false;
+        for index in 0..64 {
+            match watch.try_event() {
+                Ok(Some(bridge::ScriptEvent::Loader { event, .. }))
+                    if event.name == "onConnection" =>
+                {
+                    if let Some(lucent_protocol::bridge::Value::String(status)) = event.args.first()
+                    {
+                        match status.as_str() {
+                            "OnConnection" => connections.push(true),
+                            "OnConnectionLost" | "OnConnectionFailed" => connections.push(false),
+                            _ => {}
+                        }
+                    }
                 }
+                Ok(Some(_)) | Err(bridge::Error::Overflow) => {}
+                Ok(None) => break,
                 Err(_) => {
-                    if let ScriptState::Waiting { watch, .. } = &mut self.script {
-                        *watch = None;
-                    }
+                    stopped = true;
+                    break;
                 }
             }
+            draining = index == 63;
         }
-        self.deadline = self
-            .deadline
-            .into_iter()
-            .chain(
-                self.jobs
-                    .as_mut()
-                    .and_then(|jobs| jobs.advance(Instant::now())),
+        if stopped {
+            if self.machine.status().active.is_some() {
+                let mut binding = self.binding;
+                binding.player.0 += 1;
+                self.advance(lc::Event::PlayerReplaced(binding));
+            }
+            return;
+        }
+        let snapshot = watch.read_for(Duration::ZERO, |p| {
+            (
+                lc::Readiness {
+                    logged_in: p.auth.logged_in,
+                    username: p.auth.username.clone(),
+                    projections_ready: p.current_readiness().missing.is_empty(),
+                },
+                p.connected,
             )
-            .min();
-    }
-
-    fn start_run(&mut self) {
-        let ScriptState::Waiting {
-            script,
-            watch: Some(watch),
-        } = std::mem::replace(&mut self.script, ScriptState::Idle)
-        else {
-            unreachable!()
+        });
+        let Ok((readiness, connected)) = snapshot else {
+            self.schedule(Instant::now() + Duration::from_millis(1));
+            return;
         };
-        let name = script.entry().to_string();
-        self.next_run += 1;
-        let id = self.next_run;
-        let notify = |ready| {
-            Waker::from(Arc::new(RunNotify {
-                inbox: self.notify.inbox.clone(),
-                id,
-                ready,
-            }))
-        };
-        match ScriptRun::spawn(
-            watch,
-            script,
-            Default::default(),
-            notify(true),
-            notify(false),
-        ) {
-            Ok(run) => {
-                self.script = ScriptState::Booting(CurrentRun {
-                    id,
-                    name,
-                    run,
-                    stopping: false,
-                });
+        self.readiness = readiness;
+        if !self.readiness.username.trim().is_empty() {
+            let name = self.readiness.username.trim().to_lowercase();
+            if !self.username.is_empty() && self.username != name {
+                self.advance(lc::Event::AccountChanged);
             }
-            Err(error) => {
-                self.ended(&name, Err(error));
+            self.username = name;
+        }
+        if connections.is_empty() && connected != self.connected {
+            connections.extend(connected);
+        }
+        for connected in connections {
+            self.connected = Some(connected);
+            if connected {
+                self.binding.connection.0 += 1;
+                self.advance(lc::Event::ConnectionRestored(self.binding));
+            } else {
+                self.advance(lc::Event::ConnectionLost(self.binding));
             }
         }
+        self.advance(lc::Event::ProjectionChanged);
+        let status = self.machine.status();
+        if self.readiness.projections_ready
+            && (status.active.is_some() || status.waiting_to_restart)
+            && (!self.readiness.logged_in || self.readiness.username.trim().is_empty())
+            && self.auth_reads.is_empty()
+            && self.now() >= self.auth_retry
+        {
+            let watch = self.watch.as_ref().unwrap();
+            for command in [
+                lucent_protocol::command::Command::RefreshCredentials {},
+                lucent_protocol::command::Command::RefreshLoggedIn {},
+            ] {
+                let pending = watch.command(command);
+                pending.set_waker(Waker::from(self.notify.clone()));
+                self.auth_reads.push(pending);
+            }
+            self.auth_retry = self.now() + 100;
+            self.deadlines.insert(self.auth_retry);
+        }
+        if draining {
+            self.schedule(Instant::now());
+        }
     }
-
-    fn finish_run(&mut self, result: Option<Result<ScriptOutcome, RuntimeError>>) {
-        let run = match std::mem::replace(&mut self.script, ScriptState::Idle) {
-            ScriptState::Booting(run) | ScriptState::Running(run) => run,
-            _ => unreachable!(),
-        };
-        let result = result.unwrap_or_else(|| run.run.wait(Duration::ZERO));
-        self.ended(&run.name, result);
-        let inbox = self.notify.inbox.clone();
-        let id = run.id;
-        self.script = ScriptState::Reaping { id, next: None };
-        reap(move || {
-            drop(run);
-            let _ = inbox.send(Msg::Reaped(id));
-        });
+    fn completions(&mut self) {
+        let now = self.now();
+        self.auth_reads
+            .retain(|pending| pending.try_recv().is_none());
+        if let Some(read) = &mut self.ready_read {
+            if read.world_ready.is_none() {
+                read.world_ready = read
+                    .world
+                    .try_recv()
+                    .map(|r| matches!(r, Ok(lucent_protocol::bridge::Value::Bool(true))));
+            }
+            if read.player_ready.is_none() {
+                read.player_ready = read
+                    .player
+                    .try_recv()
+                    .map(|r| matches!(r, Ok(lucent_protocol::bridge::Value::Bool(true))));
+            }
+            if read.binding != self.binding {
+                let run = read.run;
+                self.ready_read = None;
+                self.advance(lc::Event::PlayerReady { run, ready: false });
+            } else if now >= read.deadline {
+                self.ready_read = None;
+            } else if let (Some(world), Some(player)) = (read.world_ready, read.player_ready) {
+                let id = read.run;
+                self.ready_read = None;
+                self.advance(lc::Event::PlayerReady {
+                    run: id,
+                    ready: world && player,
+                });
+            }
+        }
+        if let Some((id, pending)) = &self.logout
+            && let Some(result) = pending.try_recv()
+        {
+            let id = *id;
+            if let Err(error) = result {
+                warn!("session {}: logout failed: {error}", self.session);
+            }
+            self.logout = None;
+            self.advance(lc::Event::LogoutDone(id));
+        }
     }
-
-    fn control(&mut self, kill: bool) {
-        match &mut self.script {
-            ScriptState::Booting(CurrentRun {
-                name,
-                run,
-                stopping,
-                ..
-            })
-            | ScriptState::Running(CurrentRun {
-                name,
-                run,
-                stopping,
-                ..
-            }) => {
-                *stopping = true;
-                if kill {
-                    run.kill();
-                    info!("session {}: killing {name}", self.session);
-                } else {
-                    run.stop_script();
-                    info!("session {}: stopping {name}", self.session);
+    fn effects(&mut self, effects: Vec<lc::Effect>) {
+        let mut effects = VecDeque::from(effects);
+        while let Some(effect) = effects.pop_front() {
+            let mut answer = None;
+            match effect {
+                lc::Effect::Publish(status) => self.publish(status),
+                lc::Effect::ScheduleDeadline(at) => {
+                    self.deadlines.insert(at);
+                }
+                lc::Effect::ReadPlayerReady {
+                    run,
+                    binding,
+                    deadline,
+                } => {
+                    if binding == self.binding
+                        && let Some(watch) = &self.watch
+                    {
+                        let world = watch.call_loader("world.isLoaded", vec![]);
+                        let player = watch.call_loader("player.isLoaded", vec![]);
+                        world.set_waker(Waker::from(self.notify.clone()));
+                        player.set_waker(Waker::from(self.notify.clone()));
+                        self.ready_read = Some(ReadyRead {
+                            run,
+                            binding,
+                            deadline,
+                            world,
+                            player,
+                            world_ready: None,
+                            player_ready: None,
+                        });
+                    }
+                }
+                lc::Effect::Spawn {
+                    run,
+                    binding,
+                    request,
+                } => {
+                    let result = if binding != self.binding {
+                        Err(RuntimeError::Stopped)
+                    } else {
+                        let link = self
+                            .watch
+                            .as_ref()
+                            .unwrap()
+                            .fork(bridge::EventInterests::ALL);
+                        let revoke = Box::new(link.revoker());
+                        let notify = |ready| {
+                            Waker::from(Arc::new(RunNotify {
+                                inbox: self.notify.inbox.clone(),
+                                id: run,
+                                ready,
+                            }))
+                        };
+                        ScriptRun::spawn(
+                            link,
+                            (*request.script).clone(),
+                            request.inputs,
+                            notify(true),
+                            notify(false),
+                        )
+                        .map(|worker| Worker {
+                            id: run,
+                            run: worker,
+                            revoke: Some(revoke),
+                        })
+                    };
+                    match result {
+                        Ok(worker) => self.worker = Some(worker),
+                        Err(error) => {
+                            answer = Some(lc::Event::RunExited {
+                                run,
+                                outcome: outcome(Err(error)),
+                            })
+                        }
+                    }
+                }
+                lc::Effect::SignalStop { run } => {
+                    if let Some(worker) = &self.worker
+                        && worker.id == run
+                    {
+                        worker.run.stop_script();
+                        info!(
+                            "session {}: stopping {}",
+                            self.session,
+                            self.machine.status().active.as_ref().unwrap().name
+                        );
+                    }
+                }
+                lc::Effect::Kill { run } => {
+                    if let Some(worker) = &self.worker
+                        && worker.id == run
+                    {
+                        worker.run.kill();
+                        info!(
+                            "session {}: killing {}",
+                            self.session,
+                            self.machine.status().active.as_ref().unwrap().name
+                        );
+                    }
+                }
+                lc::Effect::Revoke { run } => {
+                    if self.ready_read.as_ref().is_some_and(|read| read.run == run) {
+                        self.ready_read = None;
+                    }
+                    if let Some(worker) = &mut self.worker
+                        && worker.id == run
+                        && let Some(revoke) = worker.revoke.take()
+                    {
+                        revoke();
+                    }
+                }
+                lc::Effect::Reap { run } => {
+                    if self.worker.as_ref().is_some_and(|worker| worker.id == run) {
+                        let worker = self.worker.take().unwrap();
+                        let inbox = self.notify.inbox.clone();
+                        reap(move || {
+                            drop(worker);
+                            let _ = inbox.send(Msg::Event(lc::Event::Reaped(run)));
+                        });
+                    } else {
+                        answer = Some(lc::Event::Reaped(run));
+                    }
+                }
+                lc::Effect::SafeMove { run, phase, .. }
+                | lc::Effect::CancelSafeMove { run, phase } => {
+                    answer = Some(lc::Event::SafeMoveDone { run, phase })
+                }
+                lc::Effect::Logout { run, binding } => {
+                    if binding == self.binding
+                        && let Some(watch) = &self.watch
+                    {
+                        let pending = watch.command(lucent_protocol::command::Command::Logout {});
+                        pending.set_waker(Waker::from(self.notify.clone()));
+                        self.logout = Some((run, pending));
+                    } else {
+                        answer = Some(lc::Event::LogoutDone(run));
+                    }
+                }
+                lc::Effect::Terminal(terminal) => {
+                    let (level, line) = terminal_line(&terminal);
+                    if level == Level::WARN {
+                        warn!("session {}: {line}", self.session);
+                    } else {
+                        info!("session {}: {line}", self.session);
+                    }
+                }
+                lc::Effect::Prepare { id, entry } => {
+                    answer = Some(lc::Event::Prepared {
+                        id,
+                        result: Ok(entry),
+                    })
                 }
             }
-            ScriptState::Waiting { script, .. } => {
-                info!(
-                    "session {}: {} was cancelled before it started",
-                    self.session,
-                    script.entry()
-                );
-                let mut status = self.status.read().clone();
-                status.phase = ScriptPhase::Idle;
-                status.script = None;
-                status.last_end = Some(format!(
-                    "{} was cancelled before it started",
-                    script.entry()
-                ));
-                self.changes.set(&self.status, status);
-                self.script = ScriptState::Idle;
+            if let Some(event) = answer {
+                let transition = self.transition(event);
+                effects.extend(transition.effects);
             }
-            ScriptState::Reaping { next, .. } => {
-                *next = None;
-            }
-            ScriptState::Idle => info!("session {}: no script is running", self.session),
         }
     }
-
-    fn publish(&self) {
-        let (phase, script) = match &self.script {
-            ScriptState::Idle => (ScriptPhase::Idle, None),
-            ScriptState::Reaping { next, .. } => match next {
-                Some((script, _)) => (ScriptPhase::Waiting, Some(script.entry().to_string())),
-                None => (ScriptPhase::Idle, None),
-            },
-            ScriptState::Waiting { script, .. } => {
-                (ScriptPhase::Waiting, Some(script.entry().to_string()))
-            }
-            ScriptState::Booting(run) | ScriptState::Running(run) if run.stopping => {
-                (ScriptPhase::Stopping, Some(run.name.clone()))
-            }
-            ScriptState::Booting(run) => (ScriptPhase::Starting, Some(run.name.clone())),
-            ScriptState::Running(run) => (ScriptPhase::Running, Some(run.name.clone())),
+    fn publish(&self, status: lc::Status) {
+        let old = self.active.read().clone();
+        let phase = match status.active.as_ref().map(|a| a.phase) {
+            None if status.waiting_to_restart => ScriptPhase::Waiting,
+            None => ScriptPhase::Idle,
+            Some(lc::RunPhase::Waiting) => ScriptPhase::Waiting,
+            Some(lc::RunPhase::SafeBefore) => ScriptPhase::Preparing,
+            Some(lc::RunPhase::Booting) => ScriptPhase::Starting,
+            Some(lc::RunPhase::Running) => ScriptPhase::Running,
+            Some(lc::RunPhase::Stopping) => ScriptPhase::Stopping,
+            Some(lc::RunPhase::Finishing) => ScriptPhase::Finishing,
         };
-        let last_end = self.status.read().last_end.clone();
-        self.changes.set(
-            &self.status,
-            ScriptStatus {
-                phase,
-                script,
-                last_end,
-            },
-        );
-    }
-    fn status(&mut self) {
-        match &self.script {
-            ScriptState::Idle | ScriptState::Reaping { .. } => {
-                info!("session {}: no script is running", self.session)
-            }
-            ScriptState::Waiting { script, .. } => info!(
-                "session {}: {} is waiting for login",
-                self.session,
-                script.entry()
-            ),
-            ScriptState::Booting(run) => info!("session {}: {} is booting", self.session, run.name),
-            ScriptState::Running(run) => info!("session {}: {} is running", self.session, run.name),
-        }
-    }
-
-    fn ended(&self, name: &str, result: Result<ScriptOutcome, RuntimeError>) {
-        let (level, line) = ended(name, result);
-        let mut status = self.status.read().clone();
-        status.phase = ScriptPhase::Idle;
-        status.script = None;
-        status.last_end = Some(line.clone());
-        self.changes.set(&self.status, status);
-        if level == Level::WARN {
-            warn!("session {}: {line}", self.session);
-        } else {
-            info!("session {}: {line}", self.session);
-        }
-    }
-}
-
-enum WatchReadiness {
-    Ready,
-    Waiting,
-    Draining,
-}
-
-fn logged_in(link: &ScriptLink) -> Result<WatchReadiness, bridge::Error> {
-    for _ in 0..64 {
-        match link.try_event() {
-            Ok(Some(_)) | Err(bridge::Error::Overflow) => {}
-            Ok(None) => {
-                return link.read_for(Duration::ZERO, |projection| {
-                    if projection.current_readiness().missing.is_empty() {
-                        WatchReadiness::Ready
-                    } else {
-                        WatchReadiness::Waiting
+        if old.active.as_ref().map(|a| (&a.run, a.phase))
+            != status.active.as_ref().map(|a| (&a.run, a.phase))
+        {
+            if let Some(active) = &status.active {
+                match active.phase {
+                    lc::RunPhase::Waiting => info!(
+                        "session {}: {} is waiting for login",
+                        self.session, active.name
+                    ),
+                    lc::RunPhase::Running => {
+                        info!("session {}: {} started", self.session, active.name)
                     }
-                });
+                    _ => {}
+                }
+            } else {
+                tracing::debug!("session {}: script worker reaped", self.session);
             }
-            Err(error) => return Err(error),
+        }
+        let next = ScriptStatus {
+            phase,
+            script: status.active.as_ref().map(|a| a.name.clone()).or_else(|| {
+                status
+                    .waiting_to_restart
+                    .then(|| status.latest.as_ref().unwrap().name.clone())
+            }),
+            last_end: status.latest.as_ref().map(|t| terminal_line(t).1),
+        };
+        let unchanged = *self.status.read() == next;
+        *self.active.write() = status.clone();
+        self.changes.set(&self.status, next);
+        if old != status && unchanged {
+            self.changes.notify();
         }
     }
-    Ok(WatchReadiness::Draining)
+    fn print_status(&self) {
+        match self.machine.status().active {
+            Some(active) => {
+                let phase = match active.phase {
+                    lc::RunPhase::Waiting => "waiting for login",
+                    lc::RunPhase::Running => "running",
+                    lc::RunPhase::Stopping => "stopping",
+                    lc::RunPhase::Finishing => "finishing",
+                    _ => "booting",
+                };
+                info!("session {}: {} is {phase}", self.session, active.name);
+            }
+            None => info!("session {}: no script is running", self.session),
+        }
+    }
 }
-
+fn outcome(result: Result<ScriptOutcome, RuntimeError>) -> lc::Outcome {
+    match result {
+        Ok(ScriptOutcome::Completed) => lc::Outcome::Completed,
+        Ok(ScriptOutcome::Failed { message, details }) => lc::Outcome::Failed(match details {
+            Some(details) => format!("{message}\n{details}"),
+            None => message,
+        }),
+        Ok(ScriptOutcome::StoppedByScript { reason }) => {
+            lc::Outcome::Stopped(lc::StopReason::Script(reason))
+        }
+        Ok(ScriptOutcome::Stopped { reason }) => {
+            lc::Outcome::Stopped(lc::StopReason::Requested(reason.unwrap_or_default()))
+        }
+        Ok(ScriptOutcome::Exited {
+            logout,
+            close_client,
+        }) => lc::Outcome::Exited {
+            logout,
+            close_client,
+        },
+        Err(RuntimeError::Killed(Kill::HeapLimit)) => lc::Outcome::Killed(lc::KillReason::Heap),
+        Err(RuntimeError::Killed(Kill::Requested)) => {
+            lc::Outcome::Killed(lc::KillReason::Requested)
+        }
+        Err(RuntimeError::Killed(_)) => lc::Outcome::Killed(lc::KillReason::Watchdog),
+        Err(error) => lc::Outcome::Failed(error.to_string()),
+    }
+}
+fn terminal_line(terminal: &lc::Terminal) -> (Level, String) {
+    let result = match &terminal.outcome {
+        lc::Outcome::Completed => Ok(ScriptOutcome::Completed),
+        lc::Outcome::Failed(message) => Ok(ScriptOutcome::Failed {
+            message: message.clone(),
+            details: None,
+        }),
+        lc::Outcome::Stopped(lc::StopReason::Script(reason)) => {
+            Ok(ScriptOutcome::StoppedByScript {
+                reason: reason.clone(),
+            })
+        }
+        lc::Outcome::Stopped(lc::StopReason::PlayerReplaced) => Err(RuntimeError::Stopped),
+        lc::Outcome::Stopped(reason) => Ok(ScriptOutcome::Stopped {
+            reason: if reason.message().is_empty() {
+                None
+            } else {
+                Some(reason.message().into())
+            },
+        }),
+        lc::Outcome::Exited { close_client, .. } => Ok(ScriptOutcome::Exited {
+            logout: false,
+            close_client: *close_client,
+        }),
+        lc::Outcome::Killed(reason) => Err(RuntimeError::Killed(match reason {
+            lc::KillReason::Requested => Kill::Requested,
+            lc::KillReason::Watchdog => Kill::Watchdog,
+            lc::KillReason::Heap => Kill::HeapLimit,
+        })),
+    };
+    ended(&terminal.name, result)
+}
 fn ended(name: &str, result: Result<ScriptOutcome, RuntimeError>) -> (Level, String) {
     let (level, end) = match result {
         Ok(ScriptOutcome::Completed) => (Level::INFO, "completed".into()),
@@ -645,8 +927,11 @@ fn ended(name: &str, result: Result<ScriptOutcome, RuntimeError>) -> (Level, Str
         }
         Ok(ScriptOutcome::Exited {
             close_client: false,
+            ..
         }) => (Level::INFO, "exited".into()),
-        Ok(ScriptOutcome::Exited { close_client: true }) => (
+        Ok(ScriptOutcome::Exited {
+            close_client: true, ..
+        }) => (
             Level::INFO,
             "exited and asked to close the game client".into(),
         ),
@@ -702,13 +987,17 @@ mod tests {
             ),
             (
                 Ok(ScriptOutcome::Exited {
+                    logout: false,
                     close_client: false,
                 }),
                 Level::INFO,
                 "x.js exited",
             ),
             (
-                Ok(ScriptOutcome::Exited { close_client: true }),
+                Ok(ScriptOutcome::Exited {
+                    logout: false,
+                    close_client: true,
+                }),
                 Level::INFO,
                 "x.js exited and asked to close the game client",
             ),

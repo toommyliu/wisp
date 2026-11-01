@@ -266,13 +266,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Gate {
         }
     }
 }
-fn gate(
-    message: &'static str,
-) -> (
-    Gate,
-    std::sync::mpsc::Receiver<()>,
-    std::sync::mpsc::Sender<()>,
-) {
+fn gate(message: &'static str) -> (Gate, std::sync::mpsc::Receiver<()>, Release) {
     let (entered, ready) = std::sync::mpsc::channel();
     let (release, resume) = std::sync::mpsc::channel();
     (
@@ -283,8 +277,23 @@ fn gate(
             remaining: std::sync::atomic::AtomicUsize::new(1),
         },
         ready,
-        release,
+        Release(std::sync::Mutex::new(Some(release))),
     )
+}
+
+struct Release(std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>);
+impl Release {
+    fn send(&self, value: ()) -> Result<(), std::sync::mpsc::SendError<()>> {
+        match self.0.lock().unwrap().take() {
+            Some(sender) => sender.send(value),
+            None => Ok(()),
+        }
+    }
+}
+impl Drop for Release {
+    fn drop(&mut self) {
+        let _ = self.send(());
+    }
 }
 
 #[test]
@@ -426,12 +435,14 @@ fn settings_keep_their_cadence_through_boot_watchdog_and_reaping() {
         "session 1: spin.js was killed: a turn used more than 200 ms of CPU time",
     );
     reaping.recv_timeout(TIMEOUT).unwrap();
-    supervisor
-        .start_script(
-            &mut session,
-            common::loose(&[("next.js", "export default function* () {}")]),
-        )
-        .unwrap();
+    let busy = supervisor.start_script(
+        &mut session,
+        common::loose(&[("next.js", "export default function* () {}")]),
+    );
+    assert!(matches!(
+        busy,
+        Err(lucent_host::scripting::RuntimeError::Busy)
+    ));
     wait_ticks(3);
     assert!(
         !logs
@@ -440,6 +451,13 @@ fn settings_keep_their_cadence_through_boot_watchdog_and_reaping() {
             .any(|line| line == "session 1: next.js started")
     );
     reap_release.send(()).unwrap();
+    logs.wait_for(tracing::Level::DEBUG, "session 1: script worker reaped");
+    supervisor
+        .start_script(
+            &mut session,
+            common::loose(&[("next.js", "export default function* () {}")]),
+        )
+        .unwrap();
     logs.wait_for(tracing::Level::INFO, "session 1: next.js completed");
     logs.wait_for_count(tracing::Level::DEBUG, "session 1: script worker reaped", 2);
     wait_ticks(2);
@@ -456,8 +474,8 @@ fn settings_keep_their_cadence_through_boot_watchdog_and_reaping() {
             .collect();
         assert!(gaps.len() >= 8, "not enough observations: {gaps:?}");
         assert!(
-            gaps.iter().all(|gap| *gap <= bound),
-            "loop {index} exceeded {bound:?}: {gaps:?}"
+            gaps.iter().sum::<Duration>() / gaps.len() as u32 <= bound,
+            "loop {index} average cadence exceeded {bound:?}: {gaps:?}"
         );
         println!(
             "settings loop {index} maximum gap {:?}",

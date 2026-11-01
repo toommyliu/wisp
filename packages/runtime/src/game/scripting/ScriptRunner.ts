@@ -4,7 +4,6 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -14,9 +13,7 @@ import type { ScriptInputValues } from "@lucent/schemas/scriptInputs";
 import { Api } from "../flash/api/Api";
 import { HostState } from "../flash/state/HostState";
 import { makeScriptOptionsApi } from "../../host/scriptOptions";
-import { ProjectionReadiness } from "../flash/api/ProjectionReadiness";
 import { Bridge } from "../flash/bridge/Bridge";
-import type { Event as FlashEvent } from "../flash/contract/Event";
 import type { ScriptMain } from "@lucent/scripting-api/contract";
 import {
   makeScriptAsyncScope,
@@ -27,10 +24,7 @@ import {
   attributedScriptErrorDetails,
   attributedScriptErrorMessage,
 } from "./scriptSourceAttribution";
-import {
-  makeScriptRuntimeApi,
-  snapshotRoomPolicy,
-} from "./ScriptRuntime";
+import { makeScriptRuntimeApi, snapshotRoomPolicy } from "./ScriptRuntime";
 import type { ScriptBuiltinModules } from "./ScriptBuiltinModules";
 import { makeScriptBuiltinModules } from "./ScriptBuiltinModules";
 import { makeScriptFileSystemApi } from "./ScriptFileSystem";
@@ -44,11 +38,9 @@ import {
 import {
   getScriptExitRequest,
   ScriptLoadError,
-  ScriptNotReadyError,
   ScriptStopSignal,
   type ScriptExitRequest,
 } from "./ScriptRunnerErrors";
-import { makeScriptStartReadiness } from "./ScriptStartReadiness";
 
 export interface ScriptSource {
   readonly name: string;
@@ -121,6 +113,7 @@ export type ScriptRunTerminalOutcome =
   | {
       readonly kind: "script-exited";
       readonly closeClient: boolean;
+      readonly logout: boolean;
       readonly status: Extract<
         ScriptRunnerStatus,
         { readonly state: "stopped" }
@@ -176,7 +169,6 @@ interface ActiveScript {
   readonly name: string;
   readonly scope: ScriptAsyncScope;
   readonly terminal: Deferred.Deferred<ScriptRunTerminalOutcome>;
-  readonly username: string;
 }
 
 interface PendingFinalization {
@@ -184,22 +176,8 @@ interface PendingFinalization {
   readonly id: number;
 }
 
-interface PendingRestart {
-  readonly cancel: Deferred.Deferred<StartingCancellation>;
-  readonly commandId: number;
-  readonly disconnectedAt: string;
-  readonly done: Deferred.Deferred<ScriptRunnerStatus>;
-  readonly source: ScriptSource;
-  readonly id: number;
-  readonly inputs: ScriptInputValues;
-  readonly name: string;
-  readonly terminal: Deferred.Deferred<ScriptRunTerminalOutcome>;
-  readonly username: string;
-}
-
 interface StartingCancellation {
   readonly reason?: string;
-  readonly retryAfterReconnect?: boolean;
 }
 
 interface StartingScript {
@@ -208,7 +186,6 @@ interface StartingScript {
   readonly done: Deferred.Deferred<ScriptRunnerStatus>;
   readonly id: number;
   readonly name: string;
-  readonly restart?: PendingRestart;
   readonly terminal: Deferred.Deferred<ScriptRunTerminalOutcome>;
 }
 
@@ -216,11 +193,6 @@ interface ScriptRunIdentity {
   readonly id: number;
   readonly terminal: Deferred.Deferred<ScriptRunTerminalOutcome>;
 }
-
-type RestartReadiness =
-  | { readonly kind: "account-changed" }
-  | { readonly kind: "disabled" }
-  | { readonly kind: "ready" };
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -244,24 +216,12 @@ const statusName = (source: Pick<ScriptSource, "name">) =>
   source.name.trim() === "" ? "script" : source.name;
 
 export const statusFromStartingCancellation = (
-  starting: {
-    readonly restart?: Pick<PendingRestart, "disconnectedAt" | "name">;
-  },
   cancellation: StartingCancellation,
-): ScriptRunnerStatus =>
-  cancellation.retryAfterReconnect === true && starting.restart !== undefined
-    ? {
-        name: starting.restart.name,
-        disconnectedAt: starting.restart.disconnectedAt,
-        state: "waiting-to-restart",
-      }
-    : {
-        ...(cancellation.reason === undefined
-          ? {}
-          : { reason: cancellation.reason }),
-        state: "stopped",
-        stoppedAt: nowIso(),
-      };
+): ScriptRunnerStatus => ({
+  ...(cancellation.reason === undefined ? {} : { reason: cancellation.reason }),
+  state: "stopped",
+  stoppedAt: nowIso(),
+});
 
 export type ScriptTermination =
   | { readonly kind: "failed" }
@@ -320,22 +280,6 @@ export const classifyScriptTermination = (
     : { kind: "failed" };
 };
 
-const isScriptNotReadyCause = (cause: Cause.Cause<unknown>): boolean => {
-  let sawNotReady = false;
-  for (const reason of cause.reasons) {
-    if (Cause.isInterruptReason(reason)) continue;
-    if (
-      Cause.isFailReason(reason) &&
-      reason.error instanceof ScriptNotReadyError
-    ) {
-      sawNotReady = true;
-      continue;
-    }
-    return false;
-  }
-  return sawNotReady;
-};
-
 const causeMessage = (cause: Cause.Cause<unknown>): string => {
   const squashed = Cause.squash(cause);
   return squashed instanceof Error && squashed.message.length > 0
@@ -366,18 +310,12 @@ const logScriptFailureCause = (
     );
   });
 
-const isConnectionLoss = (event: FlashEvent): boolean =>
-  event.type === "connection" &&
-  (event.status === "OnConnectionLost" ||
-    event.status === "OnConnectionFailed");
-
 export const layer = Layer.effect(
   ScriptRunner,
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const runFork = Effect.runForkWith(yield* Effect.context<never>());
     const api = yield* Api;
-    const projectionReadiness = yield* ProjectionReadiness;
     const bridge = yield* Bridge;
     const dialogs = yield* ScriptDialogs;
     const {
@@ -388,14 +326,7 @@ export const layer = Layer.effect(
       fileSystem: fileSystemBridge,
       http: makeHttpApi,
     } = yield* ScriptServices;
-    const { auth, combat, events, house, map, packet, player, wait } = api;
-    const scriptStartReadiness = makeScriptStartReadiness({
-      auth,
-      player,
-      projectionReadiness,
-      wait,
-    });
-
+    const { auth, combat, house, map, packet, player, wait } = api;
     const services = makeScriptRuntimeServices(api, army, environment);
 
     const activeRef = yield* Ref.make<ActiveScript | null>(null);
@@ -405,7 +336,6 @@ export const layer = Layer.effect(
     const pendingFinalizationRef = yield* Ref.make<PendingFinalization | null>(
       null,
     );
-    const pendingRestartRef = yield* Ref.make<PendingRestart | null>(null);
     const startingRef = yield* Ref.make<StartingScript | null>(null);
     const scriptOptions = makeScriptOptionsApi(yield* HostState);
     const statusRef = yield* SubscriptionRef.make<ScriptRunnerStatus>({
@@ -546,26 +476,12 @@ export const layer = Layer.effect(
       },
     );
 
-    const cancelPendingRestart = Effect.fn("ScriptRunner.cancelPendingRestart")(
-      function* (reason?: string) {
-        const pending = yield* Ref.get(pendingRestartRef);
-        if (pending !== null) {
-          yield* Deferred.succeed(
-            pending.cancel,
-            reason === undefined ? {} : { reason },
-          );
-        }
-        return pending;
-      },
-    );
-
     const stopActive = Effect.fn("ScriptRunner.stopActive")(function* (
       reason?: string,
     ) {
       yield* Ref.update(latestCommandIdRef, (value) => value + 1);
       const result = yield* lifecycleGate.withPermit(
         Effect.gen(function* () {
-          const restart = yield* cancelPendingRestart(reason);
           const starting = yield* Ref.get(startingRef);
           if (starting !== null) {
             yield* Deferred.succeed(
@@ -573,7 +489,7 @@ export const layer = Layer.effect(
               reason === undefined ? {} : { reason },
             );
             return {
-              done: restart?.done ?? starting.done,
+              done: starting.done,
               kind: "waiting",
             } as const;
           }
@@ -581,16 +497,13 @@ export const layer = Layer.effect(
           const pending = yield* Ref.get(pendingFinalizationRef);
           if (pending !== null) {
             return {
-              done: restart?.done ?? pending.done,
+              done: pending.done,
               kind: "waiting",
             } as const;
           }
 
           const active = yield* Ref.get(activeRef);
           if (active === null) {
-            if (restart !== null) {
-              return { done: restart.done, kind: "waiting" } as const;
-            }
             return { kind: "status", status: yield* getStatus() } as const;
           }
 
@@ -693,9 +606,9 @@ export const layer = Layer.effect(
       map,
       packet,
       player,
-      roomPolicy: scriptOptions.get().pipe(
-        Effect.map((options) => snapshotRoomPolicy(options.roomPolicy)),
-      ),
+      roomPolicy: scriptOptions
+        .get()
+        .pipe(Effect.map((options) => snapshotRoomPolicy(options.roomPolicy))),
       wait,
     });
 
@@ -709,9 +622,9 @@ export const layer = Layer.effect(
           >;
           return yield* iterator;
         }).pipe(Effect.asVoid),
-        scriptOptions.get().pipe(
-          Effect.map((options) => options.safeStartStop),
-        ),
+        scriptOptions
+          .get()
+          .pipe(Effect.map((options) => options.safeStartStop)),
         moveToSafeMap,
       );
 
@@ -725,13 +638,7 @@ export const layer = Layer.effect(
                 termination.kind === "script-interrupted"
                   ? undefined
                   : termination.reason;
-              const exitRequest =
-                termination.kind === "script-exited"
-                  ? termination.exitRequest
-                  : undefined;
               return finishIfActive(id, {
-                beforeComplete:
-                  exitRequest?.logout === true ? auth.logout() : Effect.void,
                 result: () => {
                   const status = {
                     ...(reason === undefined ? {} : { reason }),
@@ -743,6 +650,7 @@ export const layer = Layer.effect(
                       ? {
                           kind: "script-exited",
                           closeClient: termination.exitRequest.closeClient,
+                          logout: termination.exitRequest.logout,
                           status,
                         }
                       : termination.kind === "script-stopped"
@@ -851,12 +759,8 @@ export const layer = Layer.effect(
               }),
             ),
       );
-      yield* installReadinessWatcher(starting.id, scriptScope);
 
       const setup = Effect.gen(function* () {
-        const readiness = yield* scriptStartReadiness.awaitReady();
-        const username = readiness.username;
-
         yield* scriptScope.addCleanup(() =>
           army.leave().pipe(Effect.catchCause(() => Effect.void)),
         );
@@ -876,9 +780,11 @@ export const layer = Layer.effect(
           failCause: (cause) => failActiveCause(starting.id, cause),
           fileSystem: makeScriptFileSystemApi(fileSystemBridge, scriptScope),
           http,
-          roomPolicy: scriptOptions.get().pipe(
-            Effect.map((options) => snapshotRoomPolicy(options.roomPolicy)),
-          ),
+          roomPolicy: scriptOptions
+            .get()
+            .pipe(
+              Effect.map((options) => snapshotRoomPolicy(options.roomPolicy)),
+            ),
           scope: scriptScope,
           script,
           services,
@@ -908,7 +814,6 @@ export const layer = Layer.effect(
           name: starting.name,
           scope: scriptScope,
           terminal: starting.terminal,
-          username,
         };
         const status: ScriptRunnerStatus = {
           name: active.name,
@@ -922,18 +827,11 @@ export const layer = Layer.effect(
               const current = yield* Ref.get(startingRef);
               const latestCommandId = yield* Ref.get(latestCommandIdRef);
               const cancelled = yield* Deferred.isDone(starting.cancel);
-              const restartCancelled =
-                starting.restart !== undefined &&
-                (yield* Deferred.isDone(starting.restart.cancel));
-              const currentRestart = yield* Ref.get(pendingRestartRef);
               if (
                 current?.id !== starting.id ||
                 current.done !== starting.done ||
                 latestCommandId !== starting.commandId ||
-                cancelled ||
-                restartCancelled ||
-                (starting.restart !== undefined &&
-                  currentRestart !== starting.restart)
+                cancelled
               ) {
                 return false;
               }
@@ -945,13 +843,6 @@ export const layer = Layer.effect(
               yield* Ref.set(activeRef, active);
               yield* setStatus(status);
               yield* Deferred.succeed(release, undefined);
-              if (starting.restart !== undefined) {
-                yield* Ref.set(pendingRestartRef, null);
-                yield* Deferred.succeed(
-                  starting.restart.done,
-                  snapshotStatus(status),
-                );
-              }
               return true;
             }),
           ),
@@ -979,18 +870,7 @@ export const layer = Layer.effect(
                 const cancellation = (yield* Deferred.isDone(starting.cancel))
                   ? yield* Deferred.await(starting.cancel)
                   : { reason: "Start cancelled" };
-                return statusFromStartingCancellation(starting, cancellation);
-              }
-
-              if (
-                starting.restart !== undefined &&
-                isScriptNotReadyCause(cause)
-              ) {
-                return {
-                  name: starting.restart.name,
-                  disconnectedAt: starting.restart.disconnectedAt,
-                  state: "waiting-to-restart",
-                } satisfies ScriptRunnerStatus;
+                return statusFromStartingCancellation(cancellation);
               }
 
               yield* logScriptFailureCause(cause);
@@ -1007,10 +887,7 @@ export const layer = Layer.effect(
             outcome.kind === "started"
               ? Effect.succeed<ScriptRunnerStatus>(outcome.status)
               : Effect.succeed<ScriptRunnerStatus>(
-                  statusFromStartingCancellation(
-                    starting,
-                    outcome.cancellation,
-                  ),
+                  statusFromStartingCancellation(outcome.cancellation),
                 ),
         }),
       );
@@ -1022,19 +899,16 @@ export const layer = Layer.effect(
       commandId: number,
       source: ScriptSource,
       inputs: ScriptInputValues,
-      restart?: PendingRestart,
       identity?: ScriptRunIdentity,
     ): Effect.fn.Return<StartingScript> {
       return yield* Effect.uninterruptible(
         Effect.gen(function* () {
           const id =
-            restart?.id ??
             identity?.id ??
             (yield* Ref.updateAndGet(nextIdRef, (value) => value + 1));
           const cancel = yield* Deferred.make<StartingCancellation>();
           const done = yield* Deferred.make<ScriptRunnerStatus>();
           const terminal =
-            restart?.terminal ??
             identity?.terminal ??
             (yield* Deferred.make<ScriptRunTerminalOutcome>());
           const starting: StartingScript = {
@@ -1043,7 +917,6 @@ export const layer = Layer.effect(
             done,
             id,
             name: statusName(source),
-            ...(restart === undefined ? {} : { restart }),
             terminal,
           };
           yield* Ref.set(startingRef, starting);
@@ -1057,246 +930,6 @@ export const layer = Layer.effect(
         }),
       );
     });
-
-    const completePendingRestart = Effect.fn(
-      "ScriptRunner.completePendingRestart",
-    )(function* (pending: PendingRestart, status: ScriptRunnerStatus) {
-      yield* lifecycleGate.withPermit(
-        Effect.gen(function* () {
-          const current = yield* Ref.get(pendingRestartRef);
-          const authoritative =
-            current === pending ? status : yield* getStatus();
-          if (current === pending) {
-            yield* Ref.set(pendingRestartRef, null);
-            yield* setStatus(status);
-          }
-          yield* Deferred.succeed(pending.done, snapshotStatus(authoritative));
-          if (status.state === "stopped") {
-            yield* Deferred.succeed(
-              pending.terminal,
-              externalStopOutcome({ ...status }),
-            );
-          } else if (status.state === "failed") {
-            yield* Deferred.succeed(pending.terminal, {
-              kind: "failed",
-              status: { ...status },
-            });
-          }
-        }),
-      );
-    });
-
-    const awaitRestartReadiness = Effect.fn(
-      "ScriptRunner.awaitRestartReadiness",
-    )(function* (pending: PendingRestart) {
-      return (
-        (yield* wait.untilSome(
-          Effect.gen(function* () {
-            const options = yield* scriptOptions.get();
-            if (!options.restartAfterReconnect) {
-              return Option.some<RestartReadiness>({ kind: "disabled" });
-            }
-
-            const readiness = yield* scriptStartReadiness.get();
-            if (!readiness.ready) return Option.none<RestartReadiness>();
-
-            return Option.some<RestartReadiness>({
-              kind:
-                readiness.username === pending.username
-                  ? "ready"
-                  : "account-changed",
-            });
-          }),
-          { interval: "250 millis" },
-        )) ?? { kind: "disabled" }
-      );
-    });
-
-    const resumePendingRestart = Effect.fn("ScriptRunner.resumePendingRestart")(
-      function* (pending: PendingRestart): Effect.fn.Return<boolean> {
-        const result = yield* lifecycleGate.withPermit(
-          Effect.gen(function* () {
-            const current = yield* Ref.get(pendingRestartRef);
-            const latestCommandId = yield* Ref.get(latestCommandIdRef);
-            const options = yield* scriptOptions.get();
-            if (
-              current !== pending ||
-              latestCommandId !== pending.commandId ||
-              !options.restartAfterReconnect
-            ) {
-              const status = yield* getStatus();
-              if (current === pending) {
-                const stopped: ScriptRunnerStatus = {
-                  state: "stopped",
-                  stoppedAt: nowIso(),
-                };
-                yield* Ref.set(pendingRestartRef, null);
-                yield* setStatus(stopped);
-                return { kind: "settled", status: stopped } as const;
-              }
-              return { kind: "settled", status } as const;
-            }
-
-            const starting = yield* beginStarting(
-              pending.commandId,
-              pending.source,
-              pending.inputs,
-              pending,
-            );
-            return {
-              done: starting.done,
-              kind: "starting",
-            } as const;
-          }),
-        );
-
-        const status =
-          result.kind === "starting"
-            ? yield* awaitStatus(result.done)
-            : result.status;
-        if (status.state === "waiting-to-restart") {
-          return true;
-        }
-        yield* completePendingRestart(pending, status);
-        return false;
-      },
-    );
-
-    const runPendingRestart = Effect.fn("ScriptRunner.runPendingRestart")(
-      function* (
-        pending: PendingRestart,
-        finalized: Deferred.Deferred<ScriptRunnerStatus>,
-      ): Effect.fn.Return<void> {
-        yield* awaitStatus(finalized);
-        while (true) {
-          const outcome = yield* Effect.raceFirst(
-            Deferred.await(pending.cancel).pipe(
-              Effect.map(
-                (cancellation) =>
-                  ({ cancellation, kind: "cancelled" }) as const,
-              ),
-            ),
-            awaitRestartReadiness(pending).pipe(
-              Effect.map(
-                (readiness) => ({ kind: "readiness", readiness }) as const,
-              ),
-            ),
-          );
-
-          if (
-            outcome.kind === "readiness" &&
-            outcome.readiness.kind === "ready"
-          ) {
-            if (yield* resumePendingRestart(pending)) continue;
-            return;
-          }
-
-          const reason =
-            outcome.kind === "cancelled"
-              ? outcome.cancellation.reason
-              : outcome.readiness.kind === "account-changed"
-                ? "Account changed"
-                : undefined;
-          yield* completePendingRestart(pending, {
-            ...(reason === undefined ? {} : { reason }),
-            state: "stopped",
-            stoppedAt: nowIso(),
-          });
-          return;
-        }
-      },
-    );
-
-    const handleConnectionLoss = Effect.fn("ScriptRunner.handleConnectionLoss")(
-      function* (id: number): Effect.fn.Return<void> {
-        return yield* Effect.uninterruptible(
-          Effect.gen(function* () {
-            const result = yield* lifecycleGate.withPermit(
-              Effect.gen(function* () {
-                const starting = yield* Ref.get(startingRef);
-                if (starting?.id === id) {
-                  yield* Deferred.succeed(starting.cancel, {
-                    reason: "Connection lost",
-                    retryAfterReconnect: starting.restart !== undefined,
-                  });
-                  return null;
-                }
-                if ((yield* Ref.get(pendingFinalizationRef)) !== null) {
-                  return null;
-                }
-
-                const active = yield* Ref.get(activeRef);
-                if (active?.id !== id) return null;
-
-                const options = yield* scriptOptions.get();
-                const shouldRestart =
-                  options.restartAfterReconnect && active.username !== "";
-                const disconnectedAt = nowIso();
-                const restart = shouldRestart
-                  ? {
-                      cancel: yield* Deferred.make<StartingCancellation>(),
-                      commandId: active.commandId,
-                      disconnectedAt,
-                      done: yield* Deferred.make<ScriptRunnerStatus>(),
-                      source: { ...active.source },
-                      id: active.id,
-                      inputs: { ...active.inputs },
-                      name: active.name,
-                      terminal: active.terminal,
-                      username: active.username,
-                    }
-                  : null;
-                if (restart !== null) {
-                  yield* Ref.set(pendingRestartRef, restart);
-                }
-
-                const finalized = yield* beginFinalization(active, {
-                  awaitFiber: true,
-                  intermediateStatus: {
-                    name: active.name,
-                    state: "stopping",
-                  },
-                  interrupt: true,
-                  result: () => {
-                    if (restart === null) {
-                      const status = {
-                        state: "stopped",
-                        stoppedAt: nowIso(),
-                      } as const;
-                      return terminalFinalization(externalStopOutcome(status));
-                    }
-                    return {
-                      status: {
-                        name: restart.name,
-                        disconnectedAt: restart.disconnectedAt,
-                        state: "waiting-to-restart",
-                      },
-                    };
-                  },
-                });
-                return restart === null ? null : { finalized, restart };
-              }),
-            );
-
-            if (result !== null) {
-              yield* runPendingRestart(result.restart, result.finalized).pipe(
-                Effect.forkDetach,
-              );
-            }
-          }),
-        );
-      },
-    );
-
-    const installReadinessWatcher = (
-      id: number,
-      scope: ScriptAsyncScope,
-    ): Effect.Effect<StateDisposer> =>
-      events
-        .on({ type: "connection" }, (event) =>
-          isConnectionLoss(event) ? handleConnectionLoss(id) : Effect.void,
-        )
-        .pipe(Effect.tap((dispose) => scope.addCleanup(dispose)));
 
     const start: ScriptRunnerShape["start"] = (source, inputs) => {
       const sourceSnapshot = { ...source };
@@ -1331,17 +964,13 @@ export const layer = Layer.effect(
                   kind: "superseded",
                 } as const;
               }
-
-              const restart = yield* cancelPendingRestart(
-                "Replaced by another script",
-              );
               const starting = yield* Ref.get(startingRef);
               if (starting !== null) {
                 yield* Deferred.succeed(starting.cancel, {
                   reason: "Replaced by another script",
                 });
                 return {
-                  done: restart?.done ?? starting.done,
+                  done: starting.done,
                   kind: "waiting",
                 } as const;
               }
@@ -1349,7 +978,7 @@ export const layer = Layer.effect(
               const pending = yield* Ref.get(pendingFinalizationRef);
               if (pending !== null) {
                 return {
-                  done: restart?.done ?? pending.done,
+                  done: pending.done,
                   kind: "waiting",
                 } as const;
               }
@@ -1374,15 +1003,11 @@ export const layer = Layer.effect(
                 });
                 return { done, kind: "waiting" } as const;
               }
-              if (restart !== null) {
-                return { done: restart.done, kind: "waiting" } as const;
-              }
 
               const started = yield* beginStarting(
                 commandId,
                 sourceSnapshot,
                 inputSnapshot,
-                undefined,
                 identity,
               );
               return {
@@ -1416,8 +1041,7 @@ export const layer = Layer.effect(
             (status) =>
               status.state === "running" ||
               status.state === "starting" ||
-              status.state === "stopping" ||
-              status.state === "waiting-to-restart",
+              status.state === "stopping",
           ),
         ),
       onStatus: (listener) =>

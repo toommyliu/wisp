@@ -183,6 +183,7 @@ describe("ScriptQueue", () => {
             : {
                 kind,
                 closeClient: false,
+                logout: false,
                 status: {
                   state: "stopped",
                   stoppedAt: "2026-08-18T12:00:00.000Z",

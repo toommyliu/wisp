@@ -18,12 +18,11 @@ import { makeMonsters } from "./Monsters";
 import { makePacket } from "./Packet";
 import { makePlayer } from "./Player";
 import { makePlayers } from "./Players";
-import {
-  makeProjectionReadiness,
-  ProjectionReadiness,
-} from "./ProjectionReadiness";
 import { makeQuests } from "./Quests";
-import { ScriptReactions, start as startScriptReactions } from "./ScriptReactions";
+import {
+  ScriptReactions,
+  start as startScriptReactions,
+} from "./ScriptReactions";
 import { makeSettings } from "./Settings";
 import { makeShops } from "./Shops";
 import { makeTempInventory } from "./TempInventory";
@@ -46,7 +45,6 @@ const makeApiServices = Effect.gen(function* () {
   const monsters = monsterServices.api;
   const players = makePlayers(host);
   const player = makePlayer(bridge, host, auth, inventory, map, wait);
-  const projectionReadiness = makeProjectionReadiness(host);
   const quests = makeQuests(bridge, host, wait);
   const settings = makeSettings(host);
   const antiCounter = makeAntiCounter(bridge, settings.isAntiCounterEnabled);
@@ -89,7 +87,6 @@ const makeApiServices = Effect.gen(function* () {
       tempInventory,
       wait,
     },
-    projectionReadiness,
     scriptReactions: {
       antiCounter,
       events,
@@ -113,9 +110,8 @@ export class Api extends Context.Service<Api, ApiService>()(
 
 export const layer = Layer.effectContext(
   makeApiServices.pipe(
-    Effect.map(({ api, projectionReadiness, scriptReactions }) =>
+    Effect.map(({ api, scriptReactions }) =>
       Context.make(Api, api).pipe(
-        Context.add(ProjectionReadiness, projectionReadiness),
         Context.add(ScriptReactions, scriptReactions),
       ),
     ),

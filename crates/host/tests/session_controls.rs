@@ -3,7 +3,7 @@ use common::*;
 use lucent_host::{Session, testing};
 use lucent_protocol::{command::Command, script::ScriptPhase};
 use std::{
-    sync::{Arc, mpsc},
+    sync::{Arc, Mutex, mpsc},
     task::{Wake, Waker},
 };
 
@@ -20,24 +20,32 @@ fn watch(session: &Session) -> mpsc::Receiver<()> {
     session.watch(waker);
     rx
 }
-struct Transition(mpsc::Sender<mpsc::Sender<()>>);
+struct Transition {
+    status: Box<dyn Fn() -> lucent_protocol::script::ScriptStatus + Send + Sync>,
+    last: Mutex<ScriptPhase>,
+    changes: mpsc::Sender<ScriptPhase>,
+}
 impl Wake for Transition {
     fn wake(self: Arc<Self>) {
-        let (tx, rx) = mpsc::channel();
-        if self.0.send(tx).is_ok() {
-            rx.recv_timeout(TIMEOUT).unwrap();
+        let mut last = self.last.lock().unwrap();
+        let phase = (self.status)().phase;
+        if phase != *last {
+            *last = phase;
+            let _ = self.changes.send(phase);
         }
     }
 }
-fn transition(
-    session: &Session,
-    changes: &mpsc::Receiver<mpsc::Sender<()>>,
-    expected: ScriptPhase,
-) {
-    let release = changes.recv_timeout(TIMEOUT).unwrap();
-    let actual = session.script_status().phase;
-    release.send(()).unwrap();
-    assert_eq!(actual, expected);
+fn transitions(session: &Session) -> mpsc::Receiver<ScriptPhase> {
+    let (tx, rx) = mpsc::channel();
+    session.watch(Waker::from(Arc::new(Transition {
+        status: Box::new(session.script_status_reader()),
+        last: Mutex::new(session.script_status().phase),
+        changes: tx,
+    })));
+    rx
+}
+fn transition(changes: &mpsc::Receiver<ScriptPhase>, expected: ScriptPhase) {
+    assert_eq!(changes.recv_timeout(TIMEOUT).unwrap(), expected);
 }
 fn command(session: &Session, value: serde_json::Value) {
     session
@@ -86,29 +94,31 @@ fn session_starts_stops_and_kills_scripts() {
     let host = testing::headless_host();
     let (mut session, observer) = testing::start_probe(&host, ready_movie());
     session.supervise(None).unwrap();
-    let (tx, changes) = mpsc::channel();
-    session.watch(Waker::from(Arc::new(Transition(tx))));
+    let changes = transitions(&session);
     assert_eq!(session.script_status().phase, ScriptPhase::Idle);
     let source = r#"import * as script from 'lucent/script'; export default function* () { yield* script.sleep('1 hour'); }"#;
     session.start_script(loose(&[("wait.js", source)])).unwrap();
-    transition(&session, &changes, ScriptPhase::Waiting);
+    transition(&changes, ScriptPhase::Waiting);
     log_in(&observer);
-    transition(&session, &changes, ScriptPhase::Starting);
-    transition(&session, &changes, ScriptPhase::Running);
+    transition(&changes, ScriptPhase::Preparing);
+    transition(&changes, ScriptPhase::Starting);
+    transition(&changes, ScriptPhase::Running);
     session.stop_script();
-    transition(&session, &changes, ScriptPhase::Stopping);
-    transition(&session, &changes, ScriptPhase::Idle);
+    transition(&changes, ScriptPhase::Stopping);
+    transition(&changes, ScriptPhase::Finishing);
+    transition(&changes, ScriptPhase::Idle);
     assert_eq!(
         session.script_status().last_end.as_deref(),
         Some("wait.js was stopped")
     );
     session.start_script(loose(&[("wait.js", source)])).unwrap();
-    transition(&session, &changes, ScriptPhase::Waiting);
-    transition(&session, &changes, ScriptPhase::Starting);
-    transition(&session, &changes, ScriptPhase::Running);
+    transition(&changes, ScriptPhase::Waiting);
+    transition(&changes, ScriptPhase::Preparing);
+    transition(&changes, ScriptPhase::Starting);
+    transition(&changes, ScriptPhase::Running);
     session.kill_script();
-    transition(&session, &changes, ScriptPhase::Stopping);
-    transition(&session, &changes, ScriptPhase::Idle);
+    transition(&changes, ScriptPhase::Finishing);
+    transition(&changes, ScriptPhase::Idle);
     assert_eq!(
         session.script_status().last_end.as_deref(),
         Some("wait.js was killed")
@@ -119,10 +129,12 @@ fn session_starts_stops_and_kills_scripts() {
     session
         .start_script(loose(&[("done.js", "export default function* () {}")]))
         .unwrap();
-    transition(&session, &changes, ScriptPhase::Waiting);
-    transition(&session, &changes, ScriptPhase::Starting);
-    transition(&session, &changes, ScriptPhase::Running);
-    transition(&session, &changes, ScriptPhase::Idle);
+    transition(&changes, ScriptPhase::Waiting);
+    transition(&changes, ScriptPhase::Preparing);
+    transition(&changes, ScriptPhase::Starting);
+    transition(&changes, ScriptPhase::Running);
+    transition(&changes, ScriptPhase::Finishing);
+    transition(&changes, ScriptPhase::Idle);
     assert_eq!(
         session.script_status().last_end.as_deref(),
         Some("done.js completed")
@@ -175,18 +187,18 @@ fn stopping_a_waiting_script_cancels_it_without_starting_a_runtime() {
     let host = testing::headless_host();
     let (mut session, _) = testing::start_probe(&host, ready_movie());
     session.supervise(None).unwrap();
-    let (tx, changes) = mpsc::channel();
-    session.watch(Waker::from(Arc::new(Transition(tx))));
+    let changes = transitions(&session);
     session
         .start_script(loose(&[("wait.js", "export default function* () {}")]))
         .unwrap();
-    transition(&session, &changes, ScriptPhase::Waiting);
+    transition(&changes, ScriptPhase::Waiting);
     session.stop_script();
-    transition(&session, &changes, ScriptPhase::Idle);
+    transition(&changes, ScriptPhase::Finishing);
+    transition(&changes, ScriptPhase::Idle);
     assert_eq!(session.script_status().script, None);
     assert_eq!(
         session.script_status().last_end.as_deref(),
-        Some("wait.js was cancelled before it started")
+        Some("wait.js was stopped")
     );
     drop(changes);
 }

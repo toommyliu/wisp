@@ -124,13 +124,14 @@ fn a_restart_ends_the_run_and_does_not_rerun() {
 }
 
 #[test]
-fn a_script_waiting_for_login_waits_again_after_a_restart() {
+fn a_player_restart_cancels_a_script_waiting_for_login() {
     let logs = Logs::default();
     let dispatch = logs.dispatch();
     let _guard = tracing::dispatcher::set_default(&dispatch);
     let host = testing::headless_host();
     let (mut session, _) = testing::start_probe(&host, ready_movie());
-    let (request, _) = ScriptRequest::new(loose(&[("done.js", "export default function* () {}")]));
+    let (request, controls) =
+        ScriptRequest::new(loose(&[("done.js", "export default function* () {}")]));
     let mut supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
     logs.wait_for(INFO, "session 1: done.js is waiting for login");
     supervisor
@@ -143,17 +144,12 @@ fn a_script_waiting_for_login_waits_again_after_a_restart() {
     ));
     testing::wait_loaded(&observer);
     log_in(&observer);
-    logs.wait_for(tracing::Level::DEBUG, "session 1: script worker reaped");
+    controls.status();
+    logs.wait_for(INFO, "session 1: no script is running");
+    assert!(!session_lines(&logs, INFO).contains(&"session 1: done.js started".into()));
     assert_eq!(
-        session_lines(&logs, INFO),
-        [
-            "session 1: supervisor started",
-            "session 1: done.js is waiting for login",
-            "session 1: supervisor started",
-            "session 1: done.js is waiting for login",
-            "session 1: done.js started",
-            "session 1: done.js completed",
-        ]
+        session.script_status().last_end.as_deref(),
+        Some("done.js ended because its player stopped")
     );
 }
 
@@ -173,19 +169,16 @@ fn controls_cancel_a_waiting_script_without_replaying_it_after_login() {
             controls.stop();
         }
         let _supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
-        logs.wait_for(INFO, "session 1: done.js was cancelled before it started");
+        let (level, end) = if kill {
+            (WARN, "session 1: done.js was killed")
+        } else {
+            (INFO, "session 1: done.js was stopped")
+        };
+        logs.wait_for(level, end);
         log_in(&observer);
         controls.status();
         logs.wait_for(INFO, "session 1: no script is running");
-        assert_eq!(
-            session_lines(&logs, INFO),
-            [
-                "session 1: supervisor started",
-                "session 1: done.js is waiting for login",
-                "session 1: done.js was cancelled before it started",
-                "session 1: no script is running",
-            ]
-        );
+        assert!(!session_lines(&logs, INFO).contains(&"session 1: done.js started".into()));
     }
 }
 
@@ -283,4 +276,53 @@ fn a_skill_five_profile_queued_before_connection_completes_after_login() {
     assert_eq!(session_lines(&logs, WARN), Vec::<String>::new());
     assert!(logs.messages(INFO).contains(&"profile killed true".into()));
     assert!(session_lines(&logs, INFO).contains(&"session 1: fight.js completed".into()));
+}
+
+#[test]
+fn a_concurrent_start_is_busy_and_leaves_the_active_run_alive() {
+    let logs = Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    let (request, controls) = ScriptRequest::new(loose(&[("a.js", WAIT)]));
+    let mut supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
+    log_in(&observer);
+    await_event(&observer, "onDebug", None);
+    let result = supervisor.start_script(&mut session, loose(&[("b.js", WAIT)]));
+    assert_eq!(
+        result.err().map(|error| error.to_string()).as_deref(),
+        Some("a script is already active")
+    );
+    controls.status();
+    logs.wait_for(INFO, "session 1: a.js is running");
+    controls.kill();
+    logs.wait_for(WARN, "session 1: a.js was killed");
+}
+
+#[test]
+fn controls_from_a_finished_run_cannot_kill_its_successor() {
+    let logs = Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    let (request, old) = ScriptRequest::new(loose(&[("a.js", "export default function* () {}")]));
+    let mut supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
+    log_in(&observer);
+    logs.wait_for(tracing::Level::DEBUG, "session 1: script worker reaped");
+    let current = supervisor
+        .start_script(&mut session, loose(&[("b.js", WAIT)]))
+        .unwrap();
+    await_event(&observer, "onDebug", None);
+    old.kill();
+    current.status();
+    logs.wait_for(INFO, "session 1: b.js is running");
+    assert_eq!(
+        session.script_status().phase,
+        lucent_protocol::script::ScriptPhase::Running
+    );
+    assert!(session_lines(&logs, WARN).is_empty());
+    current.kill();
+    logs.wait_for(WARN, "session 1: b.js was killed");
 }

@@ -15356,16 +15356,6 @@ ${prefix}}`;
     };
   }, "makePlayers");
 
-  // packages/runtime/src/game/flash/api/ProjectionReadiness.ts
-  var makeProjectionReadiness = /* @__PURE__ */ __name((host4) => ({
-    inspect: /* @__PURE__ */ __name(() => host4.read({ kind: "readiness" }), "inspect")
-  }), "makeProjectionReadiness");
-  var ProjectionReadiness = class extends Service()("lucent/renderer/flash/ProjectionReadiness") {
-    static {
-      __name(this, "ProjectionReadiness");
-    }
-  };
-
   // packages/runtime/src/game/flash/api/Quests.ts
   var isQuestId = /* @__PURE__ */ __name((questId) => Number.isSafeInteger(questId) && questId > 0, "isQuestId");
   var makeQuests = /* @__PURE__ */ __name((bridge, host4, wait) => {
@@ -15949,7 +15939,6 @@ ${prefix}}`;
     const monsters = monsterServices.api;
     const players = makePlayers(host4);
     const player = makePlayer(bridge, host4, auth, inventory, map8, wait);
-    const projectionReadiness = makeProjectionReadiness(host4);
     const quests = makeQuests(bridge, host4, wait);
     const settings = makeSettings(host4);
     const antiCounter = makeAntiCounter(bridge, settings.isAntiCounterEnabled);
@@ -15991,7 +15980,6 @@ ${prefix}}`;
         tempInventory,
         wait
       },
-      projectionReadiness,
       scriptReactions: {
         antiCounter,
         events,
@@ -16015,8 +16003,7 @@ ${prefix}}`;
   var layer5 = effectContext(
     makeApiServices.pipe(
       map5(
-        ({ api: api2, projectionReadiness, scriptReactions }) => make2(Api, api2).pipe(
-          add(ProjectionReadiness, projectionReadiness),
+        ({ api: api2, scriptReactions }) => make2(Api, api2).pipe(
           add(ScriptReactions, scriptReactions)
         )
       )
@@ -19196,98 +19183,6 @@ ${prefix}}`;
     return (phase) => moveToSafeDestination().pipe(logMoveFailure(phase));
   }, "makeMoveToSafeDestination");
 
-  // packages/runtime/src/game/scripting/ScriptStartReadiness.ts
-  var scriptStartReadinessTimeout = "10 seconds";
-  var labels = {
-    account: "account binding",
-    houseInventory: "house inventory projection",
-    inventory: "inventory projection",
-    login: "login",
-    map: "map projection",
-    player: "player projection",
-    playerLoaded: "live player readiness"
-  };
-  var missingDetail = /* @__PURE__ */ __name((snapshot) => snapshot.missing.map((key) => {
-    const failure2 = key === "houseInventory" || key === "inventory" || key === "map" || key === "player" ? snapshot.projections.failures[key] : void 0;
-    return failure2 === void 0 ? labels[key] : `${labels[key]} (${failure2})`;
-  }).join(", "), "missingDetail");
-  var makeScriptStartReadiness = /* @__PURE__ */ __name((services) => {
-    const get5 = fn2("ScriptStartReadiness.get")(
-      function* () {
-        const projections = yield* services.projectionReadiness.inspect().pipe(catchCause2(() => succeed7(null)));
-        const resolvedProjections = projections ?? {
-          epoch: 0,
-          failures: {},
-          missing: ["houseInventory", "inventory", "map", "player"],
-          state: {
-            houseInventory: false,
-            inventory: false,
-            map: false,
-            player: false
-          }
-        };
-        if (resolvedProjections.missing.length > 0) {
-          return {
-            loggedIn: false,
-            missing: [...resolvedProjections.missing],
-            playerLoaded: false,
-            projections: resolvedProjections,
-            ready: false,
-            username: ""
-          };
-        }
-        const playerLoaded = yield* services.player.isReady().pipe(catchCause2(() => succeed7(false)));
-        if (!playerLoaded) {
-          return {
-            loggedIn: false,
-            missing: ["playerLoaded"],
-            playerLoaded: false,
-            projections: resolvedProjections,
-            ready: false,
-            username: ""
-          };
-        }
-        const state = yield* all2({
-          loggedIn: services.auth.isLoggedIn().pipe(catchCause2(() => succeed7(false))),
-          username: services.auth.getUsername().pipe(catchCause2(() => succeed7("")))
-        });
-        const username = state.username.trim().toLowerCase();
-        const missing2 = [];
-        if (!state.loggedIn) missing2.push("login");
-        if (username === "") missing2.push("account");
-        return {
-          loggedIn: state.loggedIn,
-          missing: missing2,
-          playerLoaded,
-          projections: resolvedProjections,
-          ready: missing2.length === 0,
-          username
-        };
-      }
-    );
-    const awaitReady = fn2("ScriptStartReadiness.awaitReady")(function* (options = {}) {
-      const ready = yield* services.wait.untilSome(
-        get5().pipe(
-          map5(
-            (snapshot2) => snapshot2.ready ? some2(snapshot2) : none2()
-          )
-        ),
-        {
-          interval: options.interval ?? "100 millis",
-          timeout: options.timeout ?? scriptStartReadinessTimeout
-        }
-      );
-      if (ready !== null) return ready;
-      const snapshot = yield* get5();
-      const detail = snapshot.missing.length === 0 ? "Scripts can only start after game readiness is stable." : `Scripts can only start after game readiness is complete. Missing: ${missingDetail(snapshot)}.`;
-      return yield* new ScriptNotReadyError({
-        detail,
-        missing: [...snapshot.missing]
-      });
-    });
-    return { awaitReady, get: get5 };
-  }, "makeScriptStartReadiness");
-
   // packages/runtime/src/game/scripting/ScriptRunner.ts
   var terminalFinalization = /* @__PURE__ */ __name((outcome2) => ({ outcome: outcome2, status: outcome2.status }), "terminalFinalization");
   var ScriptRunner = class extends Service()("lucent/game/scripting/ScriptRunner") {
@@ -19305,15 +19200,11 @@ ${prefix}}`;
   }), "makeRunHandle");
   var externalStopOutcome = /* @__PURE__ */ __name((status) => ({ kind: "externally-stopped", status }), "externalStopOutcome");
   var statusName = /* @__PURE__ */ __name((source) => source.name.trim() === "" ? "script" : source.name, "statusName");
-  var statusFromStartingCancellation = /* @__PURE__ */ __name((starting, cancellation) => cancellation.retryAfterReconnect === true && starting.restart !== void 0 ? {
-    name: starting.restart.name,
-    disconnectedAt: starting.restart.disconnectedAt,
-    state: "waiting-to-restart"
-  } : {
+  var statusFromStartingCancellation = /* @__PURE__ */ __name((cancellation) => ({
     ...cancellation.reason === void 0 ? {} : { reason: cancellation.reason },
     state: "stopped",
     stoppedAt: nowIso()
-  }, "statusFromStartingCancellation");
+  }), "statusFromStartingCancellation");
   var classifyScriptTermination = /* @__PURE__ */ __name((cause) => {
     let closeClient = false;
     let logout = false;
@@ -19347,18 +19238,6 @@ ${prefix}}`;
     }
     return hasInterruptsOnly2(cause) ? { kind: "script-interrupted" } : { kind: "failed" };
   }, "classifyScriptTermination");
-  var isScriptNotReadyCause = /* @__PURE__ */ __name((cause) => {
-    let sawNotReady = false;
-    for (const reason of cause.reasons) {
-      if (isInterruptReason2(reason)) continue;
-      if (isFailReason2(reason) && reason.error instanceof ScriptNotReadyError) {
-        sawNotReady = true;
-        continue;
-      }
-      return false;
-    }
-    return sawNotReady;
-  }, "isScriptNotReadyCause");
   var causeMessage = /* @__PURE__ */ __name((cause) => {
     const squashed = squash(cause);
     return squashed instanceof Error && squashed.message.length > 0 ? attributedScriptErrorMessage(squashed) : pretty(cause);
@@ -19380,14 +19259,12 @@ ${prefix}}`;
       squashed instanceof Error ? squashed : causeMessage(cause)
     );
   }), "logScriptFailureCause");
-  var isConnectionLoss = /* @__PURE__ */ __name((event) => event.type === "connection" && (event.status === "OnConnectionLost" || event.status === "OnConnectionFailed"), "isConnectionLoss");
   var layer7 = effect(
     ScriptRunner,
     gen2(function* () {
       const scope3 = yield* scope2;
       const runFork3 = runForkWith2(yield* context2());
       const api2 = yield* Api;
-      const projectionReadiness = yield* ProjectionReadiness;
       const bridge = yield* Bridge;
       const dialogs = yield* ScriptDialogs;
       const {
@@ -19398,13 +19275,7 @@ ${prefix}}`;
         fileSystem: fileSystemBridge,
         http: makeHttpApi
       } = yield* ScriptServices;
-      const { auth, combat, events, house, map: map8, packet, player, wait } = api2;
-      const scriptStartReadiness = makeScriptStartReadiness({
-        auth,
-        player,
-        projectionReadiness,
-        wait
-      });
+      const { auth, combat, house, map: map8, packet, player, wait } = api2;
       const services = makeScriptRuntimeServices(api2, army, environment);
       const activeRef = yield* make16(null);
       const lifecycleGate = yield* make15(1);
@@ -19413,7 +19284,6 @@ ${prefix}}`;
       const pendingFinalizationRef = yield* make16(
         null
       );
-      const pendingRestartRef = yield* make16(null);
       const startingRef = yield* make16(null);
       const scriptOptions = makeScriptOptionsApi(yield* HostState);
       const statusRef = yield* make17({
@@ -19504,23 +19374,10 @@ ${prefix}}`;
           );
         }
       );
-      const cancelPendingRestart = fn2("ScriptRunner.cancelPendingRestart")(
-        function* (reason) {
-          const pending3 = yield* get3(pendingRestartRef);
-          if (pending3 !== null) {
-            yield* succeed5(
-              pending3.cancel,
-              reason === void 0 ? {} : { reason }
-            );
-          }
-          return pending3;
-        }
-      );
       const stopActive = fn2("ScriptRunner.stopActive")(function* (reason) {
         yield* update(latestCommandIdRef, (value) => value + 1);
         const result2 = yield* lifecycleGate.withPermit(
           gen2(function* () {
-            const restart = yield* cancelPendingRestart(reason);
             const starting = yield* get3(startingRef);
             if (starting !== null) {
               yield* succeed5(
@@ -19528,22 +19385,19 @@ ${prefix}}`;
                 reason === void 0 ? {} : { reason }
               );
               return {
-                done: restart?.done ?? starting.done,
+                done: starting.done,
                 kind: "waiting"
               };
             }
             const pending3 = yield* get3(pendingFinalizationRef);
             if (pending3 !== null) {
               return {
-                done: restart?.done ?? pending3.done,
+                done: pending3.done,
                 kind: "waiting"
               };
             }
             const active = yield* get3(activeRef);
             if (active === null) {
-              if (restart !== null) {
-                return { done: restart.done, kind: "waiting" };
-              }
               return { kind: "status", status: yield* getStatus() };
             }
             const done4 = yield* beginFinalization(active, {
@@ -19628,9 +19482,7 @@ ${prefix}}`;
         map: map8,
         packet,
         player,
-        roomPolicy: scriptOptions.get().pipe(
-          map5((options) => snapshotRoomPolicy(options.roomPolicy))
-        ),
+        roomPolicy: scriptOptions.get().pipe(map5((options) => snapshotRoomPolicy(options.roomPolicy))),
         wait
       });
       const runWithSafeStartStop2 = /* @__PURE__ */ __name((main) => runWithSafeStartStop(
@@ -19638,9 +19490,7 @@ ${prefix}}`;
           const iterator = main();
           return yield* iterator;
         }).pipe(asVoid2),
-        scriptOptions.get().pipe(
-          map5((options) => options.safeStartStop)
-        ),
+        scriptOptions.get().pipe(map5((options) => options.safeStartStop)),
         moveToSafeMap
       ), "runWithSafeStartStop");
       const runScript = /* @__PURE__ */ __name((id, source, main) => runWithSafeStartStop2(main).pipe(
@@ -19649,9 +19499,7 @@ ${prefix}}`;
             const termination = classifyScriptTermination(cause);
             if (termination.kind !== "failed") {
               const reason = termination.kind === "script-interrupted" ? void 0 : termination.reason;
-              const exitRequest = termination.kind === "script-exited" ? termination.exitRequest : void 0;
               return finishIfActive(id, {
-                beforeComplete: exitRequest?.logout === true ? auth.logout() : void_3,
                 result: /* @__PURE__ */ __name(() => {
                   const status = {
                     ...reason === void 0 ? {} : { reason },
@@ -19661,6 +19509,7 @@ ${prefix}}`;
                   const outcome2 = termination.kind === "script-exited" ? {
                     kind: "script-exited",
                     closeClient: termination.exitRequest.closeClient,
+                    logout: termination.exitRequest.logout,
                     status
                   } : termination.kind === "script-stopped" ? { kind: "script-stopped", status } : { kind: "externally-stopped", status };
                   return terminalFinalization(outcome2);
@@ -19748,10 +19597,7 @@ ${prefix}}`;
             })
           )
         );
-        yield* installReadinessWatcher(starting.id, scriptScope);
         const setup = gen2(function* () {
-          const readiness = yield* scriptStartReadiness.awaitReady();
-          const username = readiness.username;
           yield* scriptScope.addCleanup(
             () => army.leave().pipe(catchCause2(() => void_3))
           );
@@ -19801,8 +19647,7 @@ ${prefix}}`;
             inputs: { ...inputs },
             name: starting.name,
             scope: scriptScope,
-            terminal: starting.terminal,
-            username
+            terminal: starting.terminal
           };
           const status2 = {
             name: active.name,
@@ -19815,9 +19660,7 @@ ${prefix}}`;
                 const current = yield* get3(startingRef);
                 const latestCommandId = yield* get3(latestCommandIdRef);
                 const cancelled = yield* isDone2(starting.cancel);
-                const restartCancelled = starting.restart !== void 0 && (yield* isDone2(starting.restart.cancel));
-                const currentRestart = yield* get3(pendingRestartRef);
-                if (current?.id !== starting.id || current.done !== starting.done || latestCommandId !== starting.commandId || cancelled || restartCancelled || starting.restart !== void 0 && currentRestart !== starting.restart) {
+                if (current?.id !== starting.id || current.done !== starting.done || latestCommandId !== starting.commandId || cancelled) {
                   return false;
                 }
                 yield* sync2(() => {
@@ -19827,13 +19670,6 @@ ${prefix}}`;
                 yield* set2(activeRef, active);
                 yield* setStatus(status2);
                 yield* succeed5(release, void 0);
-                if (starting.restart !== void 0) {
-                  yield* set2(pendingRestartRef, null);
-                  yield* succeed5(
-                    starting.restart.done,
-                    snapshotStatus(status2)
-                  );
-                }
                 return true;
               })
             )
@@ -19857,14 +19693,7 @@ ${prefix}}`;
             onFailure: /* @__PURE__ */ __name((cause) => gen2(function* () {
               if (hasInterruptsOnly2(cause)) {
                 const cancellation = (yield* isDone2(starting.cancel)) ? yield* _await(starting.cancel) : { reason: "Start cancelled" };
-                return statusFromStartingCancellation(starting, cancellation);
-              }
-              if (starting.restart !== void 0 && isScriptNotReadyCause(cause)) {
-                return {
-                  name: starting.restart.name,
-                  disconnectedAt: starting.restart.disconnectedAt,
-                  state: "waiting-to-restart"
-                };
+                return statusFromStartingCancellation(cancellation);
               }
               yield* logScriptFailureCause(cause);
               const detailsText = causeDetailsText(cause);
@@ -19877,29 +19706,25 @@ ${prefix}}`;
               };
             }), "onFailure"),
             onSuccess: /* @__PURE__ */ __name((outcome2) => outcome2.kind === "started" ? succeed7(outcome2.status) : succeed7(
-              statusFromStartingCancellation(
-                starting,
-                outcome2.cancellation
-              )
+              statusFromStartingCancellation(outcome2.cancellation)
             ), "onSuccess")
           })
         );
         yield* completeStarting(starting, status);
       });
-      const beginStarting = fn2("ScriptRunner.beginStarting")(function* (commandId, source, inputs, restart, identity2) {
+      const beginStarting = fn2("ScriptRunner.beginStarting")(function* (commandId, source, inputs, identity2) {
         return yield* uninterruptible2(
           gen2(function* () {
-            const id = restart?.id ?? identity2?.id ?? (yield* updateAndGet(nextIdRef, (value) => value + 1));
+            const id = identity2?.id ?? (yield* updateAndGet(nextIdRef, (value) => value + 1));
             const cancel = yield* make5();
             const done4 = yield* make5();
-            const terminal = restart?.terminal ?? identity2?.terminal ?? (yield* make5());
+            const terminal = identity2?.terminal ?? (yield* make5());
             const starting = {
               cancel,
               commandId,
               done: done4,
               id,
               name: statusName(source),
-              ...restart === void 0 ? {} : { restart },
               terminal
             };
             yield* set2(startingRef, starting);
@@ -19913,197 +19738,6 @@ ${prefix}}`;
           })
         );
       });
-      const completePendingRestart = fn2(
-        "ScriptRunner.completePendingRestart"
-      )(function* (pending3, status) {
-        yield* lifecycleGate.withPermit(
-          gen2(function* () {
-            const current = yield* get3(pendingRestartRef);
-            const authoritative = current === pending3 ? status : yield* getStatus();
-            if (current === pending3) {
-              yield* set2(pendingRestartRef, null);
-              yield* setStatus(status);
-            }
-            yield* succeed5(pending3.done, snapshotStatus(authoritative));
-            if (status.state === "stopped") {
-              yield* succeed5(
-                pending3.terminal,
-                externalStopOutcome({ ...status })
-              );
-            } else if (status.state === "failed") {
-              yield* succeed5(pending3.terminal, {
-                kind: "failed",
-                status: { ...status }
-              });
-            }
-          })
-        );
-      });
-      const awaitRestartReadiness = fn2(
-        "ScriptRunner.awaitRestartReadiness"
-      )(function* (pending3) {
-        return (yield* wait.untilSome(
-          gen2(function* () {
-            const options = yield* scriptOptions.get();
-            if (!options.restartAfterReconnect) {
-              return some2({ kind: "disabled" });
-            }
-            const readiness = yield* scriptStartReadiness.get();
-            if (!readiness.ready) return none2();
-            return some2({
-              kind: readiness.username === pending3.username ? "ready" : "account-changed"
-            });
-          }),
-          { interval: "250 millis" }
-        )) ?? { kind: "disabled" };
-      });
-      const resumePendingRestart = fn2("ScriptRunner.resumePendingRestart")(
-        function* (pending3) {
-          const result2 = yield* lifecycleGate.withPermit(
-            gen2(function* () {
-              const current = yield* get3(pendingRestartRef);
-              const latestCommandId = yield* get3(latestCommandIdRef);
-              const options = yield* scriptOptions.get();
-              if (current !== pending3 || latestCommandId !== pending3.commandId || !options.restartAfterReconnect) {
-                const status2 = yield* getStatus();
-                if (current === pending3) {
-                  const stopped = {
-                    state: "stopped",
-                    stoppedAt: nowIso()
-                  };
-                  yield* set2(pendingRestartRef, null);
-                  yield* setStatus(stopped);
-                  return { kind: "settled", status: stopped };
-                }
-                return { kind: "settled", status: status2 };
-              }
-              const starting = yield* beginStarting(
-                pending3.commandId,
-                pending3.source,
-                pending3.inputs,
-                pending3
-              );
-              return {
-                done: starting.done,
-                kind: "starting"
-              };
-            })
-          );
-          const status = result2.kind === "starting" ? yield* awaitStatus(result2.done) : result2.status;
-          if (status.state === "waiting-to-restart") {
-            return true;
-          }
-          yield* completePendingRestart(pending3, status);
-          return false;
-        }
-      );
-      const runPendingRestart = fn2("ScriptRunner.runPendingRestart")(
-        function* (pending3, finalized) {
-          yield* awaitStatus(finalized);
-          while (true) {
-            const outcome2 = yield* raceFirst2(
-              _await(pending3.cancel).pipe(
-                map5(
-                  (cancellation) => ({ cancellation, kind: "cancelled" })
-                )
-              ),
-              awaitRestartReadiness(pending3).pipe(
-                map5(
-                  (readiness) => ({ kind: "readiness", readiness })
-                )
-              )
-            );
-            if (outcome2.kind === "readiness" && outcome2.readiness.kind === "ready") {
-              if (yield* resumePendingRestart(pending3)) continue;
-              return;
-            }
-            const reason = outcome2.kind === "cancelled" ? outcome2.cancellation.reason : outcome2.readiness.kind === "account-changed" ? "Account changed" : void 0;
-            yield* completePendingRestart(pending3, {
-              ...reason === void 0 ? {} : { reason },
-              state: "stopped",
-              stoppedAt: nowIso()
-            });
-            return;
-          }
-        }
-      );
-      const handleConnectionLoss = fn2("ScriptRunner.handleConnectionLoss")(
-        function* (id) {
-          return yield* uninterruptible2(
-            gen2(function* () {
-              const result2 = yield* lifecycleGate.withPermit(
-                gen2(function* () {
-                  const starting = yield* get3(startingRef);
-                  if (starting?.id === id) {
-                    yield* succeed5(starting.cancel, {
-                      reason: "Connection lost",
-                      retryAfterReconnect: starting.restart !== void 0
-                    });
-                    return null;
-                  }
-                  if ((yield* get3(pendingFinalizationRef)) !== null) {
-                    return null;
-                  }
-                  const active = yield* get3(activeRef);
-                  if (active?.id !== id) return null;
-                  const options = yield* scriptOptions.get();
-                  const shouldRestart = options.restartAfterReconnect && active.username !== "";
-                  const disconnectedAt = nowIso();
-                  const restart = shouldRestart ? {
-                    cancel: yield* make5(),
-                    commandId: active.commandId,
-                    disconnectedAt,
-                    done: yield* make5(),
-                    source: { ...active.source },
-                    id: active.id,
-                    inputs: { ...active.inputs },
-                    name: active.name,
-                    terminal: active.terminal,
-                    username: active.username
-                  } : null;
-                  if (restart !== null) {
-                    yield* set2(pendingRestartRef, restart);
-                  }
-                  const finalized = yield* beginFinalization(active, {
-                    awaitFiber: true,
-                    intermediateStatus: {
-                      name: active.name,
-                      state: "stopping"
-                    },
-                    interrupt: true,
-                    result: /* @__PURE__ */ __name(() => {
-                      if (restart === null) {
-                        const status = {
-                          state: "stopped",
-                          stoppedAt: nowIso()
-                        };
-                        return terminalFinalization(externalStopOutcome(status));
-                      }
-                      return {
-                        status: {
-                          name: restart.name,
-                          disconnectedAt: restart.disconnectedAt,
-                          state: "waiting-to-restart"
-                        }
-                      };
-                    }, "result")
-                  });
-                  return restart === null ? null : { finalized, restart };
-                })
-              );
-              if (result2 !== null) {
-                yield* runPendingRestart(result2.restart, result2.finalized).pipe(
-                  forkDetach2
-                );
-              }
-            })
-          );
-        }
-      );
-      const installReadinessWatcher = /* @__PURE__ */ __name((id, scope4) => events.on(
-        { type: "connection" },
-        (event) => isConnectionLoss(event) ? handleConnectionLoss(id) : void_3
-      ).pipe(tap2((dispose) => scope4.addCleanup(dispose))), "installReadinessWatcher");
       const start3 = /* @__PURE__ */ __name((source, inputs) => {
         const sourceSnapshot = { ...source };
         const inputSnapshot = { ...inputs };
@@ -20134,23 +19768,20 @@ ${prefix}}`;
                     kind: "superseded"
                   };
                 }
-                const restart = yield* cancelPendingRestart(
-                  "Replaced by another script"
-                );
                 const starting = yield* get3(startingRef);
                 if (starting !== null) {
                   yield* succeed5(starting.cancel, {
                     reason: "Replaced by another script"
                   });
                   return {
-                    done: restart?.done ?? starting.done,
+                    done: starting.done,
                     kind: "waiting"
                   };
                 }
                 const pending3 = yield* get3(pendingFinalizationRef);
                 if (pending3 !== null) {
                   return {
-                    done: restart?.done ?? pending3.done,
+                    done: pending3.done,
                     kind: "waiting"
                   };
                 }
@@ -20174,14 +19805,10 @@ ${prefix}}`;
                   });
                   return { done: done4, kind: "waiting" };
                 }
-                if (restart !== null) {
-                  return { done: restart.done, kind: "waiting" };
-                }
                 const started = yield* beginStarting(
                   commandId,
                   sourceSnapshot,
                   inputSnapshot,
-                  void 0,
                   identity2
                 );
                 return {
@@ -20208,7 +19835,7 @@ ${prefix}}`;
         getStatus,
         isRunning: /* @__PURE__ */ __name(() => getStatus().pipe(
           map5(
-            (status) => status.state === "running" || status.state === "starting" || status.state === "stopping" || status.state === "waiting-to-restart"
+            (status) => status.state === "running" || status.state === "starting" || status.state === "stopping"
           )
         ), "isRunning"),
         onStatus: /* @__PURE__ */ __name((listener) => observe(changes(statusRef), snapshotStatus, listener), "onStatus"),
@@ -20496,7 +20123,10 @@ ${prefix}}`;
     return runtime.runPromise(
       gen2(function* () {
         const runner = yield* ScriptRunner;
-        const handle = yield* runner.start({ name, load }, JSON.parse(inputsJson));
+        const handle = yield* runner.start(
+          { name, load },
+          JSON.parse(inputsJson)
+        );
         const outcome2 = yield* handle.terminal;
         switch (outcome2.kind) {
           case "completed":
@@ -20508,7 +20138,11 @@ ${prefix}}`;
               details: outcome2.status.detailsText ?? null
             };
           case "script-exited":
-            return { kind: "script-exited", closeClient: outcome2.closeClient };
+            return {
+              kind: "script-exited",
+              closeClient: outcome2.closeClient,
+              logout: outcome2.logout
+            };
           case "script-stopped":
           case "externally-stopped":
             return { kind: outcome2.kind, reason: outcome2.status.reason ?? null };
@@ -20517,7 +20151,9 @@ ${prefix}}`;
     );
   }, "start");
   var stop = /* @__PURE__ */ __name((reason) => runtime.runPromise(
-    flatMap3(ScriptRunner, (runner) => runner.stop(reason)).pipe(asVoid2)
+    flatMap3(ScriptRunner, (runner) => runner.stop(reason)).pipe(
+      asVoid2
+    )
   ), "stop");
 
   // packages/runtime/src/host/index.ts

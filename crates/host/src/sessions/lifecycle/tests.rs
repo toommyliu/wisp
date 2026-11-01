@@ -1219,3 +1219,48 @@ fn readiness_polling_waits_for_lost_facts_without_accepting_an_old_answer() {
         );
     }
 }
+
+#[test]
+fn stop_cancels_only_the_matching_pending_restart() {
+    for reaped in [false, true] {
+        let mut machine = Lifecycle::new(binding());
+        let run = start(&mut machine);
+        let opts = Options {
+            restart_after_reconnect: true,
+            ..options()
+        };
+        machine.advance(Event::ConnectionLost(binding()), &readiness(), &opts, 10);
+        if reaped {
+            machine.advance(Event::Reaped(run), &readiness(), &opts, 11);
+        }
+        machine.advance(
+            Event::Command(Command::Stop {
+                run: RunId(run.0 + 1),
+                reason: String::new(),
+            }),
+            &readiness(),
+            &opts,
+            12,
+        );
+        assert!(machine.status().waiting_to_restart);
+        machine.advance(
+            Event::Command(Command::Stop {
+                run,
+                reason: String::new(),
+            }),
+            &readiness(),
+            &opts,
+            13,
+        );
+        assert!(!machine.status().waiting_to_restart);
+        machine.advance(Event::Reaped(run), &readiness(), &opts, 14);
+        let result = machine.advance(
+            Event::ConnectionRestored(binding()),
+            &readiness(),
+            &opts,
+            15,
+        );
+        assert!(machine.status().active.is_none());
+        assert!(terminals(&result).is_empty());
+    }
+}

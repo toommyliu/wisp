@@ -31,7 +31,7 @@ pub struct ScriptLink {
     pub(crate) records: super::Records,
     stopped: Arc<AtomicBool>,
     pub(crate) packets: Arc<super::operations::Packets>,
-    pub(crate) jobs: crate::game::jobs::ScriptJobs,
+    pub(crate) jobs: Arc<crate::game::jobs::ScriptJobs>,
     pub(crate) operations: Arc<super::operations::Shared>,
 }
 
@@ -54,7 +54,7 @@ impl ScriptLink {
             events.completions(),
         );
         Self {
-            jobs,
+            jobs: Arc::new(jobs),
             id,
             attachment,
             detached,
@@ -65,6 +65,45 @@ impl ScriptLink {
             stopped: player.stopped,
             packets: player.packets,
             operations,
+        }
+    }
+
+    pub(crate) fn fork(&self, interests: bridge::EventInterests) -> Self {
+        let attachment = AttachmentId(
+            self.records
+                .attachments
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("script attachment IDs exhausted"),
+        );
+        let (producer, events) = bridge::script_events(bridge::EVENT_CAPACITY, interests);
+        self.inbox.post(Msg::Attach(attachment, producer));
+        Self::new(
+            self.id,
+            attachment,
+            events,
+            self.records.clone(),
+            super::operations::Endpoint {
+                inbox: self.inbox.clone(),
+                projection: self.projection.clone(),
+                stopped: self.stopped.clone(),
+                packets: self.packets.clone(),
+            },
+            self.operations.clone(),
+        )
+    }
+
+    pub(crate) fn revoker(&self) -> impl FnOnce() + Send + 'static {
+        let detached = self.detached.clone();
+        let jobs = self.jobs.clone();
+        let packets = self.packets.clone();
+        let attachment = self.attachment;
+        let inbox = self.inbox.clone();
+        move || {
+            if !detached.swap(true, Ordering::AcqRel) {
+                jobs.revoke();
+                packets.release_attachment(attachment);
+                inbox.post(Msg::Detach(attachment));
+            }
         }
     }
 
