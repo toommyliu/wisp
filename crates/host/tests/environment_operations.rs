@@ -83,6 +83,27 @@ fn quest_packet(ids: &[i64]) -> String {
     json!({"type":"json","dataObj":{"cmd":"getQuests","quests":quests}}).to_string()
 }
 
+struct Release(Option<std::sync::mpsc::Sender<()>>);
+impl Drop for Release {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.take() {
+            let _ = release.send(());
+        }
+    }
+}
+
+fn hold_first_issue(observer: &ScriptLink) -> Release {
+    let (release, held) = std::sync::mpsc::channel();
+    let held = std::sync::Mutex::new(held);
+    let once = std::sync::atomic::AtomicBool::new(false);
+    observer.set_operation_probe(move |_, issued| {
+        if issued && !once.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let _ = held.lock().unwrap().recv_timeout(TIMEOUT);
+        }
+    });
+    Release(Some(release))
+}
+
 #[test]
 fn env_quest_loads_share_spacing_across_script_runs() {
     let host = testing::headless_host();
@@ -165,7 +186,7 @@ fn env_quest_load_returns_partial_flags_and_retries_only_missing_ids() {
         answer(&link, id),
         json!({"kind":"loadQuests","value":[true,true,false]})
     );
-    eprintln!("partial quest FIFO hold: {:?}", at.elapsed());
+    eprintln!("partial quest load lane hold: {:?}", at.elapsed());
 }
 
 #[test]
@@ -180,7 +201,7 @@ fn env_bank_load_skips_hydrated_unless_forced() {
         answer(&link, first),
         json!({"kind":"loadBank","value":true})
     );
-    eprintln!("hydrating bank FIFO hold: {:?}", at.elapsed());
+    eprintln!("hydrating bank load lane hold: {:?}", at.elapsed());
     let skipped = operate(&link, json!({"kind":"loadBank","force":false}));
     loop {
         match next(&link) {
@@ -241,23 +262,7 @@ fn env_killed_bank_caller_settles_before_the_next_load() {
             ),
     );
     common::log_in(&observer);
-    struct Release(Option<std::sync::mpsc::Sender<()>>);
-    impl Drop for Release {
-        fn drop(&mut self) {
-            if let Some(release) = self.0.take() {
-                let _ = release.send(());
-            }
-        }
-    }
-    let (release, held) = std::sync::mpsc::channel();
-    let release = Release(Some(release));
-    let held = std::sync::Mutex::new(held);
-    let once = std::sync::atomic::AtomicBool::new(false);
-    observer.set_operation_probe(move |_, issued| {
-        if issued && !once.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            held.lock().unwrap().recv_timeout(TIMEOUT).unwrap();
-        }
-    });
+    let release = hold_first_issue(&observer);
     let first = run(
         &mut session,
         r#"
@@ -313,23 +318,12 @@ fn cancelled_queued_load(interrupt: bool) {
                     json!(null),
                     vec![("onExtensionResponse".into(), quest_packet(&[99]))],
                 )],
-            )
-            .accepting_drop(
-                Duration::ZERO,
-                json!({"type":"json","dataObj":{"cmd":"unrelated"}}).to_string(),
             ),
     );
     common::log_in(&observer);
-    observer.call_loader("probe.emit", vec![Value::String("onExtensionResponse".into()), Value::String(
-        json!({"type":"json","dataObj":{"cmd":"dropItem","items":{"70":{"ItemID":70,"sName":"Hold","iQty":1}}}}).to_string()
-    )]).recv_timeout(TIMEOUT).unwrap();
-    let held = operate(&observer, json!({"kind":"acceptDrop","selector":70}));
-    loop {
-        if matches!(next(&observer), ScriptEvent::Loader { event, .. } if event.name == "onProbeAccept")
-        {
-            break;
-        }
-    }
+    let release = hold_first_issue(&observer);
+    let held = operate(&observer, json!({"kind":"loadBank","force":true}));
+    call(&observer, "bank.loadItems");
     let source = if interrupt {
         r#"
         import { Effect } from "effect";
@@ -356,22 +350,10 @@ fn cancelled_queued_load(interrupt: bool) {
     let cancelled = run(&mut session, source);
     logs.wait_for(tracing::Level::INFO, "load cancelled");
     assert_eq!(cancelled.wait(TIMEOUT).unwrap(), ScriptOutcome::Completed);
-    observer
-        .call_loader(
-            "probe.emit",
-            vec![
-                Value::String("onExtensionResponse".into()),
-                Value::String(
-                    json!({"type":"json","dataObj":{"cmd":"getDrop","ItemID":70,"bSuccess":false}})
-                        .to_string(),
-                ),
-            ],
-        )
-        .recv_timeout(TIMEOUT)
-        .unwrap();
+    drop(release);
     assert_eq!(
         answer(&observer, held),
-        json!({"kind":"acceptDrop","value":false})
+        json!({"kind":"loadBank","value":true})
     );
     let sentinel = operate(&observer, json!({"kind":"loadBank","force":true}));
     let mut bank_calls = 0;
@@ -407,25 +389,11 @@ fn env_fiber_interruption_cancels_a_queued_bank_load() {
 #[test]
 fn env_queued_bank_load_does_not_cross_a_connection_change() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
-        &host,
-        common::ready_movie()
-            .recording("bank.loadItems")
-            .accepting_drop(
-                Duration::ZERO,
-                json!({"type":"json","dataObj":{"cmd":"unrelated"}}).to_string(),
-            ),
-    );
-    link.call_loader("probe.emit", vec![Value::String("onExtensionResponse".into()), Value::String(
-        json!({"type":"json","dataObj":{"cmd":"dropItem","items":{"70":{"ItemID":70,"sName":"Hold","iQty":1}}}}).to_string()
-    )]).recv_timeout(TIMEOUT).unwrap();
-    let held = operate(&link, json!({"kind":"acceptDrop","selector":70}));
-    loop {
-        if matches!(next(&link), ScriptEvent::Loader { event, .. } if event.name == "onProbeAccept")
-        {
-            break;
-        }
-    }
+    let (_session, link) =
+        testing::start_probe(&host, common::ready_movie().recording("bank.loadItems"));
+    let release = hold_first_issue(&link);
+    let held = operate(&link, json!({"kind":"loadBank","force":true}));
+    call(&link, "bank.loadItems");
     let queued = operate(&link, json!({"kind":"loadBank","force":true}));
     link.call_loader(
         "probe.emit",
@@ -436,10 +404,14 @@ fn env_queued_bank_load_does_not_cross_a_connection_change() {
     )
     .recv_timeout(TIMEOUT)
     .unwrap();
-    assert_eq!(
-        answer(&link, held),
-        json!({"kind":"acceptDrop","value":false})
-    );
+    drop(release);
+    loop {
+        if let ScriptEvent::Operation { id, answer } = next(&link) {
+            assert_eq!(id, held);
+            assert_eq!(answer, Err(lucent_host::bridge::Error::Stopped));
+            break;
+        }
+    }
     loop {
         match next(&link) {
             ScriptEvent::Loader { event, .. } if event.name == "onProbeCall" => {
@@ -516,7 +488,7 @@ fn env_quest_load_chunks_thirty_ids_and_skips_cached_quests() {
 }
 
 #[test]
-fn env_bank_timeout_releases_the_fifo() {
+fn env_bank_timeout_releases_the_load_lane() {
     let host = testing::headless_host();
     let (_session, link) = testing::start_probe(
         &host,
@@ -527,16 +499,16 @@ fn env_bank_timeout_releases_the_fifo() {
     let at = Instant::now();
     let load = operate(&link, json!({"kind":"loadBank","force":true}));
     call(&link, "bank.loadItems");
-    let sentinel = operate(&link, json!({"kind":"acceptDrop","selector":999}));
+    let sentinel = operate(&link, json!({"kind":"loadQuests","ids":[],"silent":true}));
     assert_eq!(
         answer(&link, load),
         json!({"kind":"loadBank","value":false})
     );
     let held = at.elapsed();
-    eprintln!("timed out bank FIFO hold: {held:?}");
+    eprintln!("timed out bank load lane hold: {held:?}");
     assert!(held >= Duration::from_secs(10));
     assert_eq!(
         answer(&link, sentinel),
-        json!({"kind":"acceptDrop","value":false})
+        json!({"kind":"loadQuests","value":[]})
     );
 }
