@@ -181,7 +181,9 @@ pub(crate) enum Msg {
     ),
     PrepareProfile {
         consumable: Option<String>,
-        reply: crate::bridge::Reply<crate::game::jobs::prepare::ConsumableInfo>,
+        class_names: Vec<String>,
+        ambient: bool,
+        reply: crate::bridge::Reply<Option<crate::game::jobs::prepare::ConsumableInfo>>,
     },
     StopProfile(crate::sessions::claims::Binding),
     Read(Read),
@@ -248,9 +250,13 @@ fn run(
     options: Options,
     bridge: PlayerBridge,
 ) -> Result<(), PlayerError> {
-    let Some((viewport, muted, script_events)) =
-        first_viewport(&inbox, options.muted, &options.settings, &options.auto_zone)
-    else {
+    let Some((viewport, muted, script_events)) = first_viewport(
+        &inbox,
+        options.muted,
+        &options.settings,
+        &options.auto_zone,
+        &bridge.operation_packets,
+    ) else {
         return Ok(());
     };
     let mut running = Running::build(viewport, &surface, Net::new(net)?, outbox, options, bridge)?;
@@ -326,6 +332,7 @@ fn first_viewport(
     mut muted: bool,
     settings: &RwLock<GameSettings>,
     auto_zone: &RwLock<AutoZoneConfig>,
+    packets: &crate::sessions::operations::Packets,
 ) -> Option<(Viewport, bool, ScriptAttachments)> {
     let mut script_events = Vec::new();
     loop {
@@ -346,13 +353,17 @@ fn first_viewport(
                 let _ = reply.send(Ok(script_events.len()));
             }
             Msg::ObserveProfile { reply, .. } => {
-                let _ = reply.send(Err(BridgeError::NotReady));
+                let _ = reply.send(Ok(crate::game::jobs::Observation {
+                    binding: packets.binding(),
+                    area: 0,
+                    snapshot: Default::default(),
+                }));
             }
             Msg::DispatchProfile(_, reply) => {
                 let _ = reply.send(Err(BridgeError::NotReady));
             }
             Msg::PrepareProfile { reply, .. } => {
-                let _ = reply.send(Err(BridgeError::NotReady));
+                let _ = reply.send(Ok(None));
             }
             Msg::StopProfile(_) => {}
             Msg::Call(call) => call.reject(BridgeError::NotReady),
@@ -512,8 +523,13 @@ impl Running {
                 }
                 let _ = reply.send(result);
             }
-            Msg::PrepareProfile { consumable, reply } => {
-                let result = self.prepare_profile(consumable);
+            Msg::PrepareProfile {
+                consumable,
+                class_names,
+                ambient,
+                reply,
+            } => {
+                let result = self.prepare_profile(consumable, &class_names, ambient);
                 let _ = reply.send(result);
             }
             Msg::StopProfile(binding) => self.stop_profile(binding),
@@ -647,8 +663,14 @@ mod tests {
             Viewport::new(100.0, 100.0, 1.0).unwrap(),
         )))
         .unwrap();
-        let _attachment =
-            first_viewport(&rx, false, &Default::default(), &Default::default()).unwrap();
+        let _attachment = first_viewport(
+            &rx,
+            false,
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         for stream in [&events, &second_events] {
             assert_eq!(
                 stream.try_recv(),
@@ -694,7 +716,14 @@ mod tests {
                 )))
                 .unwrap();
                 _attachments = Some(
-                    first_viewport(&rx, false, &Default::default(), &Default::default()).unwrap(),
+                    first_viewport(
+                        &rx,
+                        false,
+                        &Default::default(),
+                        &Default::default(),
+                        &Default::default(),
+                    )
+                    .unwrap(),
                 );
             } else {
                 _attachments = None;
@@ -731,8 +760,14 @@ mod tests {
         tx.send(Msg::Attach(AttachmentId(2), last)).unwrap();
         tx.send(Msg::Detach(AttachmentId(1))).unwrap();
         tx.send(Msg::View(ViewEvent::Resized(viewport))).unwrap();
-        let (received, muted, producers) =
-            first_viewport(&rx, false, &Default::default(), &Default::default()).unwrap();
+        let (received, muted, producers) = first_viewport(
+            &rx,
+            false,
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!((received, muted), (viewport, false));
         assert_eq!(producers.len(), 2);
         for stream in [&first_events, &removed_events, &last_events] {
@@ -765,7 +800,16 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         tx.send(Msg::Stop).unwrap();
         tx.send(Msg::Attach(AttachmentId(0), producer)).unwrap();
-        assert!(first_viewport(&rx, false, &Default::default(), &Default::default()).is_none());
+        assert!(
+            first_viewport(
+                &rx,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .is_none()
+        );
         drop(rx);
         assert_eq!(events.try_recv(), Err(BridgeError::Stopped));
     }
@@ -776,7 +820,16 @@ mod tests {
         let (call, pending) = Call::new("player.rest".into(), vec![]);
         tx.send(Msg::Call(call)).unwrap();
         tx.send(Msg::Stop).unwrap();
-        assert!(first_viewport(&rx, false, &Default::default(), &Default::default()).is_none());
+        assert!(
+            first_viewport(
+                &rx,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .is_none()
+        );
         assert_eq!(
             pending.recv_timeout(Duration::ZERO),
             Err(BridgeError::NotReady)
@@ -811,8 +864,14 @@ mod tests {
         tx.send(Msg::Mute(true)).unwrap();
         tx.send(Msg::View(ViewEvent::Resized(viewport))).unwrap();
         assert_eq!(
-            first_viewport(&rx, false, &Default::default(), &Default::default())
-                .map(|(viewport, muted, _)| (viewport, muted)),
+            first_viewport(
+                &rx,
+                false,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .map(|(viewport, muted, _)| (viewport, muted)),
             Some((viewport, true))
         );
     }
@@ -823,8 +882,14 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         tx.send(Msg::View(ViewEvent::Resized(viewport))).unwrap();
         assert_eq!(
-            first_viewport(&rx, true, &Default::default(), &Default::default())
-                .map(|(viewport, muted, _)| (viewport, muted)),
+            first_viewport(
+                &rx,
+                true,
+                &Default::default(),
+                &Default::default(),
+                &Default::default()
+            )
+            .map(|(viewport, muted, _)| (viewport, muted)),
             Some((viewport, true))
         );
     }

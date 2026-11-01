@@ -27,6 +27,7 @@ struct State<'a> {
     environment: &'a parking_lot::RwLock<lucent_protocol::environment::EnvironmentState>,
     projection: &'a Projection,
     settings: &'a GameSettings,
+    auto_attack: &'a parking_lot::RwLock<lucent_protocol::auto_attack::AutoAttackRecords>,
     auto_relogin: &'a parking_lot::RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>,
     auto_zone: &'a parking_lot::RwLock<AutoZoneConfig>,
 }
@@ -35,6 +36,7 @@ pub fn answer(
     projection: &Projection,
     settings: &GameSettings,
     auto_zone: &parking_lot::RwLock<AutoZoneConfig>,
+    auto_attack: &parking_lot::RwLock<lucent_protocol::auto_attack::AutoAttackRecords>,
     auto_relogin: &parking_lot::RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>,
     environment: &parking_lot::RwLock<lucent_protocol::environment::EnvironmentState>,
     query: Query,
@@ -45,6 +47,7 @@ pub fn answer(
             projection,
             settings,
             auto_zone,
+            auto_attack,
             auto_relogin,
         },
         query,
@@ -64,6 +67,9 @@ impl Answer for State<'_> {
             &priorities,
             self.settings.anti_counter_enabled,
         )
+    }
+    fn auto_attack(&self) -> lucent_protocol::auto_attack::AutoAttackRecords {
+        self.auto_attack.read().clone()
     }
     fn auto_relogin(&self) -> lucent_protocol::auto_relogin::AutoReloginRecords {
         self.auto_relogin.read().clone()

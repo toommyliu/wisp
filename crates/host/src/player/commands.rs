@@ -150,11 +150,14 @@ impl Running {
             Command::UpdateEnvironment { .. } => Err(Error::Unavailable(
                 "environment requires a session record".into(),
             )),
-            Command::SetAutoReloginEnabled { .. }
+            Command::EnableAutoAttack { .. }
+            | Command::DisableAutoAttack {}
+            | Command::SetAutoReloginEnabled { .. }
             | Command::SetAutoReloginDelay { .. }
-            | Command::SetAutoReloginServer { .. } => Err(Error::Unavailable(
-                "auto relogin requires a session controller".into(),
-            )),
+            | Command::SetAutoReloginServer { .. } => Err(Error::CommandFailed {
+                operation: "session automation".into(),
+                reason: "a session controller is required".into(),
+            }),
             Command::PatchAutoZone { patch } => Ok(super::patch_auto_zone(
                 &self.auto_zone,
                 patch,

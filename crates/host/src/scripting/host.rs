@@ -121,6 +121,10 @@ pub(crate) enum Item {
         class_names: Vec<String>,
         warnings: Vec<String>,
     },
+    JobWarning {
+        id: String,
+        warning: String,
+    },
     JobFailed {
         id: String,
         error: String,
@@ -164,6 +168,10 @@ impl From<ScriptEvent> for Item {
                 label,
                 class_names,
                 warnings,
+            },
+            ScriptEvent::JobWarning { id, warning } => Item::JobWarning {
+                id: id.to_string(),
+                warning,
             },
             ScriptEvent::JobFailed { id, error } => Item::JobFailed {
                 id: id.to_string(),
