@@ -182,7 +182,9 @@ pub(crate) enum Msg {
     ),
     PrepareProfile {
         consumable: Option<String>,
-        reply: crate::bridge::Reply<crate::game::jobs::prepare::ConsumableInfo>,
+        class_names: Vec<String>,
+        ambient: bool,
+        reply: crate::bridge::Reply<Option<crate::game::jobs::prepare::ConsumableInfo>>,
     },
     StopProfile(crate::sessions::claims::Binding),
     Read(Read),
@@ -255,6 +257,7 @@ fn run(
         &options.settings,
         &options.auto_zone,
         &options.changes,
+        &bridge.operation_packets,
     ) else {
         return Ok(());
     };
@@ -340,6 +343,7 @@ fn first_viewport(
     settings: &RwLock<GameSettings>,
     auto_zone: &RwLock<AutoZoneConfig>,
     changes: &crate::sessions::Changes,
+    packets: &crate::sessions::operations::Packets,
 ) -> Option<(Viewport, bool, ScriptAttachments)> {
     let mut script_events = Vec::new();
     loop {
@@ -360,13 +364,17 @@ fn first_viewport(
                 let _ = reply.send(Ok(script_events.len()));
             }
             Msg::ObserveProfile { reply, .. } => {
-                let _ = reply.send(Err(BridgeError::NotReady));
+                let _ = reply.send(Ok(crate::game::jobs::Observation {
+                    binding: packets.binding(),
+                    area: 0,
+                    snapshot: Default::default(),
+                }));
             }
             Msg::DispatchProfile(_, reply) => {
                 let _ = reply.send(Err(BridgeError::NotReady));
             }
             Msg::PrepareProfile { reply, .. } => {
-                let _ = reply.send(Err(BridgeError::NotReady));
+                let _ = reply.send(Ok(None));
             }
             Msg::StopProfile(_) => {}
             Msg::Call(call) => call.reject(BridgeError::NotReady),
@@ -528,8 +536,13 @@ impl Running {
                 }
                 let _ = reply.send(result);
             }
-            Msg::PrepareProfile { consumable, reply } => {
-                let result = self.prepare_profile(consumable);
+            Msg::PrepareProfile {
+                consumable,
+                class_names,
+                ambient,
+                reply,
+            } => {
+                let result = self.prepare_profile(consumable, &class_names, ambient);
                 let _ = reply.send(result);
             }
             Msg::StopProfile(binding) => self.stop_profile(binding),
@@ -670,6 +683,7 @@ mod tests {
             &Default::default(),
             &Default::default(),
             &Default::default(),
+            &Default::default(),
         )
         .unwrap();
         for stream in [&events, &second_events] {
@@ -723,6 +737,7 @@ mod tests {
                         &Default::default(),
                         &Default::default(),
                         &Default::default(),
+                        &Default::default(),
                     )
                     .unwrap(),
                 );
@@ -767,6 +782,7 @@ mod tests {
             &Default::default(),
             &Default::default(),
             &Default::default(),
+            &Default::default(),
         )
         .unwrap();
         assert_eq!((received, muted), (viewport, false));
@@ -807,7 +823,8 @@ mod tests {
                 false,
                 &Default::default(),
                 &Default::default(),
-                &Default::default()
+                &Default::default(),
+                &Default::default(),
             )
             .is_none()
         );
@@ -827,7 +844,8 @@ mod tests {
                 false,
                 &Default::default(),
                 &Default::default(),
-                &Default::default()
+                &Default::default(),
+                &Default::default(),
             )
             .is_none()
         );
@@ -870,7 +888,8 @@ mod tests {
                 false,
                 &Default::default(),
                 &Default::default(),
-                &Default::default()
+                &Default::default(),
+                &Default::default(),
             )
             .map(|(viewport, muted, _)| (viewport, muted)),
             Some((viewport, true))
@@ -888,7 +907,8 @@ mod tests {
                 true,
                 &Default::default(),
                 &Default::default(),
-                &Default::default()
+                &Default::default(),
+                &Default::default(),
             )
             .map(|(viewport, muted, _)| (viewport, muted)),
             Some((viewport, true))

@@ -223,6 +223,8 @@ const answer = (state: FakeHostState, query: Query): unknown => {
   switch (query.kind) {
     case "environment":
       throw new Error("Environment state requires the native host");
+    case "autoAttack":
+      throw new Error("Auto attack requires the native host");
     case "combatState":
       throw new Error("Combat state requires the native host");
     case "autoRelogin":
@@ -318,6 +320,8 @@ const run = (state: FakeHostState, loader: Loader, command: Command) => {
       throw new Error("Environment mutations require the native host");
     case "refreshCombatState":
       throw new Error("Combat state hydration requires the native host");
+    case "enableAutoAttack":
+    case "disableAutoAttack":
     case "setAutoReloginEnabled":
     case "setAutoReloginDelay":
     case "setAutoReloginServer":

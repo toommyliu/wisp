@@ -190,3 +190,35 @@ fn stopping_a_waiting_script_cancels_it_without_starting_a_runtime() {
     );
     drop(changes);
 }
+
+#[test]
+fn auto_attack_records_and_watchers_survive_player_replacement() {
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        ready_movie()
+            .combat_facts()
+            .constant("world.getAvailableMonsterMapIds", serde_json::json!([]))
+            .constant("combat.getConsumableSkillItem", serde_json::Value::Null)
+            .constant("combat.cancelAutoAttack", serde_json::Value::Null)
+            .constant("combat.cancelTarget", serde_json::Value::Null),
+    );
+    log_in(&observer);
+    session.supervise(None).unwrap();
+    let changes = watch(&session);
+    command(
+        &session,
+        serde_json::json!({"kind":"enableAutoAttack","profile":null,"targetPriority":[]}),
+    );
+    let config = session.auto_attack().config;
+    assert!(config.enabled);
+    assert_eq!(config.profile.as_ref().unwrap().id, "generic-base");
+    assert!(changes.try_iter().count() > 0);
+    session.restart_player(testing::headless_surface()).unwrap();
+    assert_eq!(session.auto_attack().config, config);
+    command(&session, serde_json::json!({"kind":"disableAutoAttack"}));
+    assert!(!session.auto_attack().config.enabled);
+    assert!(changes.try_iter().count() > 0);
+    command(&session, serde_json::json!({"kind":"disableAutoAttack"}));
+    assert_eq!(changes.try_iter().count(), 0);
+}

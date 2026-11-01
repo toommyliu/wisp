@@ -39,10 +39,10 @@ impl std::str::FromStr for JobId {
 
 const MAX_MESSAGES: usize = 16;
 mod owner;
-use owner::JobRequest;
 #[cfg(feature = "testing")]
 pub(crate) use owner::{ActionProbe, ObservationProbe};
 pub(crate) use owner::{JobGate, JobRequests, ScriptJobs};
+use owner::{JobKind, JobRequest};
 
 #[derive(Clone, Copy)]
 pub(crate) struct JobClock {
@@ -142,6 +142,8 @@ pub(crate) struct ProfileJobs {
     waker: Waker,
     clock: JobClock,
     jobs: Vec<Job>,
+    auto_attack: Option<JobId>,
+    auto_attack_replies: Vec<(crate::bridge::Reply<String>, String)>,
 }
 struct Job {
     request: JobRequest,
@@ -153,6 +155,7 @@ struct Job {
     messages: VecDeque<(u64, Message)>,
     next: Option<ProfileEvent>,
     prepared: bool,
+    reported_warnings: Vec<String>,
     recovering: bool,
     overflow_warned: bool,
     item: Option<i64>,
@@ -196,6 +199,7 @@ impl ProfileJobs {
     pub(crate) fn new(link: ScriptLink, waker: Waker) -> Self {
         let requests = link.records.jobs.clone();
         requests.handoff.lock().waker = Some(waker.clone());
+        link.records.auto_attack.set_waker(waker.clone());
         link.set_waker(Waker::noop().clone());
         Self {
             link,
@@ -205,9 +209,93 @@ impl ProfileJobs {
                 origin: Instant::now(),
             },
             jobs: Vec::new(),
+            auto_attack: None,
+            auto_attack_replies: Vec::new(),
         }
     }
+    fn reconcile_auto_attack(&mut self, now: Instant) {
+        let shared = self.link.records.auto_attack.clone();
+        while let Some(mut request) = shared.take() {
+            if !request.alive(now) {
+                continue;
+            }
+            self.stop_auto_attack();
+            let mut records = lucent_protocol::auto_attack::AutoAttackRecords::default();
+            if let crate::sessions::auto_attack::Edit::Enable {
+                profile,
+                target_priority,
+            } = &request.edit
+            {
+                records.config.enabled = true;
+                records.config.profile = Some(normalize_combat_profile(profile));
+                records.config.target_priority.clone_from(target_priority);
+            }
+            shared.changes.set(&shared.records, records);
+            self.start_auto_attack();
+            if let Some(reply) = request.reply.take() {
+                self.auto_attack_replies.push((
+                    reply,
+                    serde_json::to_string(&*shared.records.read()).unwrap(),
+                ));
+            }
+        }
+        self.start_auto_attack();
+    }
+    fn stop_auto_attack(&mut self) {
+        if let Some(id) = self.auto_attack.take() {
+            if let Some(job) = self.jobs.iter_mut().find(|job| job.request.id == id) {
+                job.cancel();
+            }
+            self.link.jobs.stop(id);
+        }
+    }
+    fn start_auto_attack(&mut self) {
+        if self.auto_attack.is_some() || self.link.player_status().is_stopped() {
+            return;
+        }
+        let shared = self.link.records.auto_attack.clone();
+        let mut records = shared.records.read().clone();
+        if !records.config.enabled {
+            return;
+        }
+        let profile = records
+            .config
+            .profile
+            .clone()
+            .unwrap_or_else(|| normalize_combat_profile(&serde_json::Value::Null));
+        let priorities = records
+            .config
+            .target_priority
+            .iter()
+            .cloned()
+            .map(MonsterSelector::Name)
+            .collect();
+        let result = ProfileJob::new(profile, Some(records.config.target_priority.len()))
+            .map_err(|limit| format!("combat profile exceeds native {limit:?} limit"))
+            .and_then(|executor| {
+                self.link
+                    .jobs
+                    .submit(executor, priorities, JobKind::AutoAttack(shared.clone()))
+            });
+        match result {
+            Ok(id) => {
+                self.auto_attack = Some(id);
+                records.status.running = true;
+            }
+            Err(_) if self.link.player_status().is_stopped() => {
+                records.status.running = false;
+            }
+            Err(error) => {
+                records.config.enabled = false;
+                records.config.profile = None;
+                records.status.running = false;
+                records.status.last_error = Some(error);
+            }
+        }
+        shared.changes.set(&shared.records, records);
+    }
     pub(crate) fn advance(&mut self, now: Instant) -> Option<Instant> {
+        self.reconcile_auto_attack(now);
         let requests = {
             self.requests
                 .handoff
@@ -229,10 +317,14 @@ impl ProfileJobs {
                 || request.detached.load(Ordering::Acquire)
                 || !request.gate.open()
             {
-                self.requests.handoff.lock().live -= 1;
+                let mut handoff = self.requests.handoff.lock();
+                handoff.live -= 1;
+                handoff.scripts -= usize::from(matches!(request.kind, JobKind::Script));
                 continue;
             }
-            request.executor.set_engaged(false);
+            request
+                .executor
+                .set_engaged(request.gate.state.lock().engaged);
             self.jobs.push(Job {
                 request,
                 seen: Seen::default(),
@@ -243,6 +335,7 @@ impl ProfileJobs {
                 messages: VecDeque::new(),
                 next: Some(ProfileEvent::Tick),
                 prepared: false,
+                reported_warnings: Vec::new(),
                 recovering: false,
                 overflow_warned: false,
                 item: None,
@@ -275,8 +368,26 @@ impl ProfileJobs {
             job.turn(now, self.clock, &self.link, &self.waker);
         }
         let before = self.jobs.len();
+        let finished_scripts = self
+            .jobs
+            .iter()
+            .filter(|job| job.done && matches!(job.request.kind, JobKind::Script))
+            .count();
+        if self
+            .jobs
+            .iter()
+            .any(|job| job.done && Some(job.request.id) == self.auto_attack)
+        {
+            self.auto_attack = None;
+        }
         self.jobs.retain(|job| !job.done);
-        self.requests.handoff.lock().live -= before - self.jobs.len();
+        let mut handoff = self.requests.handoff.lock();
+        handoff.live -= before - self.jobs.len();
+        handoff.scripts -= finished_scripts;
+        drop(handoff);
+        for (reply, record) in self.auto_attack_replies.drain(..) {
+            let _ = reply.send(Ok(record));
+        }
         if self.jobs.is_empty() {
             self.link.set_waker(Waker::noop().clone());
         }
@@ -350,6 +461,7 @@ impl Drop for ProfileJobs {
         let mut handoff = self.requests.handoff.lock();
         handoff.waker = None;
         handoff.live = 0;
+        handoff.scripts = 0;
         handoff.queue.clear();
         for job in &mut self.jobs {
             job.cancel();
@@ -425,6 +537,12 @@ impl Job {
         }
     }
     fn cancel(&mut self) {
+        if matches!(self.request.kind, JobKind::AutoAttack(_)) && self.request.gate.close() {
+            self.request
+                .player
+                .inbox
+                .post(Msg::StopProfile(self.request.binding));
+        }
         self.request.gate.state.lock().closed = true;
         self.request
             .player
@@ -439,6 +557,22 @@ impl Job {
         if self.done {
             return;
         }
+        if let JobKind::AutoAttack(shared) = &self.request.kind {
+            if self.request.player.stopped.load(Ordering::Acquire) {
+                self.cancel();
+                return;
+            }
+            let mut records = shared.records.read().clone();
+            records.config.enabled = false;
+            records.config.profile = None;
+            records.status.running = false;
+            records.status.class_names.clear();
+            records.status.warnings.clear();
+            records.status.last_error = Some(error);
+            shared.changes.set(&shared.records, records);
+            self.cancel();
+            return;
+        }
         inbox.post(Msg::OperationAnswer(
             self.request.owner.attachment,
             ScriptEvent::JobFailed {
@@ -449,10 +583,43 @@ impl Job {
         self.cancel();
     }
     fn prepared(&mut self, inbox: &Inbox) {
+        if let JobKind::AutoAttack(shared) = &self.request.kind {
+            let mut records = shared.records.read().clone();
+            records.status.class_names = self
+                .request
+                .executor
+                .profile()
+                .class_names
+                .clone()
+                .unwrap_or_default();
+            records.status.warnings = self.request.executor.warnings().to_vec();
+            shared.changes.set(&shared.records, records);
+            self.prepared = true;
+            return;
+        }
         if self.prepared {
+            let warnings = self
+                .request
+                .executor
+                .warnings()
+                .iter()
+                .filter(|warning| !self.reported_warnings.contains(warning))
+                .cloned()
+                .collect::<Vec<_>>();
+            for warning in warnings {
+                inbox.post(Msg::OperationAnswer(
+                    self.request.owner.attachment,
+                    ScriptEvent::JobWarning {
+                        id: self.request.id.0,
+                        warning: warning.clone(),
+                    },
+                ));
+                self.reported_warnings.push(warning);
+            }
             return;
         }
         self.prepared = true;
+        self.reported_warnings = self.request.executor.warnings().to_vec();
         inbox.post(Msg::OperationAnswer(
             self.request.owner.attachment,
             ScriptEvent::JobPrepared {
@@ -569,7 +736,11 @@ impl Job {
                         },
                     });
                 }
-                Some(Err(_)) => {
+                Some(Err(error)) => {
+                    if matches!(self.request.kind, JobKind::AutoAttack(_)) {
+                        self.fail(&link.inbox(), error.to_string());
+                        return;
+                    }
                     self.next = Some(ProfileEvent::Completed {
                         id: command.id,
                         reply: Reply::Accepted(false),
@@ -691,7 +862,9 @@ impl Job {
                 self.fail(&link.inbox(), message);
                 return;
             }
-            Some(Outcome::Cycle(Cycle::NoTarget)) => {
+            Some(Outcome::Cycle(Cycle::NoTarget))
+                if matches!(self.request.kind, JobKind::Script) =>
+            {
                 let state = self.request.gate.state.lock();
                 if !state.closed && state.engaged {
                     self.request
@@ -771,3 +944,6 @@ impl Job {
 
 #[cfg(all(test, feature = "testing"))]
 mod tests;
+
+#[cfg(all(test, feature = "testing"))]
+mod recovery_tests;

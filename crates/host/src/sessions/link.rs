@@ -257,6 +257,16 @@ impl ScriptLink {
             query.take();
             return Ok(serde_json::to_string(&*state).unwrap());
         }
+        if matches!(query, Some(Query::AutoAttack {})) {
+            let records = self
+                .records
+                .auto_attack
+                .records
+                .try_read_for(timeout)
+                .ok_or(bridge::Error::Timeout)?;
+            query.take();
+            return Ok(serde_json::to_string(&*records).unwrap());
+        }
         if matches!(query, Some(Query::AutoRelogin {})) {
             let records = self
                 .records
@@ -296,6 +306,7 @@ impl ScriptLink {
                 projection,
                 &settings,
                 &self.records.auto_zone,
+                &self.records.auto_attack.records,
                 &self.records.auto_relogin,
                 &self.records.environment,
                 query.take().unwrap(),
@@ -363,6 +374,26 @@ pub(super) fn route_command(
             .submit(edit, detached.clone(), Instant::now())
     };
     let command = match command {
+        Command::EnableAutoAttack {
+            profile,
+            target_priority,
+        } => {
+            return records.auto_attack.submit(
+                super::auto_attack::Edit::Enable {
+                    profile,
+                    target_priority,
+                },
+                detached.clone(),
+                Instant::now(),
+            );
+        }
+        Command::DisableAutoAttack {} => {
+            return records.auto_attack.submit(
+                super::auto_attack::Edit::Disable,
+                detached.clone(),
+                Instant::now(),
+            );
+        }
         Command::UpdateEnvironment { edit } => {
             let environment = records.environment.clone();
             let changes = records.changes.clone();

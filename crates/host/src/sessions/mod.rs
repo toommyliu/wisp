@@ -1,3 +1,4 @@
+pub(crate) mod auto_attack;
 mod changes;
 mod controller;
 use crate::scripting::RuntimeError;
@@ -24,6 +25,7 @@ use parking_lot::RwLock;
 #[derive(Clone)]
 pub(crate) struct Records {
     pub(crate) changes: Arc<Changes>,
+    pub(crate) auto_attack: Arc<auto_attack::Shared>,
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
@@ -114,11 +116,13 @@ impl Host {
         )?;
         let operations = operations::Operations::start(id).map_err(HostError::OperationThread)?;
         let relogin = Arc::new(relogin::Shared::new(changes.clone()));
+        let auto_attack = Arc::new(auto_attack::Shared::new(changes.clone()));
         Ok(Session {
             supervisor: None,
             script_status: Arc::default(),
             changes,
             detached: Arc::default(),
+            auto_attack,
             jobs: Arc::default(),
             environment: Arc::default(),
             auto_relogin: relogin.records.clone(),
@@ -173,6 +177,7 @@ pub struct Session {
     script_status: Arc<RwLock<ScriptStatus>>,
     changes: Arc<Changes>,
     detached: Arc<AtomicBool>,
+    auto_attack: Arc<auto_attack::Shared>,
     jobs: Arc<crate::game::jobs::JobRequests>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
     auto_relogin: Arc<RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>>,
@@ -252,6 +257,7 @@ impl Session {
     }
     fn records(&self) -> Records {
         Records {
+            auto_attack: self.auto_attack.clone(),
             changes: self.changes.clone(),
             jobs: self.jobs.clone(),
             environment: self.environment.clone(),
@@ -328,6 +334,10 @@ impl Session {
     #[cfg(feature = "testing")]
     pub fn pending_relogin_count(&self) -> usize {
         self.relogin.count()
+    }
+
+    pub fn auto_attack(&self) -> lucent_protocol::auto_attack::AutoAttackRecords {
+        self.auto_attack.records.read().clone()
     }
 
     pub fn auto_relogin(&self) -> lucent_protocol::auto_relogin::AutoReloginRecords {
