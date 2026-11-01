@@ -4,16 +4,13 @@ import * as Effect from "effect/Effect";
 import type { ScriptInputValues } from "@lucent/schemas/scriptInputs";
 
 import type { ScriptRuntimeOptions } from "@lucent/scripting-api/contract";
-import {
-  makeScriptRuntimeApi,
-  snapshotScriptRuntimeOptions,
-} from "./ScriptRuntime";
-import { ScriptExecutionError, ScriptStopSignal } from "./ScriptRunnerErrors";
+import { makeScriptRuntimeApi } from "./ScriptRuntime";
+import { ScriptStopSignal } from "./ScriptRunnerErrors";
 import { makeScriptAsyncScope } from "./scriptAsyncScope";
 
 const makeRuntime = () => {
   const scope = makeScriptAsyncScope();
-  let options: ScriptRuntimeOptions = {
+  const options: ScriptRuntimeOptions = {
     restartAfterReconnect: false,
     roomPolicy: { kind: "random-private" },
     safeStartStop: true,
@@ -38,15 +35,14 @@ const makeRuntime = () => {
           return "Gravelyn";
         }),
     },
-    getOptions: () => Effect.succeed(snapshotScriptRuntimeOptions(options)),
+    scriptOptions: {
+      get: () => Effect.succeed(options),
+      reset: () => Effect.void,
+      update: () => Effect.void,
+    },
     getInputValues: () => inputValues,
     log: () => undefined,
     scope,
-    setOptions: (update) =>
-      Effect.sync(() => {
-        options = snapshotScriptRuntimeOptions(update(options));
-        return snapshotScriptRuntimeOptions(options);
-      }),
     source: { sourceName: "Runtime test" },
   });
 
@@ -57,7 +53,6 @@ const makeRuntime = () => {
       inputValues = values;
     },
     dialogCalls,
-    getOptions: () => options,
   };
 };
 
@@ -97,46 +92,6 @@ describe("ScriptRuntime", () => {
       }
       expect(yield* script.inputs.get("rewards")).toEqual(["Weapon"]);
     }),
-  );
-
-  it.effect(
-    "validates option changes before committing and restores initial options",
-    () =>
-      Effect.gen(function* () {
-        const { script, scope, getOptions } = makeRuntime();
-        yield* Effect.addFinalizer(() => scope.close);
-        yield* script.options.update({
-          restartAfterReconnect: true,
-          roomPolicy: { kind: "specific", roomNumber: 42 },
-        });
-        expect(getOptions().restartAfterReconnect).toBe(true);
-        expect((yield* script.options.get()).roomPolicy).toEqual({
-          kind: "specific",
-          roomNumber: 42,
-        });
-        expect(getOptions().roomPolicy).toEqual({
-          kind: "specific",
-          roomNumber: 42,
-        });
-
-        const invalidPolicy = yield* script.options
-          .update({
-            roomPolicy: { kind: "specific", roomNumber: 0 },
-          })
-          .pipe(Effect.flip);
-        expect(invalidPolicy).toBeInstanceOf(ScriptExecutionError);
-        expect(getOptions().roomPolicy).toEqual({
-          kind: "specific",
-          roomNumber: 42,
-        });
-
-        yield* script.options.reset();
-        expect(yield* script.options.get()).toEqual({
-          restartAfterReconnect: false,
-          roomPolicy: { kind: "random-private" },
-          safeStartStop: true,
-        });
-      }),
   );
 
   it.effect(

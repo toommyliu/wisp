@@ -6,10 +6,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use lucent_host::Session;
-use lucent_host::projection::answer;
 use lucent_host::scripting::{Kill, PendingEval, Runtime, RuntimeError};
 use lucent_host::testing::{self, ProbeMovie};
-use lucent_protocol::query::Query;
 use serde_json::{Value, json};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -248,24 +246,11 @@ fn dropping_a_runtime_blocked_in_a_loader_call_returns_promptly() {
     ));
 
     drop(release);
-    let map: Value = serde_json::from_str(
-        &session
-            .read_projection(|projection| {
-                answer(
-                    projection,
-                    &Default::default(),
-                    &Default::default(),
-                    &Default::default(),
-                    &Default::default(),
-                    &Default::default(),
-                    Query::Map {},
-                )
-            })
-            .recv_timeout(TIMEOUT)
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(map["name"], "issued");
+    let map = session
+        .read_projection(|projection| projection.world.map.clone())
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    assert_eq!(map.name, "issued");
 }
 
 #[test]
@@ -303,24 +288,11 @@ fn a_killed_script_runs_none_of_its_queued_callbacks() {
         "{error}"
     );
 
-    let map: Value = serde_json::from_str(
-        &session
-            .read_projection(|projection| {
-                answer(
-                    projection,
-                    &Default::default(),
-                    &Default::default(),
-                    &Default::default(),
-                    &Default::default(),
-                    &Default::default(),
-                    Query::Map {},
-                )
-            })
-            .recv_timeout(TIMEOUT)
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(map["name"], "before");
+    let map = session
+        .read_projection(|projection| projection.world.map.clone())
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    assert_eq!(map.name, "before");
 }
 
 #[test]

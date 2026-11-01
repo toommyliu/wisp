@@ -14244,17 +14244,6 @@ ${prefix}}`;
   var AccountSettingsPatchSchema = Struct({
     scripts: optionalKey2(AccountScriptSettingsPatchSchema)
   });
-  var RANDOM_PRIVATE_ROOM_POLICY = {
-    kind: "random-private"
-  };
-  var DEFAULT_ACCOUNT_SETTINGS = {
-    version: ACCOUNT_SETTINGS_VERSION,
-    scripts: {
-      restartAfterReconnect: false,
-      roomPolicy: RANDOM_PRIVATE_ROOM_POLICY,
-      safeStartStop: true
-    }
-  };
   var UnknownRecordSchema = Record(String4, Unknown2);
   var decodeRecord2 = decodeUnknownOption2(UnknownRecordSchema);
   var decodeBoolean = decodeUnknownOption2(Boolean3);
@@ -16145,11 +16134,6 @@ ${prefix}}`;
   var make16 = /* @__PURE__ */ __name((value) => sync2(() => makeUnsafe6(value)), "make");
   var get3 = /* @__PURE__ */ __name((self) => sync2(() => self.ref.current), "get");
   var set2 = /* @__PURE__ */ dual(2, (self, value) => sync2(() => set(self.ref, value)));
-  var getAndSet = /* @__PURE__ */ dual(2, (self, value) => sync2(() => {
-    const current = self.ref.current;
-    self.ref.current = value;
-    return current;
-  }));
   var update = /* @__PURE__ */ dual(2, (self, f) => sync2(() => {
     self.ref.current = f(self.ref.current);
   }));
@@ -16186,11 +16170,6 @@ ${prefix}}`;
     publishUnsafe(self.pubsub, value);
   }, "setUnsafe");
   var set3 = /* @__PURE__ */ dual(2, (self, value) => self.semaphore.withPermit(sync2(() => setUnsafe(self, value))));
-  var updateAndGet2 = /* @__PURE__ */ dual(2, (self, update2) => self.semaphore.withPermit(sync2(() => {
-    const newValue = update2(self.value);
-    setUnsafe(self, newValue);
-    return newValue;
-  })));
 
   // packages/runtime/src/game/audio/beep.ts
   var SOURCE_STOP_PADDING = 0.05;
@@ -16402,46 +16381,6 @@ ${prefix}}`;
   });
   var layer6 = effect(ScriptDialogs, makeScriptDialogs());
 
-  // packages/runtime/src/game/scripting/scriptAsyncScope.ts
-  var runCleanup = /* @__PURE__ */ __name((cleanup) => suspend2(() => {
-    const result2 = cleanup();
-    return isEffect2(result2) ? result2.pipe(asVoid2) : void_3;
-  }).pipe(
-    catchCause2(
-      (cause) => logWarning("script cleanup failed", cause).pipe(
-        annotateLogs({ component: "scripting" })
-      )
-    )
-  ), "runCleanup");
-  var makeScriptAsyncScope = /* @__PURE__ */ __name(() => {
-    const controller = new AbortController();
-    const cleanups = /* @__PURE__ */ new Set();
-    const cancel = sync2(() => {
-      if (!controller.signal.aborted) {
-        controller.abort();
-      }
-    });
-    const close2 = gen2(function* () {
-      yield* cancel;
-      const pending2 = Array.from(cleanups).reverse();
-      cleanups.clear();
-      yield* forEach2(pending2, runCleanup, { discard: true });
-    });
-    return {
-      addCleanup: /* @__PURE__ */ __name((cleanup) => suspend2(() => {
-        if (controller.signal.aborted) {
-          return runCleanup(cleanup);
-        }
-        cleanups.add(cleanup);
-        return void_3;
-      }), "addCleanup"),
-      cancel,
-      close: close2,
-      controller,
-      signal: controller.signal
-    };
-  }, "makeScriptAsyncScope");
-
   // packages/runtime/src/game/scripting/ScriptRunnerErrors.ts
   var ScriptLoadError = class extends TaggedError3()(
     "ScriptLoadError",
@@ -16509,6 +16448,68 @@ ${prefix}}`;
     return signal;
   }, "makeScriptExitSignal");
   var getScriptExitRequest = /* @__PURE__ */ __name((signal) => scriptExitRequests.get(signal), "getScriptExitRequest");
+
+  // packages/runtime/src/host/scriptOptions.ts
+  var decodePatch = decodeUnknownEffect2(AccountScriptSettingsPatchSchema);
+  var invalidOptions = /* @__PURE__ */ __name((cause) => new ScriptExecutionError({
+    cause,
+    detail: "script.options.update requires valid runtime options."
+  }), "invalidOptions");
+  var makeScriptOptionsApi = /* @__PURE__ */ __name((host4) => ({
+    get: /* @__PURE__ */ __name(() => host4.read({ kind: "scriptOptions" }), "get"),
+    reset: /* @__PURE__ */ __name(() => host4.command({ kind: "resetScriptOptions" }).pipe(
+      flatMap3(
+        (result2) => isSome2(result2) ? void_3 : die3(new Error("Could not reset script options."))
+      )
+    ), "reset"),
+    update: /* @__PURE__ */ __name((patch) => decodePatch(patch).pipe(
+      mapError2(invalidOptions),
+      flatMap3((patch2) => host4.command({ kind: "updateScriptOptions", patch: patch2 })),
+      flatMap3(
+        (result2) => isSome2(result2) ? void_3 : fail5(invalidOptions("Host rejected script options."))
+      )
+    ), "update")
+  }), "makeScriptOptionsApi");
+
+  // packages/runtime/src/game/scripting/scriptAsyncScope.ts
+  var runCleanup = /* @__PURE__ */ __name((cleanup) => suspend2(() => {
+    const result2 = cleanup();
+    return isEffect2(result2) ? result2.pipe(asVoid2) : void_3;
+  }).pipe(
+    catchCause2(
+      (cause) => logWarning("script cleanup failed", cause).pipe(
+        annotateLogs({ component: "scripting" })
+      )
+    )
+  ), "runCleanup");
+  var makeScriptAsyncScope = /* @__PURE__ */ __name(() => {
+    const controller = new AbortController();
+    const cleanups = /* @__PURE__ */ new Set();
+    const cancel = sync2(() => {
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    });
+    const close2 = gen2(function* () {
+      yield* cancel;
+      const pending2 = Array.from(cleanups).reverse();
+      cleanups.clear();
+      yield* forEach2(pending2, runCleanup, { discard: true });
+    });
+    return {
+      addCleanup: /* @__PURE__ */ __name((cleanup) => suspend2(() => {
+        if (controller.signal.aborted) {
+          return runCleanup(cleanup);
+        }
+        cleanups.add(cleanup);
+        return void_3;
+      }), "addCleanup"),
+      cancel,
+      close: close2,
+      controller,
+      signal: controller.signal
+    };
+  }, "makeScriptAsyncScope");
 
   // packages/runtime/src/game/scripting/scriptEntry.ts
   var isGeneratorFunction = /* @__PURE__ */ __name((value) => typeof value === "function" && value.constructor?.name === "GeneratorFunction", "isGeneratorFunction");
@@ -16586,22 +16587,9 @@ ${prefix}}`;
   }, "attributedScriptErrorDetails");
 
   // packages/runtime/src/game/scripting/ScriptRuntime.ts
-  var DEFAULT_SCRIPT_RUNTIME_OPTIONS = {
-    restartAfterReconnect: DEFAULT_ACCOUNT_SETTINGS.scripts.restartAfterReconnect,
-    roomPolicy: DEFAULT_ACCOUNT_SETTINGS.scripts.roomPolicy,
-    safeStartStop: DEFAULT_ACCOUNT_SETTINGS.scripts.safeStartStop
-  };
   var snapshotRoomPolicy = /* @__PURE__ */ __name((policy) => ({
     ...policy
   }), "snapshotRoomPolicy");
-  var decodeOptionsPatch = decodeUnknownEffect2(
-    AccountScriptSettingsPatchSchema
-  );
-  var snapshotScriptRuntimeOptions = /* @__PURE__ */ __name((options) => ({
-    restartAfterReconnect: options.restartAfterReconnect,
-    roomPolicy: snapshotRoomPolicy(options.roomPolicy),
-    safeStartStop: options.safeStartStop
-  }), "snapshotScriptRuntimeOptions");
   var snapshotScriptInputValue = /* @__PURE__ */ __name((value) => Array.isArray(value) ? [...value] : value, "snapshotScriptInputValue");
   var snapshotScriptInputValues = /* @__PURE__ */ __name((values) => {
     const snapshot = {};
@@ -16629,25 +16617,7 @@ ${prefix}}`;
         getAll: /* @__PURE__ */ __name(() => sync2(() => snapshotScriptInputValues(options.getInputValues())), "getAll")
       }),
       log: /* @__PURE__ */ __name((...values) => sync2(() => options.log(...values)), "log"),
-      options: Object.freeze({
-        get: options.getOptions,
-        reset: /* @__PURE__ */ __name(() => options.setOptions(() => DEFAULT_SCRIPT_RUNTIME_OPTIONS).pipe(asVoid2), "reset"),
-        update: fn2("ScriptRuntime.options.update")(function* (patch) {
-          const decoded = yield* decodeOptionsPatch(patch).pipe(
-            mapError2(
-              (cause) => new ScriptExecutionError({
-                cause,
-                detail: "script.options.update requires valid runtime options."
-              })
-            )
-          );
-          if (Object.keys(decoded).length === 0) return;
-          yield* options.setOptions((currentOptions) => ({
-            ...currentOptions,
-            ...decoded
-          }));
-        })
-      }),
+      options: Object.freeze(options.scriptOptions),
       prompt: /* @__PURE__ */ __name((message2, placeholder) => options.dialogs.prompt(source, message2, placeholder), "prompt"),
       signal: options.scope.signal,
       sleep: /* @__PURE__ */ __name((duration) => try_2({
@@ -19324,7 +19294,6 @@ ${prefix}}`;
   }), "makeRunHandle");
   var externalStopOutcome = /* @__PURE__ */ __name((status) => ({ kind: "externally-stopped", status }), "externalStopOutcome");
   var statusName = /* @__PURE__ */ __name((source) => source.name.trim() === "" ? "script" : source.name, "statusName");
-  var normalizeUsername = /* @__PURE__ */ __name((username) => username.trim().toLowerCase(), "normalizeUsername");
   var statusFromStartingCancellation = /* @__PURE__ */ __name((cancellation) => ({
     ...cancellation.reason === void 0 ? {} : { reason: cancellation.reason },
     state: "stopped",
@@ -19384,29 +19353,6 @@ ${prefix}}`;
       squashed instanceof Error ? squashed : causeMessage(cause)
     );
   }), "logScriptFailureCause");
-  var makeScriptOptions = fnUntraced2(function* () {
-    const optionsRef = yield* make17(
-      snapshotScriptRuntimeOptions(DEFAULT_SCRIPT_RUNTIME_OPTIONS)
-    );
-    const accountUsernameRef = yield* make16("");
-    const getOptions = /* @__PURE__ */ __name(() => get4(optionsRef).pipe(
-      map5(snapshotScriptRuntimeOptions)
-    ), "getOptions");
-    const bindAccount = /* @__PURE__ */ __name((username) => gen2(function* () {
-      const normalized = normalizeUsername(username);
-      if ((yield* getAndSet(accountUsernameRef, normalized)) !== normalized)
-        yield* set3(
-          optionsRef,
-          snapshotScriptRuntimeOptions(DEFAULT_SCRIPT_RUNTIME_OPTIONS)
-        );
-      return yield* getOptions();
-    }), "bindAccount");
-    const setOptions = /* @__PURE__ */ __name((update2) => updateAndGet2(
-      optionsRef,
-      (current) => snapshotScriptRuntimeOptions(update2(snapshotScriptRuntimeOptions(current)))
-    ).pipe(map5(snapshotScriptRuntimeOptions)), "setOptions");
-    return { optionsRef, bindAccount, getOptions, setOptions };
-  });
   var layer7 = effect(
     ScriptRunner,
     gen2(function* () {
@@ -19433,7 +19379,7 @@ ${prefix}}`;
         null
       );
       const startingRef = yield* make16(null);
-      const { optionsRef, bindAccount, getOptions, setOptions } = yield* makeScriptOptions();
+      const scriptOptions = makeScriptOptionsApi(yield* HostState);
       const statusRef = yield* make17({
         state: "idle"
       });
@@ -19630,9 +19576,7 @@ ${prefix}}`;
         map: map8,
         packet,
         player,
-        roomPolicy: get4(optionsRef).pipe(
-          map5((options) => snapshotRoomPolicy(options.roomPolicy))
-        ),
+        roomPolicy: scriptOptions.get().pipe(map5((options) => snapshotRoomPolicy(options.roomPolicy))),
         wait
       });
       const runWithSafeStartStop2 = /* @__PURE__ */ __name((main) => runWithSafeStartStop(
@@ -19640,9 +19584,7 @@ ${prefix}}`;
           const iterator = main();
           return yield* iterator;
         }).pipe(asVoid2),
-        get4(optionsRef).pipe(
-          map5((options) => options.safeStartStop)
-        ),
+        scriptOptions.get().pipe(map5((options) => options.safeStartStop)),
         moveToSafeMap
       ), "runWithSafeStartStop");
       const runScript = /* @__PURE__ */ __name((id, source, main) => runWithSafeStartStop2(main).pipe(
@@ -19750,18 +19692,15 @@ ${prefix}}`;
           )
         );
         const setup = gen2(function* () {
-          const username = (yield* auth.getUsername()).trim().toLowerCase();
-          yield* bindAccount(username);
           yield* scriptScope.addCleanup(
             () => army.leave().pipe(catchCause2(() => void_3))
           );
           const script = makeScriptRuntimeApi({
             dialogs,
-            getOptions,
+            scriptOptions,
             getInputValues: /* @__PURE__ */ __name(() => inputValues, "getInputValues"),
             log: /* @__PURE__ */ __name((...values) => console.log("[script]", ...values), "log"),
             scope: scriptScope,
-            setOptions,
             source: { sourceName: statusName(source) }
           });
           const http = yield* makeHttpApi(scriptScope);
@@ -19772,7 +19711,7 @@ ${prefix}}`;
             failCause: /* @__PURE__ */ __name((cause) => failActiveCause(starting.id, cause), "failCause"),
             fileSystem: makeScriptFileSystemApi(fileSystemBridge, scriptScope),
             http,
-            roomPolicy: get4(optionsRef).pipe(
+            roomPolicy: scriptOptions.get().pipe(
               map5((options) => snapshotRoomPolicy(options.roomPolicy))
             ),
             scope: scriptScope,
@@ -19802,8 +19741,7 @@ ${prefix}}`;
             inputs: { ...inputs },
             name: starting.name,
             scope: scriptScope,
-            terminal: starting.terminal,
-            username
+            terminal: starting.terminal
           };
           const status2 = {
             name: active.name,
@@ -19988,21 +19926,13 @@ ${prefix}}`;
       const stop2 = /* @__PURE__ */ __name((reason) => stopActive(reason), "stop");
       yield* addFinalizer3(() => stop2("shutdown").pipe(asVoid2));
       return ScriptRunner.of({
-        bindAccount,
-        getOptions,
         getStatus,
         isRunning: /* @__PURE__ */ __name(() => getStatus().pipe(
           map5(
             (status) => status.state === "running" || status.state === "starting" || status.state === "stopping"
           )
         ), "isRunning"),
-        onOptions: /* @__PURE__ */ __name((listener) => observe(
-          changes(optionsRef),
-          snapshotScriptRuntimeOptions,
-          listener
-        ), "onOptions"),
         onStatus: /* @__PURE__ */ __name((listener) => observe(changes(statusRef), snapshotStatus, listener), "onStatus"),
-        setOptions,
         start: start3,
         stop: stop2
       });
@@ -20265,7 +20195,10 @@ ${prefix}}`;
     return runtime.runPromise(
       gen2(function* () {
         const runner = yield* ScriptRunner;
-        const handle = yield* runner.start({ name, load }, JSON.parse(inputsJson));
+        const handle = yield* runner.start(
+          { name, load },
+          JSON.parse(inputsJson)
+        );
         const outcome2 = yield* handle.terminal;
         switch (outcome2.kind) {
           case "completed":
@@ -20277,7 +20210,11 @@ ${prefix}}`;
               details: outcome2.status.detailsText ?? null
             };
           case "script-exited":
-            return { kind: "script-exited", closeClient: outcome2.closeClient, logout: outcome2.logout };
+            return {
+              kind: "script-exited",
+              closeClient: outcome2.closeClient,
+              logout: outcome2.logout
+            };
           case "script-stopped":
           case "externally-stopped":
             return { kind: outcome2.kind, reason: outcome2.status.reason ?? null };
@@ -20286,7 +20223,9 @@ ${prefix}}`;
     );
   }, "start");
   var stop = /* @__PURE__ */ __name((reason) => runtime.runPromise(
-    flatMap3(ScriptRunner, (runner) => runner.stop(reason)).pipe(asVoid2)
+    flatMap3(ScriptRunner, (runner) => runner.stop(reason)).pipe(
+      asVoid2
+    )
   ), "stop");
 
   // packages/runtime/src/host/index.ts

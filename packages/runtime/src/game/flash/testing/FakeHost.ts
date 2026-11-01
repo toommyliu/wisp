@@ -221,6 +221,8 @@ const findPlayer = (
 
 const answer = (state: FakeHostState, query: Query): unknown => {
   switch (query.kind) {
+    case "scriptOptions":
+      throw new Error("Script options require the native host");
     case "environment":
       throw new Error("Environment state requires the native host");
     case "autoAttack":
@@ -316,6 +318,9 @@ const run = (state: FakeHostState, loader: Loader, command: Command) => {
   };
 
   switch (command.kind) {
+    case "updateScriptOptions":
+    case "resetScriptOptions":
+      throw new Error("Script options require the native host");
     case "updateEnvironment":
       throw new Error("Environment mutations require the native host");
     case "refreshCombatState":
