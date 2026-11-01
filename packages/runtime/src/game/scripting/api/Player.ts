@@ -7,7 +7,7 @@ import {
   roomPolicyAcceptsRoom,
   withRoomNumber,
 } from "../../flash/domain/MapTarget";
-import type { ScriptPlayerApi, ScriptPlayersApi } from "../ScriptApi";
+import type { ScriptPlayerApi, ScriptPlayersApi } from "@lucent/scripting-api/contract";
 import { makeScriptPlayersApi } from "./Players";
 
 type ScriptRoomPolicyContext = {

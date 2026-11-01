@@ -7,7 +7,7 @@ import type {
   ScriptEventsApi,
   ScriptEventsOn,
   ScriptWaitForEvent,
-} from "../ScriptApi";
+} from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "../scriptAsyncScope";
 import { notifyScriptCallbackFailure } from "./Callbacks";
 
