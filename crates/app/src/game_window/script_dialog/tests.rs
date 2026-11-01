@@ -1,3 +1,4 @@
+use super::super::game_bar::{BarAction, GameBar, Toggle};
 use super::*;
 use core::prelude::v1::test;
 use std::{
@@ -9,6 +10,8 @@ type Responses = Rc<RefCell<Vec<(u64, ScriptDialogResponse)>>>;
 
 struct Harness {
     modal: Entity<ScriptDialogModal>,
+    bar: Entity<GameBar>,
+    actions: Rc<RefCell<Vec<BarAction>>>,
     game: FocusHandle,
     clicks: Rc<Cell<usize>>,
 }
@@ -18,33 +21,41 @@ impl Render for Harness {
         let clicks = self.clicks.clone();
         div()
             .size_full()
-            .relative()
+            .flex()
+            .flex_col()
+            .child(self.bar.clone())
             .child(
                 div()
-                    .id("player")
-                    .size_full()
-                    .track_focus(&self.game)
+                    .flex_1()
+                    .w_full()
+                    .relative()
                     .child(
-                        canvas(
-                            |bounds, window, _| {
-                                window.insert_hitbox(bounds, HitboxBehavior::Normal)
-                            },
-                            move |_, hitbox, window, _| {
-                                window.on_mouse_event(
-                                    move |_: &MouseDownEvent, phase, window, _| {
-                                        if phase == DispatchPhase::Bubble
-                                            && hitbox.is_hovered(window)
-                                        {
-                                            clicks.set(clicks.get() + 1);
-                                        }
+                        div()
+                            .id("player")
+                            .size_full()
+                            .track_focus(&self.game)
+                            .child(
+                                canvas(
+                                    |bounds, window, _| {
+                                        window.insert_hitbox(bounds, HitboxBehavior::Normal)
                                     },
-                                );
-                            },
-                        )
-                        .size_full(),
-                    ),
+                                    move |_, hitbox, window, _| {
+                                        window.on_mouse_event(
+                                            move |_: &MouseDownEvent, phase, window, _| {
+                                                if phase == DispatchPhase::Bubble
+                                                    && hitbox.is_hovered(window)
+                                                {
+                                                    clicks.set(clicks.get() + 1);
+                                                }
+                                            },
+                                        );
+                                    },
+                                )
+                                .size_full(),
+                            ),
+                    )
+                    .child(self.modal.clone()),
             )
-            .child(self.modal.clone())
     }
 }
 
@@ -57,6 +68,13 @@ fn setup(
     let recorded = responses.clone();
     let (harness, cx) = cx.add_window_view(move |window, cx| {
         let game = cx.focus_handle();
+        let actions: Rc<RefCell<Vec<BarAction>>> = Default::default();
+        let recorded_actions = actions.clone();
+        let bar = cx.new(|cx| GameBar::new(game.clone(), window, cx));
+        cx.subscribe(&bar, move |_, _, action: &BarAction, _| {
+            recorded_actions.borrow_mut().push(action.clone());
+        })
+        .detach();
         let modal = cx.new(|cx| {
             let mut modal = ScriptDialogModal::new(game.clone(), cx);
             cx.subscribe_self(move |_, response: &DialogAnswered, _| {
@@ -79,6 +97,8 @@ fn setup(
         });
         Harness {
             modal,
+            bar,
+            actions,
             game,
             clicks: Default::default(),
         }
@@ -104,6 +124,7 @@ fn every_dialog_renders_its_controls_and_default_focus(cx: &mut TestAppContext) 
     ] {
         let is_prompt = matches!(kind, ScriptDialogKind::Prompt { .. });
         let cancel = kind != ScriptDialogKind::Alert;
+        let is_confirm = kind == ScriptDialogKind::Confirm;
         let (h, cx, _) = setup(kind, cx);
         assert!(cx.debug_bounds("OK").is_some());
         assert_eq!(cx.debug_bounds("Cancel").is_some(), cancel);
@@ -114,7 +135,13 @@ fn every_dialog_renders_its_controls_and_default_focus(cx: &mut TestAppContext) 
                 .field
                 .as_ref()
                 .map(|field| field.focus_handle(cx))
-                .unwrap_or_else(|| modal.ok_focus.clone())
+                .unwrap_or_else(|| {
+                    if is_confirm {
+                        modal.cancel_focus.clone()
+                    } else {
+                        modal.ok_focus.clone()
+                    }
+                })
         });
         assert!(cx.update(|window, _| focus.is_focused(window)));
     }
@@ -136,7 +163,7 @@ fn enter_and_escape_return_each_kinds_answer(cx: &mut TestAppContext) {
         (
             ScriptDialogKind::Confirm,
             "enter",
-            ScriptDialogResponse::Confirmed(true),
+            ScriptDialogResponse::Confirmed(false),
         ),
         (
             ScriptDialogKind::Confirm,
@@ -184,7 +211,7 @@ fn prompt_submits_edited_text_and_ignores_repeat_answers(cx: &mut TestAppContext
 #[gpui::test]
 fn modal_occludes_player_clicks_and_keeps_keyboard_focus(cx: &mut TestAppContext) {
     let (h, cx, _) = setup(ScriptDialogKind::Confirm, cx);
-    cx.simulate_click(point(px(4.), px(4.)), Default::default());
+    cx.simulate_click(point(px(4.), px(200.)), Default::default());
     for key in ["tab", "tab", "shift-tab", "shift-tab"] {
         press(cx, key);
     }
@@ -313,4 +340,100 @@ fn long_messages_can_be_read_with_page_keys(cx: &mut TestAppContext) {
         px(0.)
     );
     assert_eq!(cx.debug_bounds("OK").unwrap(), before);
+}
+
+fn assert_enter_cancels(
+    kind: ScriptDialogKind,
+    expected: ScriptDialogResponse,
+    cx: &mut TestAppContext,
+) {
+    let (h, cx, responses) = setup(kind, cx);
+    let cancel = h.read_with(cx, |h, cx| h.modal.read(cx).cancel_focus.clone());
+    for _ in 0..3 {
+        if cx.update(|window, _| cancel.is_focused(window)) {
+            break;
+        }
+        press(cx, "tab");
+    }
+    assert!(cx.update(|window, _| cancel.is_focused(window)));
+    press(cx, "enter");
+    assert_eq!(*responses.borrow(), [(42, expected)]);
+}
+
+#[gpui::test]
+fn enter_on_confirm_cancel_returns_false(cx: &mut TestAppContext) {
+    assert_enter_cancels(
+        ScriptDialogKind::Confirm,
+        ScriptDialogResponse::Confirmed(false),
+        cx,
+    );
+}
+
+#[gpui::test]
+fn enter_on_prompt_cancel_returns_null(cx: &mut TestAppContext) {
+    assert_enter_cancels(
+        ScriptDialogKind::Prompt {
+            placeholder: "hint".into(),
+        },
+        ScriptDialogResponse::Submitted(None),
+        cx,
+    );
+}
+
+#[gpui::test]
+fn enter_activates_ok_when_ok_has_focus(cx: &mut TestAppContext) {
+    for (kind, expected) in [
+        (
+            ScriptDialogKind::Confirm,
+            ScriptDialogResponse::Confirmed(true),
+        ),
+        (
+            ScriptDialogKind::Prompt {
+                placeholder: "hint".into(),
+            },
+            ScriptDialogResponse::Submitted(Some(String::new())),
+        ),
+    ] {
+        let (h, cx, responses) = setup(kind, cx);
+        let ok = h.read_with(cx, |h, cx| h.modal.read(cx).ok_focus.clone());
+        for _ in 0..3 {
+            if cx.update(|window, _| ok.is_focused(window)) {
+                break;
+            }
+            press(cx, "tab");
+        }
+        assert!(cx.update(|window, _| ok.is_focused(window)));
+        press(cx, "enter");
+        assert_eq!(*responses.borrow(), [(42, expected)]);
+    }
+}
+
+#[gpui::test]
+fn bar_menus_act_above_dialogs_while_player_clicks_stay_blocked(cx: &mut TestAppContext) {
+    for kind in [
+        ScriptDialogKind::Confirm,
+        ScriptDialogKind::Prompt {
+            placeholder: "hint".into(),
+        },
+    ] {
+        let (h, cx, responses) = setup(kind, cx);
+        let options = cx.debug_bounds("Options ▾").unwrap();
+        cx.simulate_click(options.center(), Default::default());
+        cx.run_until_parked();
+        let item = cx.debug_bounds("Infinite Range").unwrap();
+        cx.simulate_click(item.center(), Default::default());
+        cx.run_until_parked();
+        h.read_with(cx, |h, cx| {
+            assert_eq!(
+                *h.actions.borrow(),
+                [BarAction::Toggle(Toggle::InfiniteRange, true)]
+            );
+            assert_eq!(h.clicks.get(), 0);
+            assert!(h.modal.read(cx).current.is_some());
+        });
+        assert!(responses.borrow().is_empty());
+        cx.simulate_click(point(px(4.), px(700.)), Default::default());
+        cx.run_until_parked();
+        assert_eq!(h.read_with(cx, |h, _| h.clicks.get()), 0);
+    }
 }

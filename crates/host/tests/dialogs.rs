@@ -8,7 +8,7 @@ use lucent_host::{
     testing,
 };
 use lucent_protocol::script::{
-    ScriptDialog, ScriptDialogKind, ScriptDialogResponse, ScriptOutcome,
+    ModulePath, Script, ScriptDialog, ScriptDialogKind, ScriptDialogResponse, ScriptOutcome,
 };
 use serde_json::{Value, json};
 use std::{
@@ -38,6 +38,10 @@ struct DialogRun {
 
 impl DialogRun {
     fn start(body: &str) -> Self {
+        Self::start_entry(body, ModulePath::loose("dialogs.js").unwrap())
+    }
+
+    fn start_entry(body: &str, entry: ModulePath) -> Self {
         let logs = Logs::default();
         let dispatch = logs.dispatch();
         let _guard = tracing::dispatcher::set_default(&dispatch);
@@ -61,8 +65,9 @@ impl DialogRun {
             }}
         "#
         );
-        let run =
-            ScriptRun::start(link, loose(&[("dialogs.js", &source)]), Default::default()).unwrap();
+        let script =
+            Script::new(entry.clone(), [(entry, source)].into(), Default::default()).unwrap();
+        let run = ScriptRun::start(link, script, Default::default()).unwrap();
         logs.wait_for(tracing::Level::INFO, "dialogs queued");
         Self {
             session,
@@ -280,4 +285,22 @@ fn fiber_interruption_removes_current_and_queued_dialogs() {
         ScriptDialogResponse::Submitted(Some("still running".into())),
     );
     assert_eq!(task.result(), json!("still running"));
+}
+
+#[test]
+fn dialogs_show_the_file_or_package_display_name() {
+    for (entry, expected) in [
+        (ModulePath::loose("daily/farming.js").unwrap(), "farming.js"),
+        (ModulePath::loose("daily/   ").unwrap(), "daily/   "),
+        (
+            ModulePath::in_package("@lucent-scripts/daily", "src/main.js").unwrap(),
+            "@lucent-scripts/daily",
+        ),
+    ] {
+        let task = DialogRun::start_entry("yield* script.alert('message'); return 'done';", entry);
+        let dialog = task.current("message");
+        assert_eq!(dialog.script, expected);
+        task.respond(&dialog, ScriptDialogResponse::Dismissed);
+        assert_eq!(task.result(), json!("done"));
+    }
 }
