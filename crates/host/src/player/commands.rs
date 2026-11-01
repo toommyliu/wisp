@@ -162,11 +162,12 @@ impl Running {
                 &self.auto_zone,
                 patch,
                 &self.script_events,
+                &self.changes,
             )),
             Command::UpdateSettings { mut patch } => {
                 let next = patched_settings(&self.settings.read(), &mut patch);
                 let result = self.send_settings(&patch, &next);
-                *self.settings.write() = next.clone();
+                self.changes.set(&self.settings, next.clone());
                 result?;
                 Ok(serde_json::to_string(&next).unwrap())
             }

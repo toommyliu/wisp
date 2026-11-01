@@ -1,5 +1,11 @@
 pub(crate) mod auto_attack;
+mod changes;
 mod controller;
+use crate::scripting::RuntimeError;
+pub(crate) use changes::Changes;
+use lucent_protocol::script::{Script, ScriptStatus};
+use std::sync::atomic::AtomicBool;
+use std::task::Waker;
 mod environment;
 mod environment_order;
 pub use controller::{ScriptControls, ScriptRequest, Supervisor};
@@ -16,7 +22,9 @@ use lucent_protocol::auto_zone::AutoZoneConfig;
 use lucent_protocol::settings::GameSettings;
 use parking_lot::RwLock;
 
+#[derive(Clone)]
 pub(crate) struct Records {
+    pub(crate) changes: Arc<Changes>,
     pub(crate) auto_attack: Arc<auto_attack::Shared>,
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
@@ -94,18 +102,27 @@ impl Host {
         let id = self.shared.next_session.fetch_add(1, Ordering::Relaxed);
         let settings = Arc::new(RwLock::new(GameSettings::default()));
         let auto_zone = Arc::new(RwLock::new(AutoZoneConfig::default()));
+        let changes = Arc::new(Changes::default());
         let player = self.spawn_player(
             id,
             &surface,
             false,
             &movie,
-            settings.clone(),
-            auto_zone.clone(),
+            PlayerRecords {
+                settings: settings.clone(),
+                auto_zone: auto_zone.clone(),
+                changes: changes.clone(),
+            },
         )?;
         let operations = operations::Operations::start(id).map_err(HostError::OperationThread)?;
-        let relogin = Arc::new(relogin::Shared::default());
+        let relogin = Arc::new(relogin::Shared::new(changes.clone()));
+        let auto_attack = Arc::new(auto_attack::Shared::new(changes.clone()));
         Ok(Session {
-            auto_attack: Arc::default(),
+            supervisor: None,
+            script_status: Arc::default(),
+            changes,
+            detached: Arc::default(),
+            auto_attack,
             jobs: Arc::default(),
             environment: Arc::default(),
             auto_relogin: relogin.records.clone(),
@@ -129,8 +146,7 @@ impl Host {
         surface: &Surface,
         muted: bool,
         movie: &Movie,
-        settings: Arc<RwLock<GameSettings>>,
-        auto_zone: Arc<RwLock<AutoZoneConfig>>,
+        records: PlayerRecords,
     ) -> Result<player::Handle, HostError> {
         player::spawn(
             format!("player-{session}"),
@@ -141,15 +157,26 @@ impl Host {
                 audio: self.shared.audio,
                 movie: movie.clone(),
                 muted,
-                settings,
-                auto_zone,
+                settings: records.settings,
+                auto_zone: records.auto_zone,
+                changes: records.changes,
             },
         )
         .map_err(HostError::PlayerThread)
     }
 }
 
+struct PlayerRecords {
+    settings: Arc<RwLock<GameSettings>>,
+    auto_zone: Arc<RwLock<AutoZoneConfig>>,
+    changes: Arc<Changes>,
+}
+
 pub struct Session {
+    supervisor: Option<Supervisor>,
+    script_status: Arc<RwLock<ScriptStatus>>,
+    changes: Arc<Changes>,
+    detached: Arc<AtomicBool>,
     auto_attack: Arc<auto_attack::Shared>,
     jobs: Arc<crate::game::jobs::JobRequests>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
@@ -168,6 +195,79 @@ pub struct Session {
 }
 
 impl Session {
+    pub fn supervise(&mut self, script: Option<ScriptRequest>) -> Result<(), RuntimeError> {
+        if self.supervisor.is_none() {
+            self.supervisor = Some(Supervisor::start(self, script)?);
+        }
+        Ok(())
+    }
+    pub fn restart_player(&mut self, surface: Surface) -> Result<(), HostError> {
+        let supervisor = self.supervisor.take();
+        match supervisor {
+            Some(mut supervisor) => {
+                let result = supervisor.restart_player(self, surface);
+                self.supervisor = Some(supervisor);
+                result
+            }
+            None => self.restart(surface),
+        }
+    }
+    pub fn start_script(&mut self, script: Script) -> Result<(), RuntimeError> {
+        let mut supervisor = self.supervisor.take().ok_or(RuntimeError::Stopped)?;
+        let result = supervisor.start_script(self, script).map(|_| ());
+        self.supervisor = Some(supervisor);
+        result
+    }
+    pub fn stop_script(&self) {
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.controls().stop();
+        }
+    }
+    pub fn kill_script(&self) {
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.controls().kill();
+        }
+    }
+    pub fn script_status(&self) -> ScriptStatus {
+        self.script_status.read().clone()
+    }
+    pub fn settings(&self) -> GameSettings {
+        self.settings.read().clone()
+    }
+    pub fn auto_zone(&self) -> AutoZoneConfig {
+        self.auto_zone.read().clone()
+    }
+    pub fn watch(&self, waker: Waker) {
+        self.changes.watch(waker);
+    }
+    pub fn command(
+        &self,
+        command: lucent_protocol::command::Command,
+    ) -> crate::bridge::Pending<String> {
+        let Some(player) = &self.player else {
+            return crate::bridge::Pending::stopped();
+        };
+        link::route_command(
+            &self.records(),
+            &player.inbox,
+            &player.stopped,
+            &self.detached,
+            command,
+        )
+    }
+    fn records(&self) -> Records {
+        Records {
+            auto_attack: self.auto_attack.clone(),
+            changes: self.changes.clone(),
+            jobs: self.jobs.clone(),
+            environment: self.environment.clone(),
+            settings: self.settings.clone(),
+            auto_zone: self.auto_zone.clone(),
+            auto_relogin: self.auto_relogin.clone(),
+            relogin: self.relogin.clone(),
+        }
+    }
+
     #[cfg(feature = "testing")]
     pub fn live_profile_job_count(&self) -> usize {
         self.jobs.len()
@@ -258,15 +358,7 @@ impl Session {
             self.id,
             attachment,
             events,
-            Records {
-                auto_attack: self.auto_attack.clone(),
-                jobs: self.jobs.clone(),
-                environment: self.environment.clone(),
-                settings: self.settings.clone(),
-                auto_zone: self.auto_zone.clone(),
-                auto_relogin: self.auto_relogin.clone(),
-                relogin: self.relogin.clone(),
-            },
+            self.records(),
             operations::Endpoint {
                 inbox,
                 projection: player.projection.clone(),
@@ -295,8 +387,11 @@ impl Session {
             &self.surface,
             self.muted,
             &self.movie,
-            self.settings.clone(),
-            self.auto_zone.clone(),
+            PlayerRecords {
+                settings: self.settings.clone(),
+                auto_zone: self.auto_zone.clone(),
+                changes: self.changes.clone(),
+            },
         )?;
         self.player = Some(player);
         Ok(())
@@ -307,5 +402,11 @@ impl Session {
         if let Some(player) = &self.player {
             player.set_muted(muted);
         }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.detached.store(true, Ordering::Release);
     }
 }

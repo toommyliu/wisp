@@ -220,8 +220,7 @@ impl ProfileJobs {
                 continue;
             }
             self.stop_auto_attack();
-            let mut records = shared.records.write();
-            *records = Default::default();
+            let mut records = lucent_protocol::auto_attack::AutoAttackRecords::default();
             if let crate::sessions::auto_attack::Edit::Enable {
                 profile,
                 target_priority,
@@ -231,7 +230,7 @@ impl ProfileJobs {
                 records.config.profile = Some(normalize_combat_profile(profile));
                 records.config.target_priority.clone_from(target_priority);
             }
-            drop(records);
+            shared.changes.set(&shared.records, records);
             self.start_auto_attack();
             if let Some(reply) = request.reply.take() {
                 self.auto_attack_replies.push((
@@ -255,7 +254,7 @@ impl ProfileJobs {
             return;
         }
         let shared = self.link.records.auto_attack.clone();
-        let mut records = shared.records.write();
+        let mut records = shared.records.read().clone();
         if !records.config.enabled {
             return;
         }
@@ -293,6 +292,7 @@ impl ProfileJobs {
                 records.status.last_error = Some(error);
             }
         }
+        shared.changes.set(&shared.records, records);
     }
     pub(crate) fn advance(&mut self, now: Instant) -> Option<Instant> {
         self.reconcile_auto_attack(now);
@@ -562,14 +562,14 @@ impl Job {
                 self.cancel();
                 return;
             }
-            let mut records = shared.records.write();
+            let mut records = shared.records.read().clone();
             records.config.enabled = false;
             records.config.profile = None;
             records.status.running = false;
             records.status.class_names.clear();
             records.status.warnings.clear();
             records.status.last_error = Some(error);
-            drop(records);
+            shared.changes.set(&shared.records, records);
             self.cancel();
             return;
         }
@@ -584,7 +584,7 @@ impl Job {
     }
     fn prepared(&mut self, inbox: &Inbox) {
         if let JobKind::AutoAttack(shared) = &self.request.kind {
-            let mut records = shared.records.write();
+            let mut records = shared.records.read().clone();
             records.status.class_names = self
                 .request
                 .executor
@@ -593,6 +593,7 @@ impl Job {
                 .clone()
                 .unwrap_or_default();
             records.status.warnings = self.request.executor.warnings().to_vec();
+            shared.changes.set(&shared.records, records);
             self.prepared = true;
             return;
         }
