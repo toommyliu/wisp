@@ -3920,6 +3920,7 @@ ${prefix}}`;
     return catchIf(self, pred, f, orElse);
   });
   var mapError = /* @__PURE__ */ dual(2, (self, f) => catch_(self, (error) => failSync(() => f(error))));
+  var orDie = /* @__PURE__ */ __name((self) => catch_(self, die), "orDie");
   var result = /* @__PURE__ */ __name((self) => matchEager(self, {
     onFailure: fail2,
     onSuccess: succeed2
@@ -5520,6 +5521,7 @@ ${prefix}}`;
   var catchTag2 = catchTag;
   var catchCause2 = catchCause;
   var mapError2 = mapError;
+  var orDie2 = orDie;
   var retry2 = retry;
   var timeoutOption2 = timeoutOption;
   var sleep2 = sleep;
@@ -20169,6 +20171,28 @@ ${prefix}}`;
     respond: defect("dialogs")
   };
 
+  // packages/runtime/src/host/dialogs.ts
+  var makeHostDialogs = /* @__PURE__ */ __name((host4) => {
+    const request = /* @__PURE__ */ __name((kind, message2) => tryPromise2({
+      try: /* @__PURE__ */ __name(async (signal) => {
+        const result2 = await requestIo(
+          host4,
+          { service: "dialog", kind, message: message2.toWellFormed() },
+          signal
+        );
+        if (!result2.ok) throw new Error(result2.error);
+        return result2.value;
+      }, "try"),
+      catch: /* @__PURE__ */ __name((error) => error, "catch")
+    }).pipe(orDie2), "request");
+    return {
+      ...unavailableScriptDialogs,
+      alert: /* @__PURE__ */ __name((_source, message2) => request("Alert", message2).pipe(asVoid2), "alert"),
+      confirm: /* @__PURE__ */ __name((_source, message2) => request("Confirm", message2), "confirm"),
+      prompt: /* @__PURE__ */ __name((_source, message2, placeholder = "") => request({ Prompt: { placeholder: placeholder.toWellFormed() } }, message2), "prompt")
+    };
+  }, "makeHostDialogs");
+
   // packages/runtime/src/host/scripts.ts
   var api = make7(scriptApiLayer);
   api.runSync(void_3);
@@ -20183,7 +20207,7 @@ ${prefix}}`;
             autoZone: makeAutoZoneService(__host),
             autoRelogin: makeAutoReloginService(__host)
           }),
-          succeed6(ScriptDialogs, unavailableScriptDialogs)
+          succeed6(ScriptDialogs, makeHostDialogs(__host))
         )
       )
     ),

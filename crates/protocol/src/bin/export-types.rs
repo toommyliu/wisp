@@ -113,7 +113,10 @@ fn declarations(config: &Config) -> String {
         ScriptOptionsPatch,
         ScriptPhase,
         ScriptStatus,
-        ScriptOutcome
+        ScriptOutcome,
+        ScriptDialogKind,
+        ScriptDialog,
+        ScriptDialogResponse
     );
     output.push_str(&query_outputs(config));
     output.push_str(&command_outputs(config));

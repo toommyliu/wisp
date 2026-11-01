@@ -7,7 +7,14 @@ use std::{path::PathBuf, task::Poll};
 
 impl GameWindow {
     pub(super) fn refresh_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let (Ok(player), Some(bar)) = (&self.player, &self.bar) {
+        if let (Ok(player), Some(bar), Some(dialog)) = (&self.player, &self.bar, &self.dialog) {
+            sync_script_dialog(
+                super::script_dialog::current(player.read(cx).session()),
+                dialog,
+                bar,
+                window,
+                cx,
+            );
             bar.update(cx, |bar, cx| {
                 bar.state.read(player.read(cx).session());
                 bar.refresh(window, cx);
@@ -181,6 +188,24 @@ impl GameWindow {
         })
         .detach();
     }
+}
+
+pub(super) fn sync_script_dialog(
+    current: Option<lucent_protocol::script::ScriptDialog>,
+    dialog: &Entity<super::script_dialog::ScriptDialogModal>,
+    bar: &Entity<game_bar::GameBar>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let dialog_open = current.is_some();
+    let changed = dialog.update(cx, |dialog, cx| dialog.sync(current, window, cx));
+    let return_focus = dialog.focus_handle(cx);
+    bar.update(cx, |bar, cx| {
+        bar.return_focus = return_focus;
+        if changed {
+            bar.dialog_changed(dialog_open, window, cx);
+        }
+    });
 }
 
 pub(super) struct BarWake(pub async_channel::Sender<()>);

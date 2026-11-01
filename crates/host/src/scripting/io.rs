@@ -7,16 +7,33 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::data::{Files, Request};
+use crate::sessions::dialogs::Dialogs;
+use lucent_protocol::script::ScriptDialogKind;
 
 const MAX_REQUESTS: usize = 16;
 
 #[derive(Deserialize)]
 #[serde(tag = "service", rename_all = "camelCase")]
 enum RequestKind {
+    Dialog {
+        kind: ScriptDialogKind,
+        message: String,
+    },
     Filesystem {
         #[serde(flatten)]
         request: Request,
     },
+}
+
+impl RequestKind {
+    fn failure(&self, reason: &str) -> Value {
+        match self {
+            Self::Filesystem { request } => request.failure(reason),
+            Self::Dialog { .. } => {
+                serde_json::json!({"ok":false,"error":format!("Script dialog unavailable: {reason}")})
+            }
+        }
+    }
 }
 
 enum Phase {
@@ -28,6 +45,7 @@ enum Phase {
 struct Pending {
     phase: Phase,
     closed: Value,
+    dialog: bool,
     #[cfg(feature = "testing")]
     path: String,
 }
@@ -35,6 +53,8 @@ struct Pending {
 #[derive(Default)]
 struct State {
     closed: bool,
+    dialogs_closed: bool,
+    script: String,
     next: u64,
     completed: u64,
     notified: bool,
@@ -43,6 +63,8 @@ struct State {
 
 pub(crate) struct Io {
     files: Weak<Files>,
+    dialogs: Weak<Dialogs>,
+    owner: u64,
     wake: Waker,
     state: Mutex<State>,
 }
@@ -53,20 +75,24 @@ pub(crate) struct Ticket {
 }
 
 impl Io {
-    pub(crate) fn new(files: Arc<Files>, wake: Waker) -> Arc<Self> {
+    pub(crate) fn new(files: Arc<Files>, dialogs: Arc<Dialogs>, wake: Waker) -> Arc<Self> {
         Arc::new(Self {
             files: Arc::downgrade(&files),
+            owner: dialogs.owner(),
+            dialogs: Arc::downgrade(&dialogs),
             wake,
             state: Mutex::default(),
         })
     }
 
     pub(crate) fn submit(self: &Arc<Self>, json: &str) -> Result<String, String> {
-        let RequestKind::Filesystem { request } =
+        let request: RequestKind =
             serde_json::from_str(json).map_err(|error| format!("invalid I/O request: {error}"))?;
+        let dialog = matches!(request, RequestKind::Dialog { .. });
         let mut state = self.state.lock();
-        if state.closed || state.requests.len() >= MAX_REQUESTS {
-            let reason = if state.closed {
+        if state.closed || (dialog && state.dialogs_closed) || state.requests.len() >= MAX_REQUESTS
+        {
+            let reason = if state.closed || (dialog && state.dialogs_closed) {
                 "session-closed"
             } else {
                 "busy"
@@ -80,23 +106,57 @@ impl Io {
             Pending {
                 phase: Phase::Queued,
                 closed: request.failure("session-closed"),
+                dialog,
                 #[cfg(feature = "testing")]
-                path: request.path().unwrap_or("").into(),
+                path: match &request {
+                    RequestKind::Filesystem { request } => request.path().unwrap_or("").into(),
+                    RequestKind::Dialog { .. } => String::new(),
+                },
             },
         );
+        let script = state.script.clone();
         drop(state);
-        self.files.upgrade().unwrap().submit(
-            request,
-            Ticket {
-                io: self.clone(),
-                id,
-            },
-        );
+        let ticket = Ticket {
+            io: self.clone(),
+            id,
+        };
+        match request {
+            RequestKind::Filesystem { request } => {
+                self.files.upgrade().unwrap().submit(request, ticket)
+            }
+            RequestKind::Dialog { kind, message } => {
+                if let Some(dialogs) = self.dialogs.upgrade() {
+                    dialogs.enqueue(self.owner, id, kind, script, message, ticket);
+                } else {
+                    ticket
+                        .complete(serde_json::json!({"ok":false,"error":"Script session closed"}));
+                }
+            }
+        }
         Ok(serde_json::json!({"id":id.to_string()}).to_string())
+    }
+
+    pub(crate) fn set_script(&self, script: String) {
+        self.state.lock().script = script;
+    }
+
+    pub(crate) fn close_dialogs(&self) {
+        let mut state = self.state.lock();
+        state.dialogs_closed = true;
+        state.requests.retain(|_, pending| !pending.dialog);
+        drop(state);
+        if let Some(dialogs) = self.dialogs.upgrade() {
+            dialogs.cancel(self.owner, None);
+        }
     }
 
     pub(crate) fn cancel(&self, id: u64) {
         let pending = self.state.lock().requests.remove(&id);
+        if pending.as_ref().is_some_and(|pending| pending.dialog)
+            && let Some(dialogs) = self.dialogs.upgrade()
+        {
+            dialogs.cancel(self.owner, Some(id));
+        }
         #[cfg(feature = "testing")]
         if let Some(pending) = pending
             && let Some(files) = self.files.upgrade()
@@ -117,6 +177,10 @@ impl Io {
         if !state.notified && !state.requests.is_empty() {
             state.notified = true;
             self.wake.wake_by_ref();
+        }
+        drop(state);
+        if let Some(dialogs) = self.dialogs.upgrade() {
+            dialogs.cancel(self.owner, None);
         }
     }
 
@@ -200,13 +264,25 @@ mod tests {
                 let _ = released.lock().recv();
             }
         }));
-        let blocker = Io::new(files.clone(), Waker::noop().clone());
+        let blocker = Io::new(
+            files.clone(),
+            Arc::new(Dialogs::new(Arc::default())),
+            Waker::noop().clone(),
+        );
         blocker
             .submit(r#"{"service":"filesystem","operation":"exists","path":"blocker"}"#)
             .unwrap();
         waiting.recv_timeout(Duration::from_secs(10)).unwrap();
-        let first = Io::new(files.clone(), Waker::noop().clone());
-        let second = Io::new(files.clone(), Waker::noop().clone());
+        let first = Io::new(
+            files.clone(),
+            Arc::new(Dialogs::new(Arc::default())),
+            Waker::noop().clone(),
+        );
+        let second = Io::new(
+            files.clone(),
+            Arc::new(Dialogs::new(Arc::default())),
+            Waker::noop().clone(),
+        );
         let request = r#"{"service":"filesystem","operation":"exists","path":"missing"}"#;
         for _ in 0..16 {
             let reply: Value = serde_json::from_str(&first.submit(request).unwrap()).unwrap();
@@ -239,7 +315,11 @@ mod tests {
                     .unwrap();
             }
         }));
-        let io = Io::new(files.clone(), Waker::noop().clone());
+        let io = Io::new(
+            files.clone(),
+            Arc::new(Dialogs::new(Arc::default())),
+            Waker::noop().clone(),
+        );
         io.submit(r#"{"service":"filesystem","operation":"write-text","path":"issued","contents":"whole"}"#).unwrap();
         waiting.recv_timeout(Duration::from_secs(10)).unwrap();
         io.submit(
@@ -279,7 +359,11 @@ mod tests {
     fn pending_io_is_bounded_until_the_run_consumes_completions() {
         let root = std::env::temp_dir().join(format!("lucent-io-cap-{}", std::process::id()));
         let files = Arc::new(Files::start(root.clone()).unwrap());
-        let io = Io::new(files.clone(), Waker::noop().clone());
+        let io = Io::new(
+            files.clone(),
+            Arc::new(Dialogs::new(Arc::default())),
+            Waker::noop().clone(),
+        );
         for _ in 0..MAX_REQUESTS {
             let reply: Value = serde_json::from_str(
                 &io.submit(r#"{"service":"filesystem","operation":"exists","path":"missing"}"#)
