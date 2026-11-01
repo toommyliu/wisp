@@ -437,3 +437,23 @@ fn bar_menus_act_above_dialogs_while_player_clicks_stay_blocked(cx: &mut TestApp
         assert_eq!(h.read_with(cx, |h, _| h.clicks.get()), 0);
     }
 }
+
+#[gpui::test]
+fn closing_a_bar_menu_keeps_player_keyboard_focus_blocked(cx: &mut TestAppContext) {
+    for kind in [
+        ScriptDialogKind::Confirm,
+        ScriptDialogKind::Prompt {
+            placeholder: "hint".into(),
+        },
+    ] {
+        let (h, cx, responses) = setup(kind, cx);
+        let options = cx.debug_bounds("Options ▾").unwrap();
+        cx.simulate_click(options.center(), Default::default());
+        cx.run_until_parked();
+        press(cx, "escape");
+        let game = h.read_with(cx, |h, _| h.game.clone());
+        assert!(!cx.update(|window, _| game.is_focused(window)));
+        press(cx, "enter");
+        assert_eq!(responses.borrow().len(), 1);
+    }
+}
