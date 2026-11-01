@@ -72,6 +72,7 @@ macro_rules! queries {
 }
 
 queries! {
+    ScriptOptions {} => crate::script_options::ScriptOptions,
     Environment {} => crate::environment::EnvironmentState,
     CombatState { priorities: Vec<MonsterSelector> } => Vec<crate::combat_state::CombatMonsterState>,
     AutoAttack {} => crate::auto_attack::AutoAttackRecords,
