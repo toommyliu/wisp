@@ -1,3 +1,5 @@
+mod controls;
+mod game_bar;
 #[cfg(feature = "overlay-check")]
 mod overlay_check;
 mod player_view;
@@ -42,6 +44,9 @@ pub fn open(
 
 pub struct GameWindow {
     player: Result<Entity<PlayerView>, PlayerViewError>,
+    bar: Option<Entity<game_bar::GameBar>>,
+    _actions: Option<gpui::Subscription>,
+    _watch: Option<gpui::Task<()>>,
 }
 
 impl GameWindow {
@@ -56,7 +61,54 @@ impl GameWindow {
             Ok(view) => window.focus(&view.focus_handle(cx), cx),
             Err(error) => tracing::error!(%error, "no player view"),
         }
-        GameWindow { player }
+        let mut bar = None;
+        let mut actions = None;
+        let mut watch = None;
+        if let Ok(view) = &player {
+            let focus = view.focus_handle(cx);
+            let game_bar = cx.new(|cx| game_bar::GameBar::new(focus, window, cx));
+            actions = Some(cx.subscribe_in(
+                &game_bar,
+                window,
+                |this, _, action: &game_bar::BarAction, window, cx| {
+                    this.bar_action(action.clone(), window, cx)
+                },
+            ));
+            let (sender, receiver) = async_channel::bounded(1);
+            view.read(cx)
+                .session()
+                .watch(std::task::Waker::from(std::sync::Arc::new(
+                    controls::BarWake(sender),
+                )));
+            game_bar.update(cx, |bar, cx| {
+                bar.state.read(view.read(cx).session());
+                bar.refresh(window, cx);
+            });
+            watch = Some(cx.spawn_in(window, async move |this, cx| {
+                while receiver.recv().await.is_ok() {
+                    if this
+                        .update_in(cx, |this, window, cx| this.refresh_bar(window, cx))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }));
+            #[cfg(feature = "overlay-check")]
+            if let Ok(name) = std::env::var("LUCENT_OPEN_MENU") {
+                let capture_bar = game_bar.clone();
+                window.on_next_frame(move |_, cx| {
+                    capture_bar.update(cx, |bar, cx| bar.open_for_capture(&name, cx))
+                });
+            }
+            bar = Some(game_bar);
+        }
+        GameWindow {
+            player,
+            bar,
+            _actions: actions,
+            _watch: watch,
+        }
     }
 }
 
@@ -71,7 +123,11 @@ impl Render for GameWindow {
                 .child(error.to_string()),
         };
         #[cfg(feature = "overlay-check")]
-        let game_area = game_area.relative().children(overlay_check::overlay());
+        let game_area = if std::env::var_os("LUCENT_OPEN_MENU").is_some() {
+            game_area
+        } else {
+            game_area.relative().children(overlay_check::overlay())
+        };
         div()
             .size_full()
             .flex()
@@ -83,6 +139,7 @@ impl Render for GameWindow {
                     .w_full()
                     .bg(rgb(0x1f1f1f)),
             )
+            .children(self.bar.clone())
             .child(game_area)
     }
 }
