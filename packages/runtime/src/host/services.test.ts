@@ -31,23 +31,19 @@ describe("unavailable host services", () => {
       const http = yield* services.http();
       const script = makeScriptRuntimeApi({
         dialogs: unavailableScriptDialogs,
-        getOptions: () =>
-          Effect.succeed({
-            restartAfterReconnect: false,
-            roomPolicy: { kind: "public" },
-            safeStartStop: true,
-          }),
-        getInputValues: () => ({}),
-        log: () => undefined,
-        scope,
-        setOptions: (update) =>
-          Effect.succeed(
-            update({
+        scriptOptions: {
+          get: () =>
+            Effect.succeed({
               restartAfterReconnect: false,
               roomPolicy: { kind: "public" },
               safeStartStop: true,
             }),
-          ),
+          reset: () => Effect.void,
+          update: () => Effect.void,
+        },
+        getInputValues: () => ({}),
+        log: () => undefined,
+        scope,
         source: { sourceName: "farm.js" },
       });
       expect(yield* failure(army.start("farm"))).toBe(

@@ -1,0 +1,79 @@
+[
+  {"name": "partial patches and room boundaries", "steps": [
+    {"patch": {},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "random-private"},"safeStartStop": true}},
+    {"patch": {"restartAfterReconnect": true},"valid": true,"expected": {"restartAfterReconnect": true,"roomPolicy": {"kind": "random-private"},"safeStartStop": true}},
+    {"patch": {"safeStartStop": false},"valid": true,"expected": {"restartAfterReconnect": true,"roomPolicy": {"kind": "random-private"},"safeStartStop": false}},
+    {"patch": {"roomPolicy": {"kind": "public"}},"valid": true,"expected": {"restartAfterReconnect": true,"roomPolicy": {"kind": "public"},"safeStartStop": false}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 1}},"valid": true,"expected": {"restartAfterReconnect": true,"roomPolicy": {"kind": "specific","roomNumber": 1},"safeStartStop": false}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 99999}},"valid": true,"expected": {"restartAfterReconnect": true,"roomPolicy": {"kind": "specific","roomNumber": 99999},"safeStartStop": false}},
+    {"patch": {"roomPolicy": {"kind": "random-private"}},"valid": true,"expected": {"restartAfterReconnect": true,"roomPolicy": {"kind": "random-private"},"safeStartStop": false}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\",\"roomNumber\":0}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 0},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\",\"roomNumber\":-1}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": -1},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\",\"roomNumber\":100000}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 100000},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\",\"roomNumber\":4294967295}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 4294967295},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\",\"roomNumber\":1.5}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 1.5},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\",\"roomNumber\":\"42\"}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": "42"},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\",\"roomNumber\":null}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": null},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":null}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": null,"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"specific\"}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "specific"},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"roomPolicy\":{\"kind\":\"unknown\"}}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"roomPolicy": {"kind": "unknown"},"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"restartAfterReconnect\":null}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"restartAfterReconnect": null,"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"restartAfterReconnect\":0}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"restartAfterReconnect": 0,"safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"restartAfterReconnect\":\"true\"}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"restartAfterReconnect": "true","safeStartStop": false},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"safeStartStop\":null}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"safeStartStop": null},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"safeStartStop\":0}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"safeStartStop": 0},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]},
+  {"name": "invalid {\"safeStartStop\":\"true\"}", "steps": [
+    {"patch": {"roomPolicy": {"kind": "specific","roomNumber": 42}},"valid": true,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}},
+    {"patch": {"safeStartStop": "true"},"valid": false,"expected": {"restartAfterReconnect": false,"roomPolicy": {"kind": "specific","roomNumber": 42},"safeStartStop": true}}
+  ]}
+]
