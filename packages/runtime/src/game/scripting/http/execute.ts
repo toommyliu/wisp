@@ -5,7 +5,7 @@ import {
   type DesktopHttpBridge,
   type HttpRequestPayload,
 } from "../../../shared/http";
-import type { HttpResponse } from "../ScriptApi";
+import type { HttpResponse } from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "../scriptAsyncScope";
 import { makeHttpResponse } from "./response";
 
