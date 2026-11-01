@@ -143,7 +143,10 @@ fn outcomes_decode_the_wire_contract() {
         ),
         (
             r#"{"kind":"script-exited","closeClient":true}"#,
-            ScriptOutcome::Exited { close_client: true },
+            ScriptOutcome::Exited {
+                logout: false,
+                close_client: true,
+            },
         ),
         (
             r#"{"kind":"externally-stopped"}"#,

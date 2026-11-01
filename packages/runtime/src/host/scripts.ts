@@ -52,7 +52,10 @@ export const start = (
   return runtime.runPromise(
     Effect.gen(function* () {
       const runner = yield* ScriptRunner;
-      const handle = yield* runner.start({ name, load }, JSON.parse(inputsJson));
+      const handle = yield* runner.start(
+        { name, load },
+        JSON.parse(inputsJson),
+      );
       const outcome = yield* handle.terminal;
       switch (outcome.kind) {
         case "completed":
@@ -64,7 +67,11 @@ export const start = (
             details: outcome.status.detailsText ?? null,
           };
         case "script-exited":
-          return { kind: "script-exited", closeClient: outcome.closeClient };
+          return {
+            kind: "script-exited",
+            closeClient: outcome.closeClient,
+            logout: outcome.logout,
+          };
         case "script-stopped":
         case "externally-stopped":
           return { kind: outcome.kind, reason: outcome.status.reason ?? null };
@@ -75,5 +82,7 @@ export const start = (
 
 export const stop = (reason?: string): Promise<void> =>
   runtime.runPromise(
-    Effect.flatMap(ScriptRunner, (runner) => runner.stop(reason)).pipe(Effect.asVoid),
+    Effect.flatMap(ScriptRunner, (runner) => runner.stop(reason)).pipe(
+      Effect.asVoid,
+    ),
   );

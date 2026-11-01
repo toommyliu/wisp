@@ -29,6 +29,7 @@ use parking_lot::RwLock;
 
 #[derive(Clone)]
 pub(crate) struct Records {
+    pub(crate) attachments: Arc<AtomicU64>,
     pub(crate) files: Arc<crate::data::Files>,
     pub(crate) http: Arc<crate::scripting::http::Http>,
     pub(crate) dialogs: Arc<dialogs::Dialogs>,
@@ -148,6 +149,13 @@ impl Host {
         Ok(Session {
             supervisor: None,
             script_status: Arc::default(),
+            lifecycle_status: Arc::new(RwLock::new(
+                lifecycle::Lifecycle::new(lifecycle::Binding {
+                    player: lifecycle::PlayerId(1),
+                    connection: lifecycle::ConnectionEpoch(0),
+                })
+                .status(),
+            )),
             dialogs: Arc::new(dialogs::Dialogs::new(changes.clone())),
             changes,
             detached: Arc::default(),
@@ -157,7 +165,7 @@ impl Host {
             script_options: Arc::default(),
             auto_relogin: relogin.records.clone(),
             relogin,
-            next_attachment: 0,
+            next_attachment: Arc::new(AtomicU64::new(0)),
             operations,
             player: Some(player),
             movie,
@@ -206,6 +214,7 @@ pub struct Session {
     dialogs: Arc<dialogs::Dialogs>,
     supervisor: Option<Supervisor>,
     script_status: Arc<RwLock<ScriptStatus>>,
+    lifecycle_status: Arc<RwLock<lifecycle::Status>>,
     changes: Arc<Changes>,
     detached: Arc<AtomicBool>,
     auto_attack: Arc<auto_attack::Shared>,
@@ -215,7 +224,7 @@ pub struct Session {
     auto_relogin: Arc<RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>>,
     relogin: Arc<relogin::Shared>,
     player: Option<player::Handle>,
-    next_attachment: u64,
+    next_attachment: Arc<AtomicU64>,
     operations: operations::Operations,
     movie: Movie,
     id: u64,
@@ -251,13 +260,17 @@ impl Session {
         result
     }
     pub fn stop_script(&self) {
-        if let Some(supervisor) = &self.supervisor {
-            supervisor.controls().stop();
+        if let Some(supervisor) = &self.supervisor
+            && let Some(controls) = supervisor.controls()
+        {
+            controls.stop();
         }
     }
     pub fn kill_script(&self) {
-        if let Some(supervisor) = &self.supervisor {
-            supervisor.controls().kill();
+        if let Some(supervisor) = &self.supervisor
+            && let Some(controls) = supervisor.controls()
+        {
+            controls.kill();
         }
     }
     pub fn script_dialog(&self) -> Option<lucent_protocol::script::ScriptDialog> {
@@ -279,6 +292,22 @@ impl Session {
     pub fn script_status(&self) -> ScriptStatus {
         self.script_status.read().clone()
     }
+    #[cfg(feature = "testing")]
+    pub fn script_status_reader(&self) -> impl Fn() -> ScriptStatus + Send + Sync + 'static {
+        let status = self.script_status.clone();
+        move || status.read().clone()
+    }
+
+    pub fn script_lifecycle(&self) -> lifecycle::Status {
+        self.lifecycle_status.read().clone()
+    }
+    pub fn script_queue(&self, command: lifecycle::QueueCommand) -> Result<(), RuntimeError> {
+        self.supervisor
+            .as_ref()
+            .ok_or(RuntimeError::Stopped)?
+            .script_queue(command)
+    }
+
     pub fn settings(&self) -> GameSettings {
         self.settings.read().clone()
     }
@@ -305,6 +334,7 @@ impl Session {
     }
     fn records(&self) -> Records {
         Records {
+            attachments: self.next_attachment.clone(),
             files: self.host.shared.files.clone(),
             http: self.host.shared.http.clone(),
             dialogs: self.dialogs.clone(),
@@ -398,11 +428,11 @@ impl Session {
 
     pub fn attach(&mut self, interests: crate::bridge::EventInterests) -> Option<ScriptLink> {
         let player = self.player.as_ref()?;
-        let attachment = AttachmentId(self.next_attachment);
-        self.next_attachment = self
-            .next_attachment
-            .checked_add(1)
-            .expect("script attachment IDs exhausted");
+        let attachment = AttachmentId(
+            self.next_attachment
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("script attachment IDs exhausted"),
+        );
         let inbox = player.inbox.clone();
         let (producer, events) = script_events(EVENT_CAPACITY, interests);
         inbox.post(player::Msg::Attach(attachment, producer));

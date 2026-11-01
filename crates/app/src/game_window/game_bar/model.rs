@@ -108,9 +108,11 @@ impl BarState {
         match self.phase {
             Phase::Idle => "Idle",
             Phase::Waiting => "Waiting for login",
+            Phase::Preparing => "Preparing",
             Phase::Starting => "Starting",
             Phase::Running => "Running",
             Phase::Stopping => "Stopping",
+            Phase::Finishing => "Finishing",
         }
     }
     pub fn script_action(&self) -> Option<BarAction> {
@@ -119,8 +121,11 @@ impl BarState {
         }
         match self.phase {
             Phase::Idle => self.loaded.as_ref().map(|_| BarAction::Start),
-            Phase::Waiting | Phase::Starting | Phase::Running => Some(BarAction::Stop),
+            Phase::Waiting | Phase::Preparing | Phase::Starting | Phase::Running => {
+                Some(BarAction::Stop)
+            }
             Phase::Stopping => Some(BarAction::Kill),
+            Phase::Finishing => None,
         }
     }
     pub fn script_label(&self) -> &'static str {

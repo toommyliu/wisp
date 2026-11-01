@@ -72,6 +72,7 @@ function outcome(
       return {
         kind,
         closeClient: false,
+        logout: false,
         status: { state: "stopped", stoppedAt: date },
       };
     case "script-stopped":
