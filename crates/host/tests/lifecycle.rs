@@ -1,6 +1,9 @@
 mod common;
 
-use common::{logs::Logs, *};
+use common::{hold::hold, logs::Logs, *};
+use lucent_host::Supervisor;
+use lucent_protocol::bridge::Value;
+const INFO: tracing::Level = tracing::Level::INFO;
 use lucent_host::{Session, testing};
 use lucent_protocol::script::ScriptPhase;
 use std::{
@@ -8,6 +11,7 @@ use std::{
     task::{Wake, Waker},
     time::{Duration, Instant},
 };
+use tracing_subscriber::prelude::*;
 
 struct Changed(mpsc::Sender<()>);
 impl Wake for Changed {
@@ -15,17 +19,20 @@ impl Wake for Changed {
         let _ = self.0.send(());
     }
 }
-fn wait_idle(session: &Session) {
+fn wait_status(session: &Session, ready: impl Fn(&Session) -> bool) {
     let (tx, rx) = mpsc::channel();
     session.watch(Waker::from(Arc::new(Changed(tx))));
     let deadline = Instant::now() + TIMEOUT;
     loop {
-        if session.script_status().phase == ScriptPhase::Idle {
+        if ready(session) {
             return;
         }
         rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .unwrap();
     }
+}
+fn wait_idle(session: &Session) {
+    wait_status(session, |s| s.script_status().phase == ScriptPhase::Idle);
 }
 #[test]
 fn a_nonreturning_finalizer_is_forced_after_the_stop_grace() {
@@ -610,4 +617,237 @@ fn exit_flags_reach_the_host_and_logout_finishes_before_idle() {
                 .unwrap()
         );
     }
+}
+
+#[test]
+fn a_readiness_reply_from_an_old_connection_is_ignored() {
+    let logs = Logs::default();
+    let (ctl_h, ctl) = hold(
+        "session 1: o.js is waiting for login",
+        Some("lucent-supervisor"),
+        true,
+    );
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry()
+            .with(logs.clone())
+            .with(ctl_h),
+    );
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) =
+        testing::start_probe(&host, ready_movie().recording("player.isLoaded"));
+    let mut supervisor = Supervisor::start(&mut session, None).unwrap();
+    log_in(&observer);
+    supervisor
+        .start_script(
+            &mut session,
+            loose(&[("p.js", "export default function* () {}")]),
+        )
+        .unwrap();
+    logs.wait_for(INFO, "session 1: p.js completed");
+    wait_idle(&session);
+    while observer.try_event().unwrap().is_some() {}
+    supervisor
+        .start_script(
+            &mut session,
+            loose(&[(
+                "o.js",
+                "export default function* () { console.log('o body'); }",
+            )]),
+        )
+        .unwrap();
+    ctl.wait();
+    emit_connection(&observer, "OnConnection");
+    log_in(&observer);
+    ctl.open();
+    wait_status(&session, |s| {
+        s.script_status()
+            .last_end
+            .is_some_and(|end| end.starts_with("o.js"))
+    });
+    wait_idle(&session);
+    let mut reads = 0;
+    while let Some(event) = observer.try_event().unwrap() {
+        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event
+            && event.name == "onProbeCall"
+            && event.args.first() == Some(&Value::String("player.isLoaded".into()))
+        {
+            reads += 1;
+        }
+    }
+    println!(
+        "last_end {:?} body {} isLoaded reads {reads}",
+        session.script_status().last_end,
+        logs.messages(INFO)
+            .iter()
+            .filter(|line| *line == "o body")
+            .count()
+    );
+    assert_eq!(
+        session.script_status().last_end.as_deref(),
+        Some("o.js completed")
+    );
+}
+
+#[test]
+fn readiness_times_out_through_the_controller_without_booting_a_worker() {
+    let logs = Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        ready_movie().responding("player.isLoaded", [(serde_json::json!(false), vec![])]),
+    );
+    session.supervise(None).unwrap();
+    log_in(&observer);
+    session
+        .start_script(loose(&[(
+            "timeout.js",
+            "export default function* () { console.log('unexpected body'); }",
+        )]))
+        .unwrap();
+    wait_status(&session, |s| s.script_status().last_end.is_some());
+    wait_idle(&session);
+    assert_eq!(
+        session.script_status().last_end.as_deref(),
+        Some("timeout.js failed: Script readiness timed out after 10 s")
+    );
+    assert!(
+        !logs
+            .messages(tracing::Level::DEBUG)
+            .iter()
+            .any(|line| line == "script worker booting")
+    );
+    assert!(
+        !logs
+            .messages(tracing::Level::INFO)
+            .iter()
+            .any(|line| line == "unexpected body")
+    );
+}
+
+#[test]
+fn stop_cancels_a_pending_reconnect_restart() {
+    let logs = Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    restart_option(&session, true);
+    session.supervise(None).unwrap();
+    log_in(&observer);
+    let source = "import * as script from 'lucent/script'; export default function* () { console.log('restart body'); yield* script.sleep('1 hour'); }";
+    session
+        .start_script(loose(&[("restart.js", source)]))
+        .unwrap();
+    logs.wait_for(tracing::Level::INFO, "restart body");
+    emit_connection(&observer, "OnConnectionLost");
+    wait_status(&session, |s| {
+        s.script_lifecycle().active.is_none() && s.script_lifecycle().waiting_to_restart
+    });
+    assert_eq!(session.script_status().phase, ScriptPhase::Waiting);
+    assert_eq!(
+        session.script_status().script.as_deref(),
+        Some("restart.js")
+    );
+    session.stop_script();
+    wait_status(&session, |s| !s.script_lifecycle().waiting_to_restart);
+    assert_eq!(session.script_status().phase, ScriptPhase::Idle);
+    emit_connection(&observer, "OnConnection");
+    log_in(&observer);
+    session
+        .start_script(loose(&[("next.js", "export default function* () {}")]))
+        .unwrap();
+    wait_idle(&session);
+    assert_eq!(
+        session.script_status().last_end.as_deref(),
+        Some("next.js completed")
+    );
+    assert_eq!(
+        logs.messages(tracing::Level::INFO)
+            .iter()
+            .filter(|line| *line == "restart body")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_killed_run_cannot_issue_queued_work_before_its_thread_exits() {
+    use lucent_protocol::{operation::Operation, query::ItemSelector};
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+    let logs = Logs::default();
+    let (held_thread, thread_gate) = hold("queued operation held", Some("lucent-js-"), true);
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry()
+            .with(logs.clone())
+            .with(held_thread),
+    );
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    session.supervise(None).unwrap();
+    log_in(&observer);
+    observer.call_loader("probe.emit", vec![Value::String("onExtensionResponse".into()), Value::String(serde_json::json!({"type":"json","dataObj":{"cmd":"dropItem","items":{"70":{"ItemID":70,"sName":"Dropped Item","iQty":2}}}}).to_string())]).recv_timeout(TIMEOUT).unwrap();
+    let (entered, waiting) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let resume = Mutex::new(resume);
+    let once = AtomicBool::new(false);
+    let (issued, issuance) = mpsc::channel();
+    observer.set_operation_probe(move |id, dispatched| {
+        if dispatched {
+            let _ = issued.send(id);
+        } else if !once.swap(true, Ordering::AcqRel) {
+            let _ = entered.send(id);
+            let _ = resume.lock().unwrap().recv_timeout(TIMEOUT);
+        }
+    });
+    struct Release(Option<mpsc::Sender<()>>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            if let Some(tx) = self.0.take() {
+                let _ = tx.send(());
+            }
+        }
+    }
+    let release = Release(Some(release));
+    session.start_script(loose(&[("queued.js", r#"
+        import { Effect } from "effect";
+        import * as api from "lucent/api";
+        export default function* () {
+            yield* Effect.raceFirst(api.drops.accept(70), Effect.sync(() => console.log("queued operation held")));
+        }
+    "#)])).unwrap();
+    thread_gate.wait();
+    let queued = waiting.recv_timeout(TIMEOUT).unwrap();
+    session.kill_script();
+    wait_status(&session, |s| {
+        s.script_status().last_end.as_deref() == Some("queued.js was killed")
+    });
+    assert_eq!(session.script_status().phase, ScriptPhase::Finishing);
+    drop(release);
+    let sentinel = observer
+        .operate(Operation::AcceptDrop {
+            selector: ItemSelector::Id(999.0),
+        })
+        .unwrap();
+    let (tx, changed) = mpsc::channel();
+    observer.set_waker(Waker::from(Arc::new(Changed(tx))));
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        match observer.try_event().unwrap() {
+            Some(lucent_host::bridge::ScriptEvent::Operation { id, .. }) if id == sentinel => break,
+            Some(_) => continue,
+            None => changed
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap(),
+        }
+    }
+    assert!(!issuance.try_iter().any(|id| id == queued));
+    thread_gate.open();
+    wait_idle(&session);
 }

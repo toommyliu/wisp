@@ -82,8 +82,8 @@ fn session_records_follow_bar_actions() {
     assert!(!state.settings.custom_guild_configured);
 }
 
-#[test]
-fn adapter_stop_and_kill_have_distinct_outcomes() {
+#[gpui::test]
+fn adapter_controls_stop_kill_and_cancel_reconnect(cx: &mut gpui::TestAppContext) {
     use lucent_protocol::{
         bridge::Value,
         script::{ModulePath, Script},
@@ -175,6 +175,63 @@ fn adapter_stop_and_kill_have_distinct_outcomes() {
         }
         assert_eq!(session.script_status().last_end.as_deref(), Some(outcome));
     }
+    session
+        .update_script_options(lucent_protocol::script_options::ScriptOptionsPatch {
+            restart_after_reconnect: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+    let entry = ModulePath::loose("restart.js").unwrap();
+    session.start_script(Script::new(entry.clone(), BTreeMap::from([(entry,
+        "import * as script from 'lucent/script'; export default function* () { yield* script.sleep('1 hour'); }".into())]), BTreeMap::new()).unwrap()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while session.script_status().phase != Phase::Running {
+        changes
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+    }
+    observer
+        .call_loader(
+            "probe.emit",
+            vec![
+                Value::String("onConnection".into()),
+                Value::String("OnConnectionLost".into()),
+            ],
+        )
+        .recv_timeout(Duration::from_secs(15))
+        .unwrap();
+    while session.script_lifecycle().active.is_some()
+        || !session.script_lifecycle().waiting_to_restart
+    {
+        changes
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+    }
+    use std::{cell::RefCell, rc::Rc};
+    let actions = Rc::new(RefCell::new(Vec::new()));
+    let recorded = actions.clone();
+    let (bar, cx) = cx.add_window_view(|window, cx| {
+        let mut bar = GameBar::new(cx.focus_handle(), window, cx);
+        bar.state.loaded = Some("restart.js".into());
+        bar.state.read(&session);
+        cx.subscribe_self(move |_, action: &BarAction, _| {
+            recorded.borrow_mut().push(action.clone())
+        })
+        .detach();
+        bar
+    });
+    assert_eq!(bar.read_with(cx, |bar, _| bar.state.phase), Phase::Waiting);
+    cx.run_until_parked();
+    let stop = cx.debug_bounds("Stop").unwrap();
+    cx.simulate_click(stop.center(), Default::default());
+    assert_eq!(*actions.borrow(), vec![BarAction::Stop]);
+    apply(&mut session, actions.borrow_mut().pop().unwrap());
+    while session.script_lifecycle().waiting_to_restart {
+        changes
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+    }
+    assert_eq!(session.script_status().phase, Phase::Idle);
 }
 
 #[test]

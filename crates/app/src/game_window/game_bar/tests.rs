@@ -603,3 +603,40 @@ fn relogin_delay_preserves_fractional_seconds() {
         Some(Command::SetAutoReloginDelay { delay_ms: 3500. })
     ));
 }
+
+#[gpui::test]
+fn waiting_and_preparing_can_stop_and_finishing_disables_controls(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+    let actions = Rc::new(RefCell::new(Vec::new()));
+    let recorded = actions.clone();
+    let (bar, cx) = cx.add_window_view(|window, cx| {
+        let focus = cx.focus_handle();
+        let mut bar = GameBar::new(focus, window, cx);
+        bar.state.loaded = Some("test.js".into());
+        cx.subscribe_self(move |_, action: &BarAction, _| {
+            recorded.borrow_mut().push(action.clone())
+        })
+        .detach();
+        bar
+    });
+    for phase in [Phase::Waiting, Phase::Preparing, Phase::Finishing] {
+        bar.update(cx, |bar, cx| {
+            bar.state.phase = phase;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        actions.borrow_mut().clear();
+        let stop = cx.debug_bounds("Stop").unwrap();
+        cx.simulate_click(stop.center(), Default::default());
+        let load = cx.debug_bounds("Load").unwrap();
+        cx.simulate_click(load.center(), Default::default());
+        assert_eq!(
+            *actions.borrow(),
+            if phase == Phase::Finishing {
+                vec![]
+            } else {
+                vec![BarAction::Stop]
+            }
+        );
+    }
+}
