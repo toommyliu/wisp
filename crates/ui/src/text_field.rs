@@ -615,7 +615,6 @@ impl Render for TextField {
                     }
                     "escape" => {
                         this.set_value(this.committed.to_string(), cx);
-                        cx.stop_propagation();
                     }
                     _ => {}
                 }

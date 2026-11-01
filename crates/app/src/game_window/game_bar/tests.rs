@@ -211,6 +211,13 @@ fn numeric_fields_commit_and_escape_reverts(cx: &mut gpui::TestAppContext) {
     cx.simulate_input("abc");
     cx.simulate_keystrokes("escape");
     assert_eq!(actions.borrow().len(), 1);
+    cx.run_until_parked();
+    _bar.read_with(cx, |bar, _| assert!(bar.open.is_none()));
+    let bounds = cx.debug_bounds("Options ▾").unwrap();
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.run_until_parked();
+    let bounds = cx.debug_bounds("walk-speed").unwrap();
+    cx.simulate_click(bounds.center(), Default::default());
     cx.simulate_keystrokes("enter");
     assert_eq!(actions.borrow().last(), Some(&BarAction::WalkSpeed(99.)));
     cx.simulate_keystrokes("cmd-a");
