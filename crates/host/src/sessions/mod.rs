@@ -6,6 +6,7 @@ mod reaper;
 pub(crate) mod relogin;
 pub use reaper::reap;
 pub(crate) mod claims;
+pub mod lifecycle;
 mod link;
 pub use claims::ClaimGrant;
 pub(crate) mod operations;

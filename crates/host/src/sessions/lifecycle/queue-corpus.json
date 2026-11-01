@@ -1,0 +1,1820 @@
+[
+  {
+    "name": "empty start",
+    "operations": [
+      {
+        "op": "start",
+        "expect": {
+          "entries": [],
+          "available": [],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      }
+    ]
+  },
+  {
+    "name": "reorder remove and idle input refresh",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "c",
+        "expect": {
+          "entries": [
+            "a",
+            "b",
+            "c"
+          ],
+          "available": [
+            false,
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "move",
+        "name": "c",
+        "offset": -1,
+        "expect": {
+          "entries": [
+            "a",
+            "c",
+            "b"
+          ],
+          "available": [
+            false,
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "move",
+        "name": "a",
+        "offset": -1,
+        "expect": {
+          "entries": [
+            "a",
+            "c",
+            "b"
+          ],
+          "available": [
+            false,
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "remove",
+        "name": "c",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "edit",
+        "name": "a",
+        "available": true,
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            true,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "clear",
+        "expect": {
+          "entries": [],
+          "available": [],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      }
+    ]
+  },
+  {
+    "name": "input availability refreshed at preflight",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "available": true,
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            true
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "edit",
+        "name": "a",
+        "available": false,
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "available": true,
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            true
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "completed",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            true
+          ],
+          "phase": "idle",
+          "status": "completed",
+          "current": null,
+          "items": [
+            "completed"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "final completed",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "completed",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": "completed",
+          "current": null,
+          "items": [
+            "completed"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "final script-stopped",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "script-stopped",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": "completed",
+          "current": null,
+          "items": [
+            "script-stopped"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "final failed",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "failed",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": "failed",
+          "current": null,
+          "items": [
+            "failed"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "final externally-stopped",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "externally-stopped",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": "stopped",
+          "current": null,
+          "items": [
+            "externally-stopped"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "final script-exited",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "script-exited",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": "exited",
+          "current": null,
+          "items": [
+            "script-exited"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "completion and script stop advance in order",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "script-stopped",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 1,
+          "items": [
+            "script-stopped",
+            "active"
+          ],
+          "starts": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "completed",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": "completed",
+          "current": null,
+          "items": [
+            "script-stopped",
+            "completed"
+          ],
+          "starts": [
+            "a",
+            "b"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "failure pauses and resume advances",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "failed",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "paused",
+          "status": "paused",
+          "current": 0,
+          "items": [
+            "failed",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "remove",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "paused",
+          "status": "paused",
+          "current": 0,
+          "items": [
+            "failed",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "next",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 1,
+          "items": [
+            "failed",
+            "active"
+          ],
+          "starts": [
+            "a",
+            "b"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "completed",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": "completed",
+          "current": null,
+          "items": [
+            "failed",
+            "completed"
+          ],
+          "starts": [
+            "a",
+            "b"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "nonfinal script-exited halts",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "script-exited",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": "exited",
+          "current": null,
+          "items": [
+            "script-exited",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "nonfinal externally-stopped halts",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "externally-stopped",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": "stopped",
+          "current": null,
+          "items": [
+            "externally-stopped",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "canceled preparation ignores late resolution",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "cancel",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      }
+    ]
+  },
+  {
+    "name": "cancel while starting waits for terminal",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        },
+        "hold_start": true
+      },
+      {
+        "op": "cancel",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "stopping",
+          "status": "canceled",
+          "current": 0,
+          "items": [
+            "active"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "completed",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": "canceled",
+          "current": null,
+          "items": [
+            "completed"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "paused cancellation halts queue",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "failed",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "paused",
+          "status": "paused",
+          "current": 0,
+          "items": [
+            "failed",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "cancel",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": "canceled",
+          "current": null,
+          "items": [
+            "failed",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "all edits and duplicate start are refused during run",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "add",
+        "name": "b",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "add",
+        "name": "c",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "edit",
+        "name": "a",
+        "available": true,
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "move",
+        "name": "a",
+        "offset": 1,
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "remove",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "clear",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "next",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "running",
+          "status": "running",
+          "current": 0,
+          "items": [
+            "active",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      },
+      {
+        "op": "terminal",
+        "kind": "script-exited",
+        "expect": {
+          "entries": [
+            "a",
+            "b"
+          ],
+          "available": [
+            false,
+            false
+          ],
+          "phase": "idle",
+          "status": "exited",
+          "current": null,
+          "items": [
+            "script-exited",
+            "pending"
+          ],
+          "starts": [
+            "a"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "resolution failure abandons preparation",
+    "operations": [
+      {
+        "op": "add",
+        "name": "a",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "start",
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "preparing",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      },
+      {
+        "op": "prepared",
+        "failure": true,
+        "expect": {
+          "entries": [
+            "a"
+          ],
+          "available": [
+            false
+          ],
+          "phase": "idle",
+          "status": null,
+          "current": null,
+          "items": [],
+          "starts": []
+        }
+      }
+    ]
+  }
+]
