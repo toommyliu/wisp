@@ -106,6 +106,53 @@ fn unsafe_paths_never_write_outside_the_data_folder() {
 }
 
 #[test]
+fn windows_device_names_are_invalid_for_every_filesystem_operation() {
+    let workspace = Workspace::new();
+    let host = workspace.host();
+    let results = run(
+        &host,
+        r#"
+        const names = ["COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³", "CONIN$", "CONOUT$"];
+        const results = [];
+        for (const name of names) {
+            const mixed = name[0] + name.slice(1).toLowerCase();
+            for (const path of [name, `${name}.txt`, mixed, `${mixed}.TxT`]) {
+                for (const effect of [fs.readText(path), fs.readJson(path), fs.writeText(path, "text"),
+                    fs.writeJson(path, {}), fs.list(path), fs.exists(path), fs.remove(path)]) {
+                    results.push([path, yield* effect.pipe(match({
+                        onFailure: e => e.reason, onSuccess: () => "accepted"
+                    }))]);
+                }
+            }
+        }
+        return results;
+    "#,
+    );
+    for result in results.as_array().unwrap() {
+        assert_eq!(result[1], json!("invalid-path"), "{}", result[0]);
+    }
+    assert_eq!(results.as_array().unwrap().len(), 8 * 4 * 7);
+    assert_eq!(fs::read_dir(workspace.root()).unwrap().count(), 0);
+    assert_eq!(
+        run(
+            &host,
+            r#"
+        for (const path of ["COM0", "LPT0", "cOm0.txt", "lPt0.txt"]) {
+            yield* fs.writeText(path, "ordinary file");
+        }
+        return yield* Effect.forEach(["COM0", "LPT0", "cOm0.txt", "lPt0.txt"], path => fs.readText(path));
+    "#,
+        ),
+        json!([
+            "ordinary file",
+            "ordinary file",
+            "ordinary file",
+            "ordinary file"
+        ])
+    );
+}
+
+#[test]
 fn reads_and_writes_enforce_the_file_limit() {
     let workspace = Workspace::new();
     fs::write(

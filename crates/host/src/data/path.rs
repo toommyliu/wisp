@@ -12,12 +12,15 @@ pub(super) fn segments(path: &str) -> Result<Vec<&str>, &'static str> {
     }
     for segment in &segments {
         let stem = segment.split('.').next().unwrap().to_ascii_lowercase();
-        let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
-            || ["com", "lpt"].iter().any(|prefix| {
-                stem.strip_prefix(prefix).is_some_and(|suffix| {
-                    suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9')
-                })
-            });
+        let reserved = matches!(
+            stem.as_str(),
+            "con" | "prn" | "aux" | "nul" | "conin$" | "conout$"
+        ) || ["com", "lpt"].iter().any(|prefix| {
+            stem.strip_prefix(prefix).is_some_and(|suffix| {
+                (suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9'))
+                    || matches!(suffix, "¹" | "²" | "³")
+            })
+        });
         if segment.is_empty()
             || matches!(*segment, "." | "..")
             || segment.len() > 255
