@@ -63,6 +63,11 @@ pub fn switch_row(
     let label = label.into();
     button(id, label.clone(), ButtonStyle::Ghost, false)
         .role(accesskit::Role::Switch)
+        .aria_toggled(if checked {
+            accesskit::Toggled::True
+        } else {
+            accesskit::Toggled::False
+        })
         .aria_label(format!("{label}: {}", if checked { "On" } else { "Off" }))
         .w_full()
         .justify_between()
@@ -87,6 +92,11 @@ pub fn radio_row(
     let label = label.into();
     button(id, label.clone(), ButtonStyle::Ghost, false)
         .role(accesskit::Role::RadioButton)
+        .aria_toggled(if selected {
+            accesskit::Toggled::True
+        } else {
+            accesskit::Toggled::False
+        })
         .aria_selected(selected)
         .aria_label(format!(
             "{label}: {}",

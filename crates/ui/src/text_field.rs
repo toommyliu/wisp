@@ -584,6 +584,7 @@ impl Render for TextField {
             .debug_selector(|| self.id.to_string())
             .role(gpui::accesskit::Role::TextInput)
             .aria_label(self.label.clone())
+            .aria_value(self.content.clone())
             .tab_stop(true)
             .overflow_hidden()
             .flex()

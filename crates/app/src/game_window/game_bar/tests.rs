@@ -63,7 +63,7 @@ fn settings_preserve_unedited_fields() {
 #[test]
 fn automation_actions_emit_partial_updates() {
     let Command::PatchAutoZone { patch } =
-        command(BarAction::ZoneMap(AutoZoneMap::Ultradage)).unwrap()
+        command(BarAction::ZoneMap(Some(AutoZoneMap::Ultradage))).unwrap()
     else {
         panic!()
     };
@@ -166,7 +166,7 @@ fn clicks_emit_script_and_zone_actions(cx: &mut gpui::TestAppContext) {
     cx.simulate_click(bounds.center(), Default::default());
     assert_eq!(
         actions.borrow().last(),
-        Some(&BarAction::ZoneMap(AutoZoneMap::Ultradage))
+        Some(&BarAction::ZoneMap(Some(AutoZoneMap::Ultradage)))
     );
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
@@ -338,5 +338,266 @@ fn auto_attack_uses_the_generic_profile() {
     assert!(matches!(
         command(BarAction::Attack(false)),
         Some(Command::DisableAutoAttack {})
+    ));
+}
+
+#[test]
+fn number_controls_round_to_release_integers() {
+    for (action, key, expected) in [
+        (BarAction::WalkSpeed(8.5), "walkSpeed", 9.),
+        (BarAction::WalkSpeed(8.49), "walkSpeed", 8.),
+        (BarAction::Fps(24.5), "frameRate", 25.),
+    ] {
+        let Command::UpdateSettings { patch } = command(action).unwrap() else {
+            panic!()
+        };
+        assert_eq!(serde_json::to_value(patch).unwrap()[key], expected);
+    }
+}
+
+#[gpui::test]
+fn every_menu_control_emits_its_action(cx: &mut gpui::TestAppContext) {
+    use std::{cell::RefCell, rc::Rc};
+    let actions = Rc::new(RefCell::new(Vec::new()));
+    let recorded = actions.clone();
+    cx.update(lucent_ui::text_field::init);
+    let (_bar, cx) = cx.add_window_view(|window, cx| {
+        let mut bar = GameBar::new(cx.focus_handle(), window, cx);
+        bar.state.settings.walk_speed = 30.;
+        bar.state.settings.frame_rate = 60.;
+        bar.state.settings.custom_name_configured = true;
+        bar.state.settings.custom_guild_configured = true;
+        bar.state.servers = vec!["Twilly".into(), "Artix".into()];
+        cx.subscribe_self(move |_, action: &BarAction, _| {
+            recorded.borrow_mut().push(action.clone())
+        })
+        .detach();
+        bar.refresh(window, cx);
+        bar
+    });
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    let click = |cx: &mut gpui::VisualTestContext, label: &'static str| {
+        let bounds = cx
+            .debug_bounds(label)
+            .unwrap_or_else(|| panic!("missing {label}"));
+        cx.simulate_click(bounds.center(), Default::default());
+        cx.run_until_parked();
+    };
+    click(cx, "Options ▾");
+    for (label, expected) in [
+        (
+            "Infinite Range",
+            BarAction::Toggle(Toggle::InfiniteRange, true),
+        ),
+        ("Provoke Cell", BarAction::Toggle(Toggle::ProvokeCell, true)),
+        ("Enemy Magnet", BarAction::Toggle(Toggle::EnemyMagnet, true)),
+        ("Hide Players", BarAction::Toggle(Toggle::HidePlayers, true)),
+        (
+            "Skip Cutscenes",
+            BarAction::Toggle(Toggle::SkipCutscenes, true),
+        ),
+        (
+            "Anti-Counter",
+            BarAction::Toggle(Toggle::AntiCounter, false),
+        ),
+        ("Animations", BarAction::Toggle(Toggle::Animations, false)),
+        ("Collisions", BarAction::Toggle(Toggle::Collisions, false)),
+        ("Death Ads", BarAction::Toggle(Toggle::DeathAds, false)),
+    ] {
+        actions.borrow_mut().clear();
+        click(cx, label);
+        assert_eq!(*actions.borrow(), vec![expected], "{label}");
+    }
+    for (index, expected) in [
+        BarAction::WalkSpeed(8.),
+        BarAction::Fps(24.),
+        BarAction::CustomName(None),
+        BarAction::CustomGuild(None),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let bounds = cx
+            .debug_bounds(["walk-speed", "fps", "custom-name", "custom-guild"][index])
+            .unwrap();
+        actions.borrow_mut().clear();
+        let reset_x = cx.debug_bounds("Reset").unwrap().center().x;
+        cx.simulate_click(point(reset_x, bounds.center().y), Default::default());
+        cx.run_until_parked();
+        assert_eq!(*actions.borrow(), vec![expected]);
+    }
+    for (id, value, expected) in [
+        ("walk-speed", "31", BarAction::WalkSpeed(31.)),
+        ("fps", "50", BarAction::Fps(50.)),
+        (
+            "custom-name",
+            "Test",
+            BarAction::CustomName(Some("Test".into())),
+        ),
+        (
+            "custom-guild",
+            "Guild",
+            BarAction::CustomGuild(Some("Guild".into())),
+        ),
+    ] {
+        actions.borrow_mut().clear();
+        click(cx, id);
+        cx.simulate_keystrokes("cmd-a");
+        cx.simulate_input(value);
+        cx.simulate_keystrokes("enter");
+        assert_eq!(*actions.borrow(), vec![expected]);
+    }
+    for (label, expected) in [
+        ("Full", BarAction::Rendering(RenderingMode::Full)),
+        (
+            "Interface Only",
+            BarAction::Rendering(RenderingMode::InterfaceOnly),
+        ),
+        ("Minimal", BarAction::Rendering(RenderingMode::Minimal)),
+    ] {
+        actions.borrow_mut().clear();
+        click(cx, label);
+        assert_eq!(*actions.borrow(), vec![expected]);
+    }
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    click(cx, "Auto Zone ▾");
+    for (label, expected) in [
+        ("Auto Zone", BarAction::ZoneEnabled(true)),
+        ("None", BarAction::ZoneMap(None)),
+        (
+            "Ledgermayne",
+            BarAction::ZoneMap(Some(AutoZoneMap::Ledgermayne)),
+        ),
+        (
+            "More Skulls",
+            BarAction::ZoneMap(Some(AutoZoneMap::Moreskulls)),
+        ),
+        (
+            "Ultra Dage",
+            BarAction::ZoneMap(Some(AutoZoneMap::Ultradage)),
+        ),
+        (
+            "Dark Carnax",
+            BarAction::ZoneMap(Some(AutoZoneMap::Darkcarnax)),
+        ),
+        (
+            "Astral Shrine",
+            BarAction::ZoneMap(Some(AutoZoneMap::Astralshrine)),
+        ),
+        (
+            "Queen Iona",
+            BarAction::ZoneMap(Some(AutoZoneMap::Queeniona)),
+        ),
+        (
+            "Magnum Opus",
+            BarAction::ZoneMap(Some(AutoZoneMap::Magnumopus)),
+        ),
+    ] {
+        actions.borrow_mut().clear();
+        click(cx, label);
+        assert_eq!(*actions.borrow(), vec![expected], "{label}");
+    }
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    actions.borrow_mut().clear();
+    click(cx, "Auto Relogin ▾");
+    assert_eq!(*actions.borrow(), vec![BarAction::RefreshServers]);
+    for (label, expected) in [
+        ("Auto Relogin", BarAction::ReloginEnabled(true)),
+        ("None", BarAction::Server(None)),
+        ("Twilly", BarAction::Server(Some("Twilly".into()))),
+        ("Artix", BarAction::Server(Some("Artix".into()))),
+    ] {
+        actions.borrow_mut().clear();
+        click(cx, label);
+        assert_eq!(*actions.borrow(), vec![expected]);
+    }
+    actions.borrow_mut().clear();
+    click(cx, "delay");
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("5");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(*actions.borrow(), vec![BarAction::Delay(5.)]);
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    click(cx, "Auto Attack · Generic ▾");
+    actions.borrow_mut().clear();
+    click(cx, "Auto Attack");
+    assert_eq!(*actions.borrow(), vec![BarAction::Attack(true)]);
+    actions.borrow_mut().clear();
+    click(cx, "Profile: Generic");
+    assert!(actions.borrow().is_empty());
+}
+
+#[test]
+fn script_phases_have_readable_labels() {
+    for (phase, label) in [
+        (Phase::Idle, "Idle"),
+        (Phase::Waiting, "Waiting for login"),
+        (Phase::Starting, "Starting"),
+        (Phase::Running, "Running"),
+        (Phase::Stopping, "Stopping"),
+    ] {
+        let state = BarState {
+            phase,
+            ..Default::default()
+        };
+        assert_eq!(state.phase_label(), label);
+    }
+}
+
+#[test]
+fn relogin_status_matches_activity_and_retry_wording() {
+    use lucent_protocol::auto_relogin::{AutoReloginPhase, AutoReloginRecords};
+    let mut records = AutoReloginRecords::default();
+    records.status.last_error = Some("Connection failed".into());
+    assert_eq!(relogin_status(&records), "");
+    records.config.enabled = true;
+    assert_eq!(relogin_status(&records), "Waiting for login");
+    records.status.captured = true;
+    assert_eq!(relogin_status(&records), "Connection failed");
+    records.status.attempts_remaining = Some(3.);
+    assert_eq!(relogin_status(&records), "Connection failed");
+    records.status.last_error = None;
+    assert_eq!(relogin_status(&records), "");
+    records.status.last_error = Some("Previous connection failed".into());
+    for (phase, text) in [
+        (AutoReloginPhase::WaitingDelay, "Waiting to reconnect"),
+        (AutoReloginPhase::WaitingKick, "Waiting to reconnect"),
+        (AutoReloginPhase::AwaitingPlayerReady, "Reconnecting"),
+        (AutoReloginPhase::AwaitingServerSelect, "Reconnecting"),
+        (
+            AutoReloginPhase::Backoff { delay_ms: 3000. },
+            "Reconnecting",
+        ),
+        (AutoReloginPhase::LoggingIn, "Reconnecting"),
+        (AutoReloginPhase::SelectingServer, "Reconnecting"),
+    ] {
+        records.status.phase = phase;
+        for (attempts, suffix) in [
+            (None, ""),
+            (Some(3.), " (3 retries left)"),
+            (Some(1.), " (1 retry left)"),
+            (Some(0.), " (final attempt)"),
+        ] {
+            records.status.attempts_remaining = attempts;
+            assert_eq!(relogin_status(&records), format!("{text}{suffix}"));
+        }
+    }
+    records.status.phase = AutoReloginPhase::AwaitingSession;
+    records.status.captured = false;
+    records.status.attempts_remaining = Some(1.);
+    assert_eq!(relogin_status(&records), "Waiting for login (1 retry left)");
+    records.config.enabled = false;
+    assert_eq!(relogin_status(&records), "");
+}
+
+#[test]
+fn relogin_delay_preserves_fractional_seconds() {
+    assert!(matches!(
+        command(BarAction::Delay(3.5)),
+        Some(Command::SetAutoReloginDelay { delay_ms: 3500. })
     ));
 }

@@ -6,6 +6,8 @@ mod model;
 pub(super) use model::*;
 
 #[cfg(test)]
+mod input_tests;
+#[cfg(test)]
 mod tests;
 
 use gpui::{prelude::*, *};
@@ -15,6 +17,7 @@ use lucent_ui::{
     text_field::{Committed, TextField},
     theme,
 };
+use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Menu {
@@ -41,7 +44,6 @@ impl GameBar {
             state: BarState {
                 delay: 3.,
                 attack_profile: "Generic".into(),
-                relogin_status: "Waiting for login".into(),
                 ..Default::default()
             },
             open: None,
@@ -136,10 +138,29 @@ impl GameBar {
             .on_click(cx.listener(move |this, _, _, cx| this.emit(action.clone(), cx)))
     }
 
-    fn panel(&self, which: Menu, cx: &mut Context<Self>) -> Stateful<Div> {
-        let panel = menu("bar-menu", "Game controls")
+    fn panel(
+        &self,
+        which: Menu,
+        trigger_bounds: Rc<Cell<Bounds<Pixels>>>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let label = match which {
+            Menu::Options => "Options",
+            Menu::Zone => "Auto Zone",
+            Menu::Relogin => "Auto Relogin",
+            Menu::Attack => "Auto Attack",
+        };
+        let panel = menu("bar-menu", label)
             .track_focus(&self.focus)
-            .on_mouse_down_out(cx.listener(|this, _, window, cx| this.close(window, cx)));
+            .on_mouse_down_out(
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    if event.button != MouseButton::Left
+                        || !trigger_bounds.get().contains(&event.position)
+                    {
+                        this.close(window, cx);
+                    }
+                }),
+            );
         match which {
             Menu::Options => {
                 let mut panel = panel;
@@ -162,7 +183,8 @@ impl GameBar {
                     let disabled = match index {
                         2 => !self.state.settings.custom_name_configured,
                         3 => !self.state.settings.custom_guild_configured,
-                        _ => false,
+                        0 => self.state.settings.walk_speed == 8.,
+                        _ => self.state.settings.frame_rate == 24.,
                     };
                     let id = match index {
                         0 => "reset-speed",
@@ -213,13 +235,19 @@ impl GameBar {
                         cx,
                     ))
                     .child("Map");
-                let mut radios = radio_list("zone-maps", "Map");
+                let mut radios = radio_list("zone-maps", "Map").child(self.radio(
+                    "zone-none",
+                    "None",
+                    self.state.zone_map.is_none(),
+                    BarAction::ZoneMap(None),
+                    cx,
+                ));
                 for (index, (map, label)) in MAPS.into_iter().enumerate() {
                     radios = radios.child(self.radio(
                         ("zone-map", index),
                         label,
                         self.state.zone_map == Some(map),
-                        BarAction::ZoneMap(map),
+                        BarAction::ZoneMap(Some(map)),
                         cx,
                     ));
                 }
@@ -227,7 +255,9 @@ impl GameBar {
             }
             Menu::Relogin => {
                 let mut panel = panel
-                    .child(self.state.relogin_status.clone())
+                    .when(!self.state.relogin_status.is_empty(), |panel| {
+                        panel.child(self.state.relogin_status.clone())
+                    })
                     .child(self.toggle(
                         "relogin-enabled",
                         "Auto Relogin",
@@ -241,21 +271,21 @@ impl GameBar {
                             .items_center()
                             .gap_2()
                             .child("Delay (sec)")
-                            .child(self.fields[4].clone()),
+                            .child(div().flex_1().min_w_0().child(self.fields[4].clone())),
                     )
-                    .child("Server")
-                    .child(self.radio(
-                        "server-none",
-                        "None",
-                        self.state.server.is_none(),
-                        BarAction::Server(None),
-                        cx,
-                    ));
+                    .child("Server");
+                let mut servers = radio_list("relogin-servers", "Server").child(self.radio(
+                    "server-none",
+                    "None",
+                    self.state.server.is_none(),
+                    BarAction::Server(None),
+                    cx,
+                ));
                 if self.state.servers.is_empty() {
                     panel = panel.child("No servers found");
                 }
                 for (index, server) in self.state.servers.iter().enumerate() {
-                    panel = panel.child(self.radio(
+                    servers = servers.child(self.radio(
                         ("server", index),
                         server,
                         self.state.server.as_ref() == Some(server),
@@ -263,10 +293,12 @@ impl GameBar {
                         cx,
                     ));
                 }
-                panel
+                panel.child(servers)
             }
             Menu::Attack => panel
-                .child(self.state.attack_issue.clone())
+                .when(!self.state.attack_issue.is_empty(), |panel| {
+                    panel.child(self.state.attack_issue.clone())
+                })
                 .child(self.toggle(
                     "attack-enabled",
                     "Auto Attack",
@@ -283,13 +315,7 @@ impl GameBar {
         }
     }
 
-    fn trigger(
-        &self,
-        id: &'static str,
-        label: String,
-        which: Menu,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    fn trigger(&self, id: &'static str, label: String, which: Menu, cx: &mut Context<Self>) -> Div {
         let mut trigger = button(id, label, ButtonStyle::Ghost, false)
             .aria_expanded(self.open == Some(which))
             .relative()
@@ -306,15 +332,21 @@ impl GameBar {
                 }
             }));
         if self.open == Some(which) {
+            let trigger_bounds = Rc::new(Cell::new(Bounds::default()));
             trigger = trigger.child(
                 div()
                     .absolute()
                     .top(px(29.))
                     .left_0()
-                    .child(floating(self.panel(which, cx))),
+                    .child(floating(self.panel(which, trigger_bounds.clone(), cx))),
             );
+            div()
+                .flex_none()
+                .on_children_prepainted(move |bounds, _, _| trigger_bounds.set(bounds[0]))
+                .child(trigger)
+        } else {
+            div().flex_none().child(trigger)
         }
-        trigger
     }
 }
 
@@ -363,8 +395,9 @@ impl Render for GameBar {
             .text_size(px(13.))
             .child(
                 button("bar-load", "Load", ButtonStyle::Ghost, load_disabled).on_click(
-                    cx.listener(move |this, _, _, cx| {
+                    cx.listener(move |this, _, window, cx| {
                         if !load_disabled {
+                            this.close(window, cx);
                             this.emit(BarAction::Load, cx);
                         }
                     }),
@@ -407,13 +440,14 @@ impl Render for GameBar {
                         cx.new(|_| lucent_ui::Tooltip(end.clone().into())).into()
                     })
                 })
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_click(cx.listener(move |this, _, window, cx| {
                     if let Some(action) = action.clone() {
+                        this.close(window, cx);
                         this.emit(action, cx);
                     }
                 })),
             )
-            .child(format!("{:?}", self.state.phase))
+            .child(self.state.phase_label())
             .child(self.trigger("bar-options", "Options ▾".into(), Menu::Options, cx))
             .child(self.trigger(
                 "bar-zone",

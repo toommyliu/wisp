@@ -1,4 +1,5 @@
 use lucent_protocol::{
+    auto_relogin::{AutoReloginPhase, AutoReloginRecords},
     auto_zone::{AutoZoneMap, AutoZonePatch},
     command::Command,
     settings::{GameSettings, RenderingMode, SettingsPatch},
@@ -20,7 +21,7 @@ pub enum BarAction {
     CustomName(Option<String>),
     CustomGuild(Option<String>),
     ZoneEnabled(bool),
-    ZoneMap(AutoZoneMap),
+    ZoneMap(Option<AutoZoneMap>),
     ReloginEnabled(bool),
     Delay(f64),
     Server(Option<String>),
@@ -103,6 +104,15 @@ pub struct BarState {
 }
 
 impl BarState {
+    pub fn phase_label(&self) -> &'static str {
+        match self.phase {
+            Phase::Idle => "Idle",
+            Phase::Waiting => "Waiting for login",
+            Phase::Starting => "Starting",
+            Phase::Running => "Running",
+            Phase::Stopping => "Stopping",
+        }
+    }
     pub fn script_action(&self) -> Option<BarAction> {
         if self.loading {
             return None;
@@ -146,8 +156,8 @@ pub fn command(action: BarAction) -> Option<Command> {
             Toggle::Collisions => patch.collisions_enabled = Some(value),
             Toggle::DeathAds => patch.death_ads_visible = Some(value),
         },
-        BarAction::WalkSpeed(value) => patch.walk_speed = Some(value.clamp(1., 99.)),
-        BarAction::Fps(value) => patch.frame_rate = Some(value.clamp(1., 60.)),
+        BarAction::WalkSpeed(value) => patch.walk_speed = Some(value.round().clamp(1., 99.)),
+        BarAction::Fps(value) => patch.frame_rate = Some(value.round().clamp(1., 60.)),
         BarAction::Rendering(value) => patch.rendering_mode = Some(value),
         BarAction::CustomName(value) => patch.custom_name = Some(value),
         BarAction::CustomGuild(value) => patch.custom_guild = Some(value),
@@ -162,7 +172,7 @@ pub fn command(action: BarAction) -> Option<Command> {
         BarAction::ZoneMap(map) => {
             return Some(Command::PatchAutoZone {
                 patch: AutoZonePatch {
-                    map: Some(Some(map)),
+                    map: Some(map),
                     ..Default::default()
                 },
             });
@@ -187,4 +197,28 @@ pub fn command(action: BarAction) -> Option<Command> {
         BarAction::Load | BarAction::Start | BarAction::Stop | BarAction::Kill => return None,
     }
     Some(Command::UpdateSettings { patch })
+}
+
+pub fn relogin_status(records: &AutoReloginRecords) -> String {
+    if !records.config.enabled {
+        return String::new();
+    }
+    let status = match records.status.phase {
+        AutoReloginPhase::WaitingDelay | AutoReloginPhase::WaitingKick => "Waiting to reconnect",
+        _ if !records.status.captured => "Waiting for login",
+        AutoReloginPhase::AwaitingPlayerReady
+        | AutoReloginPhase::AwaitingServerSelect
+        | AutoReloginPhase::Backoff { .. }
+        | AutoReloginPhase::LoggingIn
+        | AutoReloginPhase::SelectingServer => "Reconnecting",
+        AutoReloginPhase::Armed | AutoReloginPhase::AwaitingSession | AutoReloginPhase::Failed => {
+            return records.status.last_error.clone().unwrap_or_default();
+        }
+    };
+    match records.status.attempts_remaining {
+        None => status.into(),
+        Some(attempts) if attempts <= 0. => format!("{status} (final attempt)"),
+        Some(1.) => format!("{status} (1 retry left)"),
+        Some(attempts) => format!("{status} ({attempts} retries left)"),
+    }
 }
