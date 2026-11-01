@@ -223,7 +223,7 @@ fn each_worker_ending_publishes_one_terminal_outcome() {
             tracing::Level::WARN,
         ),
         (
-            "export default function* () { const held = []; while (true) held.push(new Array(100000).fill('heap')); }",
+            "export default function* () { const held = []; for (;;) { try { held.push(new Array(100000).fill(1.5)); } catch {} } }",
             "none",
             "outcome.js was killed: it reached the 64 MiB heap limit",
             tracing::Level::WARN,
@@ -270,7 +270,12 @@ fn each_worker_ending_publishes_one_terminal_outcome() {
         } else {
             assert!(actual.starts_with(expected), "{actual}");
         }
-        let _ = level;
+        assert!(
+            logs.messages(level)
+                .iter()
+                .any(|line| line == &format!("session 1: {actual}")),
+            "terminal outcome was not logged at {level}"
+        );
         let endings = [tracing::Level::INFO, tracing::Level::WARN]
             .into_iter()
             .flat_map(|level| logs.messages(level))
@@ -338,8 +343,12 @@ fn reconnect_allocates_a_new_run_and_thread_with_reset_globals() {
         tracing::Level::INFO,
         "session 1: reconnect.js was stopped: Connection lost",
     );
-    wait_idle(&session);
-    assert!(session.script_lifecycle().waiting_to_restart);
+    wait_status(&session, |s| {
+        s.script_lifecycle().active.is_none()
+            && s.script_lifecycle().waiting_to_restart
+            && s.script_status().phase == ScriptPhase::Waiting
+    });
+    assert_eq!(session.script_status().phase, ScriptPhase::Waiting);
     emit_connection(&observer, "OnConnection");
     log_in(&observer);
     logs.wait_for_count(tracing::Level::INFO, "fresh global 1", 2);
@@ -443,7 +452,7 @@ fn disabled_restart_account_changes_and_player_replacement_cancel_reconnect() {
         "#)])).unwrap();
         logs.wait_for(tracing::Level::INFO, "cancel body");
         emit_connection(&observer, "OnConnectionLost");
-        wait_idle(&session);
+        wait_lifecycle(&session, |status| status.active.is_none());
         if invalidator == "off" {
             assert!(!session.script_lifecycle().waiting_to_restart);
         } else {
@@ -701,6 +710,7 @@ fn readiness_times_out_through_the_controller_without_booting_a_worker() {
     );
     session.supervise(None).unwrap();
     log_in(&observer);
+    let began = Instant::now();
     session
         .start_script(loose(&[(
             "timeout.js",
@@ -709,6 +719,7 @@ fn readiness_times_out_through_the_controller_without_booting_a_worker() {
         .unwrap();
     wait_status(&session, |s| s.script_status().last_end.is_some());
     wait_idle(&session);
+    assert!(began.elapsed() >= Duration::from_secs(10));
     assert_eq!(
         session.script_status().last_end.as_deref(),
         Some("timeout.js failed: Script readiness timed out after 10 s")
@@ -744,7 +755,9 @@ fn stop_cancels_a_pending_reconnect_restart() {
     logs.wait_for(tracing::Level::INFO, "restart body");
     emit_connection(&observer, "OnConnectionLost");
     wait_status(&session, |s| {
-        s.script_lifecycle().active.is_none() && s.script_lifecycle().waiting_to_restart
+        s.script_lifecycle().active.is_none()
+            && s.script_lifecycle().waiting_to_restart
+            && s.script_status().phase == ScriptPhase::Waiting
     });
     assert_eq!(session.script_status().phase, ScriptPhase::Waiting);
     assert_eq!(
@@ -759,6 +772,7 @@ fn stop_cancels_a_pending_reconnect_restart() {
     session
         .start_script(loose(&[("next.js", "export default function* () {}")]))
         .unwrap();
+    logs.wait_for(tracing::Level::INFO, "session 1: next.js completed");
     wait_idle(&session);
     assert_eq!(
         session.script_status().last_end.as_deref(),

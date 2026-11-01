@@ -90,14 +90,20 @@ struct Player {
 }
 impl Supervisor {
     pub(super) fn controls(&self) -> Option<ScriptControls> {
-        self.active
-            .read()
+        let status = self.active.read();
+        let run = status
             .active
             .as_ref()
-            .map(|active| ScriptControls {
-                inbox: self.inbox.clone(),
-                run: active.run,
-            })
+            .map(|active| active.run)
+            .or_else(|| {
+                status
+                    .waiting_to_restart
+                    .then(|| status.latest.as_ref().unwrap().run)
+            })?;
+        Some(ScriptControls {
+            inbox: self.inbox.clone(),
+            run,
+        })
     }
     pub fn start(
         session: &mut Session,
@@ -787,6 +793,7 @@ impl Supervision {
     fn publish(&self, status: lc::Status) {
         let old = self.active.read().clone();
         let phase = match status.active.as_ref().map(|a| a.phase) {
+            None if status.waiting_to_restart => ScriptPhase::Waiting,
             None => ScriptPhase::Idle,
             Some(lc::RunPhase::Waiting) => ScriptPhase::Waiting,
             Some(lc::RunPhase::SafeBefore) => ScriptPhase::Preparing,
@@ -815,7 +822,11 @@ impl Supervision {
         }
         let next = ScriptStatus {
             phase,
-            script: status.active.as_ref().map(|a| a.name.clone()),
+            script: status.active.as_ref().map(|a| a.name.clone()).or_else(|| {
+                status
+                    .waiting_to_restart
+                    .then(|| status.latest.as_ref().unwrap().name.clone())
+            }),
             last_end: status.latest.as_ref().map(|t| terminal_line(t).1),
         };
         let unchanged = *self.status.read() == next;

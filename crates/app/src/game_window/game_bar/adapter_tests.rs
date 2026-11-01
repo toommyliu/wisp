@@ -202,6 +202,7 @@ fn adapter_controls_stop_kill_and_cancel_reconnect(cx: &mut gpui::TestAppContext
         .unwrap();
     while session.script_lifecycle().active.is_some()
         || !session.script_lifecycle().waiting_to_restart
+        || session.script_status().phase != Phase::Waiting
     {
         changes
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))

@@ -196,6 +196,9 @@ impl Lifecycle {
                 self.queue_actions(actions, options, now, &mut result.effects);
             }
             Event::Command(Command::Stop { run, reason }) => {
+                if self.latest.as_ref().is_some_and(|ended| ended.run == run) {
+                    self.cancel_restart();
+                }
                 if self.state.run().is_some_and(|active| active.id == run) {
                     self.stop(reason, options, now, &mut result.effects);
                 }
