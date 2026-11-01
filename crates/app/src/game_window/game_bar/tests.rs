@@ -168,6 +168,17 @@ fn clicks_emit_script_and_zone_actions(cx: &mut gpui::TestAppContext) {
         actions.borrow().last(),
         Some(&BarAction::ZoneMap(AutoZoneMap::Ultradage))
     );
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    let bounds = cx.debug_bounds("Options ▾").unwrap();
+    cx.simulate_click(bounds.center(), Default::default());
+    cx.run_until_parked();
+    cx.simulate_keystrokes("down");
+    cx.simulate_keystrokes("space");
+    assert_eq!(
+        actions.borrow().last(),
+        Some(&BarAction::Toggle(Toggle::InfiniteRange, true))
+    );
 }
 
 #[gpui::test]

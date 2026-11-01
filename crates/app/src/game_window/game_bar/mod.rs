@@ -138,6 +138,7 @@ impl GameBar {
 
     fn panel(&self, which: Menu, cx: &mut Context<Self>) -> Stateful<Div> {
         let panel = menu("bar-menu", "Game controls")
+            .track_focus(&self.focus)
             .on_mouse_down_out(cx.listener(|this, _, window, cx| this.close(window, cx)));
         match which {
             Menu::Options => {
@@ -344,7 +345,6 @@ impl Render for GameBar {
             .overflow_x_scroll()
             .role(accesskit::Role::Toolbar)
             .aria_label("Game controls")
-            .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" && this.open.is_some() {
                     this.close(window, cx);
