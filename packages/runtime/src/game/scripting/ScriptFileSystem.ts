@@ -11,7 +11,7 @@ import type {
   DesktopFileSystemBridge,
   DesktopFileSystemResult,
 } from "../../shared/desktopBridge";
-import type { ScriptFileSystemApi } from "./ScriptApi";
+import type { ScriptFileSystemApi } from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "./scriptAsyncScope";
 
 const makeError = (

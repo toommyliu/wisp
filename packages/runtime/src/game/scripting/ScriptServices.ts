@@ -10,7 +10,7 @@ import type {
   ScriptAutoReloginApi,
   ScriptAutoZoneApi,
   ScriptHttpApi,
-} from "./ScriptApi";
+} from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "./scriptAsyncScope";
 
 export interface ScriptServicesShape {

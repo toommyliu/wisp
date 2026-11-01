@@ -1,7 +1,7 @@
 import * as NativeIssue from "effect/SchemaIssue";
 import * as Predicate from "effect/Predicate";
 
-import type { Issue, IssueCode, ParseOptions, Path } from "./public";
+import type { Issue, IssueCode, ParseOptions, Path } from "@lucent/scripting-api/schema";
 
 export class SchemaUsageError extends Error {
   override readonly name = "SchemaUsageError";

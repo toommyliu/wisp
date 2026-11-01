@@ -11,7 +11,7 @@ import type {
   EnvironmentError,
   EnvironmentSnapshot,
   ScriptEnvironmentApi,
-} from "../ScriptApi";
+} from "@lucent/scripting-api/contract";
 
 class ScriptEnvironmentError extends Schema.TaggedError<ScriptEnvironmentError>()(
   "EnvironmentError",

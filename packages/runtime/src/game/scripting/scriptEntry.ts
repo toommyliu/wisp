@@ -6,7 +6,7 @@ import {
   validateScriptInputValues,
   type ScriptInputValues,
 } from "@lucent/schemas/scriptInputs";
-import type { ScriptMain } from "./ScriptApi";
+import type { ScriptMain } from "@lucent/scripting-api/contract";
 import { ScriptLoadError } from "./ScriptRunnerErrors";
 
 export interface ScriptEntry {

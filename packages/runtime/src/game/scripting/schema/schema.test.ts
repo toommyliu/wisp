@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { scriptSchema as s } from "./index";
-import type { Infer, Input, Schema } from "./public";
+import type { Infer, Input, Schema } from "@lucent/scripting-api/schema";
 
 describe("lucent/schema", () => {
   it("validates and converts inputs while preserving inference", () => {
