@@ -196,7 +196,6 @@ fn reject_retries_back_off_then_warn_once_with_all_failed_items() {
     reject_else(&link);
     drops(&link, &[(1, "A"), (2, "B")]);
     let _supervisor = Supervisor::start(&mut session, None).unwrap();
-    let mut times = [vec![], vec![]];
     let mut order = vec![];
     for _ in 0..8 {
         let args = call(&link, "drops.reject");
@@ -204,18 +203,12 @@ fn reject_retries_back_off_then_warn_once_with_all_failed_items() {
             panic!("missing id");
         };
         order.push(id as i64);
-        times[id as usize - 1].push(Instant::now());
     }
     logs.wait_for(
         tracing::Level::WARN,
         "environment drop rejection retries exhausted: [1, 2]",
     );
     assert_eq!(&order[..2], &[1, 2]);
-    for times in times {
-        for (pair, delay) in times.windows(2).zip([100, 200, 400]) {
-            assert!(pair[1] - pair[0] >= Duration::from_millis(delay - 10));
-        }
-    }
     assert_eq!(
         logs.messages(tracing::Level::WARN)
             .iter()
@@ -472,25 +465,32 @@ fn empty_configuration_does_not_wake_and_overflow_rescans_current_drops() {
     assert_eq!(counter.wakes.load(std::sync::atomic::Ordering::Relaxed), 0);
     assert_eq!(remaining(&writer), [70]);
     edit(&writer, json!({"kind":"addItem","name":"Wanted"}));
-    let until = Instant::now() + TIMEOUT;
-    loop {
-        let next = policy.advance(Instant::now());
-        if remaining(&writer).is_empty()
-            && counter.wakes.load(std::sync::atomic::Ordering::Relaxed) > 0
-        {
-            break;
+    assert!(writer.overflowed());
+    let reconcile = |policy: &mut lucent_host::automation::DropPolicy| {
+        let until = Instant::now() + TIMEOUT;
+        loop {
+            let next = policy.advance(Instant::now());
+            if remaining(&writer).is_empty()
+                && counter.wakes.load(std::sync::atomic::Ordering::Relaxed) > 0
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < until,
+                "overflow did not resynchronize drops"
+            );
+            thread::park_timeout(
+                next.unwrap_or(until)
+                    .min(until)
+                    .saturating_duration_since(Instant::now()),
+            );
         }
-        assert!(
-            Instant::now() < until,
-            "overflow did not resynchronize drops"
-        );
-        thread::park_timeout(
-            next.unwrap_or(until)
-                .min(until)
-                .saturating_duration_since(Instant::now()),
-        );
+    };
+    reconcile(&mut policy);
+    for _ in 0..1025 {
+        drops(&writer, &[(70, "Wanted")]);
     }
-    assert!(counter.wakes.load(std::sync::atomic::Ordering::Relaxed) > 0);
+    reconcile(&mut policy);
 }
 
 #[test]
@@ -535,4 +535,62 @@ fn failed_accepts_wait_for_a_later_wake_without_retrying() {
     logs.wait_for_count(tracing::Level::DEBUG, "environment drops reconciled", 2);
     assert_eq!(count(), 1);
     assert_eq!(remaining(&link), [70, 71]);
+}
+
+#[test]
+fn reject_deadlines_are_100_200_and_400_ms() {
+    let logs = Logs::default();
+    let _guard = tracing::dispatcher::set_default(&logs.dispatch());
+    let host = testing::headless_host();
+    let (mut session, writer) = testing::start_probe(&host, movie(false));
+    reject_else(&writer);
+    drops(&writer, &[(1, "A")]);
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Unpark(thread::current()))),
+    );
+    let settle = |policy: &mut lucent_host::automation::DropPolicy, now: &mut Instant| {
+        let until = Instant::now() + TIMEOUT;
+        loop {
+            assert!(Instant::now() < until, "reject transition did not settle");
+            match policy.advance(*now) {
+                Some(at) if at <= *now => {}
+                Some(at) if at - *now < Duration::from_millis(100) => *now = at,
+                Some(at) if at - *now > Duration::from_millis(400) => {
+                    thread::park_timeout(until.saturating_duration_since(Instant::now()))
+                }
+                answer => break answer,
+            }
+        }
+    };
+    let rejects = || {
+        let mut count = 0;
+        while let Some(event) = writer.try_event().unwrap() {
+            if let ScriptEvent::Loader { event, .. } = event
+                && event.name == "onProbeCall"
+                && event.args[0] == Value::String("drops.reject".into())
+            {
+                count += 1;
+            }
+        }
+        count
+    };
+    let mut now = Instant::now();
+    for delay in [100, 200, 400] {
+        let at = settle(&mut policy, &mut now).unwrap();
+        assert_eq!(at - now, Duration::from_millis(delay));
+        assert_eq!(rejects(), 1);
+        now = at - Duration::from_millis(1);
+        assert_eq!(policy.advance(now), Some(at));
+        assert_eq!(rejects(), 0);
+        now = at;
+    }
+    assert_eq!(settle(&mut policy, &mut now), None);
+    assert_eq!(rejects(), 1);
+    logs.wait_for(
+        tracing::Level::WARN,
+        "environment drop rejection retries exhausted: [1]",
+    );
 }
