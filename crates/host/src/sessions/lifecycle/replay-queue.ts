@@ -1,82 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { build } from "../../../../../packages/runtime/node_modules/esbuild/lib/main.js";
-import { fileURLToPath } from "node:url";
-import type {
-  ScriptFile,
-  ScriptFileReference,
-  ScriptInputValues,
-} from "../../../../../packages/schemas/src/scriptInputs.ts";
-type TerminalKind =
-  | "completed"
-  | "failed"
-  | "script-exited"
-  | "script-stopped"
-  | "externally-stopped";
-type ScriptRunTerminalOutcome = ReturnType<typeof outcome>;
-
-type ScriptQueueState = {
-  entries: { file: ScriptFileReference; inputsAvailable: boolean }[];
-  latestRun: {
-    status: string;
-    items: { result?: ScriptRunTerminalOutcome; state: string }[];
-  } | null;
-  phase: string;
-  currentIndex: number | null;
-};
-type Session = { terminal: Promise<ScriptRunTerminalOutcome> };
-type Dependencies = {
-  createId: () => string;
-  now: () => number;
-  confirmStandaloneReplacement: () => Promise<boolean>;
-  isRunnerActive: () => Promise<boolean>;
-  onUnexpectedError: () => void;
-  requestInputs: (request: {
-    values: ScriptInputValues;
-  }) => Promise<ScriptInputValues>;
-  resolve: (ref: ScriptFileReference) => Promise<ScriptFile>;
-  startScript: (script: ScriptFile) => Promise<Session>;
-  stopScript: () => Promise<void>;
-};
-type Queue = {
-  add: (
-    script: ScriptFile,
-    values: ScriptInputValues,
-  ) => Promise<string | null>;
-  editInputs: (id: string) => Promise<boolean>;
-  remove: (id: string) => void;
-  move: (id: string, offset: -1 | 1) => void;
-  clear: () => void;
-  start: () => Promise<boolean>;
-  cancel: () => Promise<void>;
-  runNext: () => void;
-  dispose: () => void;
-  getState: () => ScriptQueueState;
-  onState: (listener: (state: ScriptQueueState) => void) => () => void;
-};
-const source = await readFile(
-  new URL("./ScriptQueue.ts.txt", import.meta.url),
-  "utf8",
-);
-const bundle = await build({
-  stdin: {
-    contents: source,
-    loader: "ts",
-    resolveDir: fileURLToPath(
-      new URL("../../../../../packages/runtime/", import.meta.url),
-    ),
-  },
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  write: false,
-});
-const {
+import {
   makeScriptQueue,
-}: { makeScriptQueue: (dependencies: Dependencies) => Queue } = await import(
-  `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0]!.text).toString("base64")}`
-);
-assert.equal(typeof makeScriptQueue, "function");
+  type ScriptQueueState,
+} from "../../../../../packages/runtime/src/game/scripting/ScriptQueue.ts";
+import type { ScriptRunTerminalOutcome } from "../../../../../packages/runtime/src/game/scripting/ScriptRunner.ts";
+
+type ScriptFile = Parameters<
+  Parameters<typeof makeScriptQueue>[0]["startScript"]
+>[0];
 
 type Operation = {
   op: string;
@@ -113,7 +45,9 @@ function file(name: string, available = false): ScriptFile {
       : null,
   };
 }
-function outcome(kind: TerminalKind) {
+function outcome(
+  kind: ScriptRunTerminalOutcome["kind"],
+): ScriptRunTerminalOutcome {
   const date = "2026-10-31T00:00:00.000Z";
   switch (kind) {
     case "completed":
