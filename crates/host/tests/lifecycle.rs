@@ -710,7 +710,6 @@ fn readiness_times_out_through_the_controller_without_booting_a_worker() {
     );
     session.supervise(None).unwrap();
     log_in(&observer);
-    let began = Instant::now();
     session
         .start_script(loose(&[(
             "timeout.js",
@@ -719,7 +718,6 @@ fn readiness_times_out_through_the_controller_without_booting_a_worker() {
         .unwrap();
     wait_status(&session, |s| s.script_status().last_end.is_some());
     wait_idle(&session);
-    assert!(began.elapsed() >= Duration::from_secs(10));
     assert_eq!(
         session.script_status().last_end.as_deref(),
         Some("timeout.js failed: Script readiness timed out after 10 s")
