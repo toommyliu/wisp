@@ -29,13 +29,12 @@ export class HttpError extends Schema.TaggedError<HttpError>()("HttpError", {
 }
 
 export const HttpRequestPayloadSchema = Schema.Struct({
-  sessionId: Schema.String,
   requestId: Schema.Int.check(Schema.isGreaterThan(0)),
   url: Schema.String,
   method: Schema.String,
   headers: Schema.Record(Schema.String, Schema.String),
   body: Schema.optionalKey(Schema.Uint8Array),
-  deadline: Schema.optionalKey(Schema.Finite),
+  deadline: Schema.Finite,
   redirect: Schema.Literals(["follow", "manual", "error"]),
   maxRedirects: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
@@ -57,8 +56,6 @@ export const HttpResultSchema = Schema.Union([
 export type HttpResult = typeof HttpResultSchema.Type;
 
 export interface DesktopHttpBridge {
-  readonly openSession: () => Promise<string>;
-  readonly closeSession: (sessionId: string) => Promise<void>;
   readonly request: (payload: HttpRequestPayload) => Promise<HttpResult>;
-  readonly cancel: (sessionId: string, requestId: number) => Promise<void>;
+  readonly cancel: (requestId: number) => Promise<void>;
 }

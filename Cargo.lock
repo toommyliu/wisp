@@ -4150,6 +4150,7 @@ dependencies = [
  "cap-std",
  "dirs",
  "encoding_rs",
+ "hyper",
  "indexmap",
  "libc",
  "lucent-host",

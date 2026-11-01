@@ -56,6 +56,7 @@ impl Engine {
         isolate.set_slot(super::io::Io::new(
             link.records.files.clone(),
             link.records.dialogs.clone(),
+            link.records.http.clone(),
             wake,
         ));
         isolate.set_slot(link);
@@ -94,6 +95,7 @@ impl Engine {
                 ("cancelJob", v8::Function::new(scope, host_cancel_job)),
                 ("requestIo", v8::Function::new(scope, host_request_io)),
                 ("cancelIo", v8::Function::new(scope, host_cancel_io)),
+                ("takeIoBody", v8::Function::new(scope, host_take_io_body)),
                 ("now", v8::Function::new(scope, host_now)),
                 ("log", v8::Function::new(scope, host_log)),
             ] {
@@ -242,7 +244,7 @@ impl Engine {
         self.isolate
             .get_slot::<Arc<super::io::Io>>()
             .unwrap()
-            .close_dialogs();
+            .begin_stop();
         let result = self.in_context(|tc| {
             let args: Vec<v8::Local<v8::Value>> = reason
                 .into_iter()
@@ -861,10 +863,17 @@ fn host_request_io(
     {
         scope.get_slot::<Arc<super::io::Io>>().unwrap().close();
     }
+    let body = v8::Local::<v8::ArrayBufferView>::try_from(args.get(1))
+        .ok()
+        .map(|view| {
+            let mut bytes = vec![0; view.byte_length()];
+            view.copy_contents(&mut bytes);
+            bytes
+        });
     let result = scope
         .get_slot::<Arc<super::io::Io>>()
         .unwrap()
-        .submit(&json)
+        .submit_bytes(&json, body)
         .map(Some);
     return_reply(scope, reply, result);
 }
@@ -878,5 +887,27 @@ fn host_cancel_io(
         && let Ok(id) = id.to_rust_string_lossy(scope).parse()
     {
         scope.get_slot::<Arc<super::io::Io>>().unwrap().cancel(id);
+    }
+}
+
+fn host_take_io_body(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut reply: v8::ReturnValue,
+) {
+    let id = args.get(0).to_rust_string_lossy(scope).parse().ok();
+    let body = id.and_then(|id| {
+        scope
+            .get_slot::<Arc<super::io::Io>>()
+            .unwrap()
+            .take_body(id)
+    });
+    if let Some(body) = body {
+        let store = v8::ArrayBuffer::new_backing_store_from_vec(body).make_shared();
+        reply.set(v8::ArrayBuffer::with_backing_store(scope, &store).into());
+    } else {
+        let text = v8::String::new(scope, "HTTP response body is no longer available.").unwrap();
+        let error = v8::Exception::error(scope, text);
+        scope.throw_exception(error);
     }
 }
