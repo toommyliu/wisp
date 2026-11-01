@@ -3,6 +3,7 @@ mod game_bar;
 #[cfg(feature = "overlay-check")]
 mod overlay_check;
 mod player_view;
+mod script_dialog;
 
 use gpui::{
     App, AppContext as _, Bounds, Context, Entity, Focusable as _, IntoElement, ParentElement as _,
@@ -45,6 +46,8 @@ pub fn open(
 pub struct GameWindow {
     player: Result<Entity<PlayerView>, PlayerViewError>,
     bar: Option<Entity<game_bar::GameBar>>,
+    dialog: Option<Entity<script_dialog::ScriptDialogModal>>,
+    _dialog_actions: Option<gpui::Subscription>,
     _actions: Option<gpui::Subscription>,
     _watch: Option<gpui::Task<()>>,
 }
@@ -61,12 +64,35 @@ impl GameWindow {
             Ok(view) => window.focus(&view.focus_handle(cx), cx),
             Err(error) => tracing::error!(%error, "no player view"),
         }
+        let mut dialog = None;
+        let mut dialog_actions = None;
         let mut bar = None;
         let mut actions = None;
         let mut watch = None;
         if let Ok(view) = &player {
             let focus = view.focus_handle(cx);
-            let game_bar = cx.new(|cx| game_bar::GameBar::new(focus, window, cx));
+            let modal = cx.new(|cx| script_dialog::ScriptDialogModal::new(focus.clone(), cx));
+            dialog_actions = Some(cx.subscribe_in(
+                &modal,
+                window,
+                |this, _, answer: &script_dialog::DialogAnswered, _, cx| {
+                    if let Ok(view) = &this.player {
+                        view.read(cx)
+                            .session()
+                            .respond_dialog(answer.id, answer.response.clone());
+                    }
+                },
+            ));
+            let return_focus = modal.focus_handle(cx);
+            let game_bar = cx.new(|cx| game_bar::GameBar::new(return_focus, window, cx));
+            controls::sync_script_dialog(
+                script_dialog::current(view.read(cx).session()),
+                &modal,
+                &game_bar,
+                window,
+                cx,
+            );
+            dialog = Some(modal);
             actions = Some(cx.subscribe_in(
                 &game_bar,
                 window,
@@ -106,6 +132,8 @@ impl GameWindow {
         GameWindow {
             player,
             bar,
+            dialog,
+            _dialog_actions: dialog_actions,
             _actions: actions,
             _watch: watch,
         }
@@ -123,7 +151,9 @@ impl Render for GameWindow {
                 .child(error.to_string()),
         };
         #[cfg(feature = "overlay-check")]
-        let game_area = if std::env::var_os("LUCENT_OPEN_MENU").is_some() {
+        let game_area = if std::env::var_os("LUCENT_OPEN_MENU").is_some()
+            || std::env::var_os("LUCENT_SCRIPT_DIALOG").is_some()
+        {
             game_area
         } else {
             game_area.relative().children(overlay_check::overlay())
@@ -140,6 +170,6 @@ impl Render for GameWindow {
                     .bg(rgb(0x1f1f1f)),
             )
             .children(self.bar.clone())
-            .child(game_area)
+            .child(game_area.relative().children(self.dialog.clone()))
     }
 }

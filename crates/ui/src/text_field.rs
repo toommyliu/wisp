@@ -679,6 +679,19 @@ impl TextField {
         }
     }
 
+    pub fn value(&self) -> &str {
+        &self.content
+    }
+
+    pub fn is_composing(&self) -> bool {
+        self.marked_range.is_some()
+    }
+
+    pub fn set_placeholder(&mut self, placeholder: String, cx: &mut Context<Self>) {
+        self.placeholder = placeholder.into();
+        cx.notify();
+    }
+
     pub fn sync_value(&mut self, value: String, cx: &mut Context<Self>) {
         if self.content == self.committed && self.committed.as_ref() != value {
             self.set_value(value, cx);
