@@ -112,17 +112,6 @@ impl GameBar {
         cx.notify();
     }
 
-    fn action_button(
-        &self,
-        id: &'static str,
-        label: impl Into<SharedString>,
-        action: BarAction,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        button(id, label, ButtonStyle::Ghost, false)
-            .on_click(cx.listener(move |this, _, _, cx| this.emit(action.clone(), cx)))
-    }
-
     fn toggle(
         &self,
         id: impl Into<ElementId>,
@@ -169,6 +158,24 @@ impl GameBar {
                     (2, "Custom Name", BarAction::CustomName(None)),
                     (3, "Custom Guild", BarAction::CustomGuild(None)),
                 ] {
+                    let disabled = match index {
+                        2 => !self.state.settings.custom_name_configured,
+                        3 => !self.state.settings.custom_guild_configured,
+                        _ => false,
+                    };
+                    let id = match index {
+                        0 => "reset-speed",
+                        1 => "reset-fps",
+                        2 => "reset-name",
+                        _ => "reset-guild",
+                    };
+                    let reset_button = button(id, "Reset", ButtonStyle::Ghost, disabled)
+                        .aria_label(format!("Reset {label}"))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !disabled {
+                                this.emit(reset.clone(), cx);
+                            }
+                        }));
                     panel = panel.child(
                         div()
                             .flex()
@@ -176,17 +183,7 @@ impl GameBar {
                             .gap_2()
                             .child(div().w(px(90.)).child(label))
                             .child(div().flex_1().min_w_0().child(self.fields[index].clone()))
-                            .child(self.action_button(
-                                match index {
-                                    0 => "reset-speed",
-                                    1 => "reset-fps",
-                                    2 => "reset-name",
-                                    _ => "reset-guild",
-                                },
-                                "Reset",
-                                reset,
-                                cx,
-                            )),
+                            .child(reset_button),
                     );
                 }
                 let mut radios = radio_list("rendering-modes", "Rendering Mode");
