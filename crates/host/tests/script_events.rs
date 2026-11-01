@@ -51,8 +51,12 @@ fn drain(link: &ScriptLink) {
     while link.try_event().unwrap().is_some() {}
 }
 
-#[test]
-fn only_scripts_react_to_counter_attacks() {
+fn counter_session() -> (
+    lucent_host::Host,
+    lucent_host::Session,
+    ScriptLink,
+    lucent_host::Supervisor,
+) {
     let host = testing::headless_host();
     let (mut session, observer) = testing::start_probe(
         &host,
@@ -65,46 +69,82 @@ fn only_scripts_react_to_counter_attacks() {
                 }),
             )
             .recording("combat.cancelAutoAttack")
-            .recording("combat.cancelTarget")
-            .recording("world.requestMonsterDrops")
-            .recording("settings.setWalkSpeed"),
+            .recording("combat.cancelTarget"),
     );
     become_ready(&observer);
     update(&observer, json!({"antiCounterEnabled":true}));
-    let _supervisor = lucent_host::Supervisor::start(&mut session, None).unwrap();
+    let supervisor = lucent_host::Supervisor::start(&mut session, None).unwrap();
     drain(&observer);
-    let counter = || {
-        observer.call_loader("probe.emit", vec![
+    (host, session, observer, supervisor)
+}
+
+fn counter(link: &ScriptLink, monster_map_id: i64) {
+    link.call_loader(
+        "probe.emit",
+        vec![
             Value::String("onExtensionResponse".into()),
-            Value::String(json!({"type":"json","dataObj":{
-                "cmd":"cb","anims":[{"msg":"Boss prepares a counter attack","animStr":"cast","cInf":"p:7","tInf":"m:1"}]
-            }}).to_string()),
-        ]).recv_timeout(TIMEOUT).unwrap();
-    };
-    counter();
+            Value::String(
+                json!({"type":"json","dataObj":{
+                    "cmd":"cb","anims":[{
+                        "msg":"Boss prepares a counter attack","animStr":"cast",
+                        "cInf":"p:7","tInf":format!("m:{monster_map_id}")
+                    }]
+                }})
+                .to_string(),
+            ),
+        ],
+    )
+    .recv_timeout(TIMEOUT)
+    .unwrap();
+}
+
+fn assert_no_cancel(link: &ScriptLink) {
     let until = Instant::now() + Duration::from_millis(1200);
     while Instant::now() < until {
-        let call = common::await_event(&observer, "onProbeCall", None);
+        let Some(lucent_host::bridge::ScriptEvent::Loader { event: call, .. }) =
+            link.try_event().unwrap()
+        else {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        };
+        if call.name != "onProbeCall" {
+            continue;
+        }
         let Some(Value::String(method)) = call.args.first() else {
             panic!("missing method")
         };
-        assert!(
-            !method.starts_with("combat."),
-            "idle session called {method}"
-        );
+        assert!(!method.starts_with("combat.cancel"), "called {method}");
     }
+}
+
+#[test]
+fn anti_counter_stops_attacking_the_countered_target_without_a_script() {
+    let (_host, _session, observer, _supervisor) = counter_session();
+    counter(&observer, 1);
+    next_call(&observer, "combat.cancelAutoAttack");
+    next_call(&observer, "combat.cancelTarget");
+}
+
+#[test]
+fn anti_counter_stops_attacking_the_countered_target_in_a_script() {
+    let (_host, mut session, observer, _supervisor) = counter_session();
     let run = common::yielding(&mut session);
-    counter();
-    assert_eq!(
-        next_call(&observer, "combat.cancelAutoAttack")[0],
-        Value::String("combat.cancelAutoAttack".into())
-    );
-    assert_eq!(
-        next_call(&observer, "combat.cancelTarget")[0],
-        Value::String("combat.cancelTarget".into())
-    );
+    counter(&observer, 1);
+    next_call(&observer, "combat.cancelAutoAttack");
+    next_call(&observer, "combat.cancelTarget");
     run.stop_script();
     run.wait(TIMEOUT).unwrap();
+}
+
+#[test]
+fn anti_counter_ignores_other_targets_and_disabled_sessions() {
+    let (_host, _session, observer, _supervisor) = counter_session();
+    counter(&observer, 2);
+    assert_no_cancel(&observer);
+    update(&observer, json!({"antiCounterEnabled":false}));
+    drain(&observer);
+    counter(&observer, 1);
+    assert_no_cancel(&observer);
 }
 
 fn assert_only_scripts_request_monster_drops(local_move: bool) {
