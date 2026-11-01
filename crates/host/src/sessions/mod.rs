@@ -276,6 +276,12 @@ impl Session {
     pub fn script_status(&self) -> ScriptStatus {
         self.script_status.read().clone()
     }
+    #[cfg(feature = "testing")]
+    pub fn script_status_reader(&self) -> impl Fn() -> ScriptStatus + Send + Sync + 'static {
+        let status = self.script_status.clone();
+        move || status.read().clone()
+    }
+
     pub fn script_lifecycle(&self) -> lifecycle::Status {
         self.lifecycle_status.read().clone()
     }

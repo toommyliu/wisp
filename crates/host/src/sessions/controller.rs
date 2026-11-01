@@ -340,15 +340,15 @@ impl Supervision {
             script: Arc::new(script),
             inputs: Default::default(),
         })));
+        let answer = if result.rejection.is_some() {
+            Err(RuntimeError::Busy)
+        } else {
+            Ok(self.machine.status().active.as_ref().unwrap().run)
+        };
+        self.effects(result.effects);
         if let Some(reply) = reply {
-            let answer = if result.rejection.is_some() {
-                Err(RuntimeError::Busy)
-            } else {
-                Ok(self.machine.status().active.as_ref().unwrap().run)
-            };
             let _ = reply.send(answer);
         }
-        self.effects(result.effects);
     }
     fn run(mut self, first: Player, script: Option<Script>, messages: mpsc::Receiver<Msg>) {
         self.player(first);
