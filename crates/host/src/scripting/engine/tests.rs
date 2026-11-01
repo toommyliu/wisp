@@ -36,6 +36,7 @@ fn a_trivial_scripts_first_turn_stays_below_half_the_watchdog_budget() {
         let mut engine = Engine::new(
             session.attach(crate::bridge::EventInterests::ALL).unwrap(),
             interrupt,
+            std::task::Waker::noop().clone(),
         )
         .unwrap();
         let entry = ModulePath::loose("trivial.js").unwrap();
