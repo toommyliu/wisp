@@ -15,7 +15,7 @@ import { Api } from "../flash/api/Api";
 import { ProjectionReadiness } from "../flash/api/ProjectionReadiness";
 import { Bridge } from "../flash/bridge/Bridge";
 import type { Event as FlashEvent } from "../flash/contract/Event";
-import type { ScriptMain, ScriptRuntimeOptions } from "./ScriptApi";
+import type { ScriptMain, ScriptRuntimeOptions } from "@lucent/scripting-api/contract";
 import {
   makeScriptAsyncScope,
   type ScriptAsyncScope,
