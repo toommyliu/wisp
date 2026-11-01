@@ -1,9 +1,10 @@
 use std::{env, fs, path::PathBuf};
 
 use lucent_protocol::{
-    aura::*, auth::*, auto_relogin::*, auto_zone::*, combat_profile::*, combat_state::*,
-    command::*, environment::*, event::*, hydration::*, item::*, monster_drop::*, operation::*,
-    packet::*, query::*, quest::*, readiness::*, script::*, settings::*, shop::*, world::*,
+    aura::*, auth::*, auto_attack::*, auto_relogin::*, auto_zone::*, combat_profile::*,
+    combat_state::*, command::*, environment::*, event::*, hydration::*, item::*, monster_drop::*,
+    operation::*, packet::*, query::*, quest::*, readiness::*, script::*, settings::*, shop::*,
+    world::*,
 };
 use ts_rs::{Config, TS};
 
@@ -13,6 +14,7 @@ fn declarations(config: &Config) -> String {
         ($($ty:ty),+ $(,)?) => { $(output.push_str("export "); output.push_str(&<$ty>::decl(config)); output.push('\n');)+ };
     }
     emit!(
+        serde_json::Value,
         EnvironmentState,
         EnvironmentAutomation,
         EnvironmentQuestAutoRegister,
@@ -38,6 +40,9 @@ fn declarations(config: &Config) -> String {
         CombatProfileMessageTrigger,
         CombatProfile,
         CombatProfileLibrary,
+        AutoAttackConfig,
+        AutoAttackStatus,
+        AutoAttackRecords,
         AutoReloginConfig,
         AutoReloginPhase,
         AutoReloginStatus,
