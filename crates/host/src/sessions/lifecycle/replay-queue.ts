@@ -127,77 +127,88 @@ for (const scenario of corpus) {
     },
     stopScript: async () => {},
   });
-  for (const op of scenario.operations) {
-    switch (op.op) {
-      case "add": {
-        const id = await queue.add(file(op.name!, op.available), {});
-        if (id !== null) ids.set(op.name!, id);
-        break;
-      }
-      case "edit":
-        editing = file(op.name!, op.available);
-        await queue.editInputs(ids.get(op.name!)!);
-        editing = undefined;
-        break;
-      case "remove":
-        queue.remove(ids.get(op.name!)!);
-        break;
-      case "move":
-        queue.move(ids.get(op.name!)!, op.offset!);
-        break;
-      case "clear":
-        queue.clear();
-        break;
-      case "start":
-        starting = queue.start();
-        break;
-      case "prepared": {
-        holdStart = op.hold_start ?? false;
-        const waiting = resolutions.splice(0);
-        for (const resolution of waiting) {
-          if (op.failure) resolution.reject(new Error("resolution failed"));
-          else resolution.resolve(file(resolution.name, op.available));
+  try {
+    for (const op of scenario.operations) {
+      switch (op.op) {
+        case "add": {
+          const id = await queue.add(file(op.name!, op.available), {});
+          if (id !== null) ids.set(op.name!, id);
+          break;
         }
-        if (starting !== undefined) await starting;
-        break;
+        case "edit":
+          editing = file(op.name!, op.available);
+          await queue.editInputs(ids.get(op.name!)!);
+          editing = undefined;
+          break;
+        case "remove":
+          queue.remove(ids.get(op.name!)!);
+          break;
+        case "move":
+          queue.move(ids.get(op.name!)!, op.offset!);
+          break;
+        case "clear":
+          queue.clear();
+          break;
+        case "start":
+          starting = queue.start();
+          break;
+        case "prepared": {
+          holdStart = op.hold_start ?? false;
+          const waiting = resolutions.splice(0);
+          for (const resolution of waiting) {
+            if (op.failure) resolution.reject(new Error("resolution failed"));
+            else resolution.resolve(file(resolution.name, op.available));
+          }
+          if (starting !== undefined) await starting;
+          break;
+        }
+        case "cancel":
+          canceling = queue.cancel();
+          if (queue.getState().phase !== "stopping") await canceling;
+          break;
+        case "next":
+          queue.runNext();
+          break;
+        case "terminal": {
+          const index = queue.getState().currentIndex;
+          startGate.resolve({ terminal: terminal.promise });
+          terminal.resolve(outcome(op.kind!));
+          await waitFor(
+            queue,
+            (s) =>
+              index !== null && s.latestRun?.items[index]?.result !== undefined,
+          );
+          if (canceling) await canceling;
+          break;
+        }
+        default:
+          throw new Error(`Unknown operation ${op.op}`);
       }
-      case "cancel":
-        canceling = queue.cancel();
-        if (queue.getState().phase !== "stopping") await canceling;
-        break;
-      case "next":
-        queue.runNext();
-        break;
-      case "terminal": {
-        startGate.resolve({ terminal: terminal.promise });
-        terminal.resolve(outcome(op.kind!));
-        await waitFor(
-          queue,
-          (s) =>
-            s.phase === op.expect.phase && s.currentIndex === op.expect.current,
-        );
-        if (canceling) await canceling;
-        break;
-      }
-      default:
-        throw new Error(`Unknown operation ${op.op}`);
+      const s = queue.getState();
+      assert.deepEqual(
+        {
+          entries: s.entries.map((e) => e.file.name),
+          available: s.entries.map((e) => e.inputsAvailable),
+          phase: s.phase,
+          status: s.latestRun?.status ?? null,
+          current: s.currentIndex,
+          items: s.latestRun?.items.map((i) => i.result?.kind ?? i.state) ?? [],
+          starts: [...starts],
+        },
+        op.expect,
+        `${scenario.name}: ${op.op}`,
+      );
     }
-    const s = queue.getState();
-    assert.deepEqual(
-      {
-        entries: s.entries.map((e) => e.file.name),
-        available: s.entries.map((e) => e.inputsAvailable),
-        phase: s.phase,
-        status: s.latestRun?.status ?? null,
-        current: s.currentIndex,
-        items: s.latestRun?.items.map((i) => i.result?.kind ?? i.state) ?? [],
-        starts: [...starts],
-      },
-      op.expect,
-      `${scenario.name}: ${op.op}`,
-    );
+  } finally {
+    const canceled = queue.cancel();
+    queue.dispose();
+    startGate.resolve({ terminal: terminal.promise });
+    terminal.resolve(outcome("externally-stopped"));
+    for (const resolution of resolutions.splice(0))
+      resolution.resolve(file(resolution.name));
+    await canceled;
+    if (starting !== undefined) await starting;
   }
-  queue.dispose();
   console.log(`PASS ${scenario.name}`);
 }
 console.log(`TS ScriptQueue: ${corpus.length} shared scenarios passed`);
