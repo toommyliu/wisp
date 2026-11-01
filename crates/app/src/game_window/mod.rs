@@ -83,12 +83,16 @@ impl GameWindow {
                     }
                 },
             ));
-            modal.update(cx, |modal, cx| {
-                modal.sync(script_dialog::current(view.read(cx).session()), window, cx)
-            });
             let return_focus = modal.focus_handle(cx);
-            dialog = Some(modal);
             let game_bar = cx.new(|cx| game_bar::GameBar::new(return_focus, window, cx));
+            controls::sync_script_dialog(
+                script_dialog::current(view.read(cx).session()),
+                &modal,
+                &game_bar,
+                window,
+                cx,
+            );
+            dialog = Some(modal);
             actions = Some(cx.subscribe_in(
                 &game_bar,
                 window,

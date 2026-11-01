@@ -188,14 +188,12 @@ impl Engine {
     pub(crate) fn start(&mut self, script: Script, inputs: ScriptInputs, reply: EvalReply) {
         let entry = script.entry();
         let name = entry.to_string();
-        let display_name = entry.package().unwrap_or_else(|| {
-            entry
-                .path()
-                .rsplit('/')
-                .next()
-                .filter(|name| !name.trim().is_empty())
-                .unwrap_or(entry.path())
-        });
+        let display_name = entry
+            .path()
+            .rsplit('/')
+            .next()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(entry.path());
         self.isolate
             .get_slot::<Arc<super::io::Io>>()
             .unwrap()

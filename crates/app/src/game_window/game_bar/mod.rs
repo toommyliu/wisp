@@ -114,6 +114,19 @@ impl GameBar {
         cx.notify();
     }
 
+    pub(super) fn dialog_changed(
+        &mut self,
+        dialog_open: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if dialog_open {
+            self.close(window, cx);
+        } else if self.open.is_none() {
+            window.focus(&self.return_focus, cx);
+        }
+    }
+
     fn toggle(
         &self,
         id: impl Into<ElementId>,

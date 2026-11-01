@@ -43,9 +43,9 @@ impl ScriptDialogModal {
         current: Option<ScriptDialog>,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         if self.current == current {
-            return;
+            return false;
         }
         self.field = current.as_ref().and_then(|dialog| match &dialog.kind {
             ScriptDialogKind::Prompt { placeholder } => Some(cx.new(|cx| {
@@ -65,8 +65,8 @@ impl ScriptDialogModal {
         self.message_scroll.set_offset(point(px(0.), px(0.)));
         self.current = current;
         self.answered = false;
-        window.focus(&self.focus_handle(cx), cx);
         cx.notify();
+        true
     }
 
     fn answer(&mut self, accept: bool, cx: &mut Context<Self>) {

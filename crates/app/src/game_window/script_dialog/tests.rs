@@ -249,10 +249,7 @@ fn modal_occludes_player_clicks_and_keeps_keyboard_focus(cx: &mut TestAppContext
 #[gpui::test]
 fn closing_restores_focus_to_the_player(cx: &mut TestAppContext) {
     let (h, cx, _) = setup(ScriptDialogKind::Alert, cx);
-    h.update_in(cx, |h, window, cx| {
-        h.modal.update(cx, |modal, cx| modal.sync(None, window, cx))
-    });
-    cx.run_until_parked();
+    refresh(&h, None, cx);
     let game = h.read_with(cx, |h, _| h.game.clone());
     assert!(cx.update(|window, _| game.is_focused(window)));
     assert!(cx.debug_bounds("OK").is_none());
@@ -266,22 +263,18 @@ fn long_messages_scroll_without_hiding_the_actions(cx: &mut TestAppContext) {
         },
         cx,
     );
-    h.update_in(cx, |h, window, cx| {
-        h.modal.update(cx, |modal, cx| {
-            modal.sync(
-                Some(ScriptDialog {
-                    id: 43,
-                    kind: ScriptDialogKind::Prompt {
-                        placeholder: "hint".into(),
-                    },
-                    script: "long-message.js".into(),
-                    message: "A long message with several words.\n".repeat(200),
-                }),
-                window,
-                cx,
-            );
-        })
-    });
+    refresh(
+        &h,
+        Some(ScriptDialog {
+            id: 43,
+            kind: ScriptDialogKind::Prompt {
+                placeholder: "hint".into(),
+            },
+            script: "long-message.js".into(),
+            message: "A long message with several words.\n".repeat(200),
+        }),
+        cx,
+    );
     cx.simulate_resize(size(px(360.), px(360.)));
     cx.run_until_parked();
     for selector in ["OK", "Cancel", "dialog-response"] {
@@ -341,21 +334,16 @@ fn buttons_send_the_same_answers_as_the_keyboard(cx: &mut TestAppContext) {
 #[gpui::test]
 fn long_messages_can_be_read_with_page_keys(cx: &mut TestAppContext) {
     let (h, cx, _) = setup(ScriptDialogKind::Alert, cx);
-    h.update_in(cx, |h, window, cx| {
-        h.modal.update(cx, |modal, cx| {
-            modal.sync(
-                Some(ScriptDialog {
-                    id: 43,
-                    kind: ScriptDialogKind::Alert,
-                    script: "long.js".into(),
-                    message: "A line of a long question.\n".repeat(200),
-                }),
-                window,
-                cx,
-            );
-        })
-    });
-    cx.run_until_parked();
+    refresh(
+        &h,
+        Some(ScriptDialog {
+            id: 43,
+            kind: ScriptDialogKind::Alert,
+            script: "long.js".into(),
+            message: "A line of a long question.\n".repeat(200),
+        }),
+        cx,
+    );
     let before = cx.debug_bounds("OK").unwrap();
     press(cx, "pagedown");
     let offset = h.read_with(cx, |h, cx| h.modal.read(cx).message_scroll.offset().y);

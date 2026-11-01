@@ -197,9 +197,15 @@ pub(super) fn sync_script_dialog(
     window: &mut Window,
     cx: &mut App,
 ) {
-    dialog.update(cx, |dialog, cx| dialog.sync(current, window, cx));
+    let dialog_open = current.is_some();
+    let changed = dialog.update(cx, |dialog, cx| dialog.sync(current, window, cx));
     let return_focus = dialog.focus_handle(cx);
-    bar.update(cx, |bar, _| bar.return_focus = return_focus);
+    bar.update(cx, |bar, cx| {
+        bar.return_focus = return_focus;
+        if changed {
+            bar.dialog_changed(dialog_open, window, cx);
+        }
+    });
 }
 
 pub(super) struct BarWake(pub async_channel::Sender<()>);
