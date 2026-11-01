@@ -217,62 +217,13 @@ impl ScriptLink {
     }
 
     pub fn command(&self, command: lucent_protocol::command::Command) -> Pending<String> {
-        use super::relogin::Edit;
-        use lucent_protocol::command::Command;
-        let submit = |edit| {
-            if self.stopped.load(Ordering::Acquire) {
-                return Pending::stopped();
-            }
-            self.records
-                .relogin
-                .submit(edit, self.detached.clone(), Instant::now())
-        };
-        let command = match command {
-            Command::EnableAutoAttack {
-                profile,
-                target_priority,
-            } => {
-                if self.stopped.load(Ordering::Acquire) {
-                    return Pending::stopped();
-                }
-                return self.records.auto_attack.submit(
-                    super::auto_attack::Edit::Enable {
-                        profile,
-                        target_priority,
-                    },
-                    self.detached.clone(),
-                    Instant::now(),
-                );
-            }
-            Command::DisableAutoAttack {} => {
-                if self.stopped.load(Ordering::Acquire) {
-                    return Pending::stopped();
-                }
-                return self.records.auto_attack.submit(
-                    super::auto_attack::Edit::Disable,
-                    self.detached.clone(),
-                    Instant::now(),
-                );
-            }
-            Command::UpdateEnvironment { edit } => {
-                if self.stopped.load(Ordering::Acquire) {
-                    return Pending::stopped();
-                }
-                let environment = self.records.environment.clone();
-                return self.inbox.read_projection(move |projection| {
-                    let mut state = environment.write();
-                    super::environment::apply(&mut state, edit, projection);
-                    serde_json::to_string(&*state).unwrap()
-                });
-            }
-            Command::SetAutoReloginEnabled { enabled } => return submit(Edit::Enabled(enabled)),
-            Command::SetAutoReloginDelay { delay_ms } => return submit(Edit::Delay(delay_ms)),
-            Command::SetAutoReloginServer { server } => return submit(Edit::Server(server)),
-            other => other,
-        };
-        let (reply, pending) = Pending::channel();
-        self.inbox.post(crate::player::Msg::Command(command, reply));
-        pending
+        route_command(
+            &self.records,
+            &self.inbox,
+            &self.stopped,
+            &self.detached,
+            command,
+        )
     }
 
     #[cfg(feature = "testing")]
@@ -403,6 +354,70 @@ impl Drop for ScriptLink {
         self.operations.detach(self.attachment);
         self.inbox.post(Msg::Detach(self.attachment));
     }
+}
+
+pub(super) fn route_command(
+    records: &super::Records,
+    inbox: &crate::player::Inbox,
+    stopped: &AtomicBool,
+    detached: &Arc<AtomicBool>,
+    command: lucent_protocol::command::Command,
+) -> Pending<String> {
+    use super::relogin::Edit;
+    use lucent_protocol::command::Command;
+    if stopped.load(Ordering::Acquire) {
+        return Pending::stopped();
+    }
+    let submit = |edit| {
+        records
+            .relogin
+            .submit(edit, detached.clone(), Instant::now())
+    };
+    let command = match command {
+        Command::EnableAutoAttack {
+            profile,
+            target_priority,
+        } => {
+            return records.auto_attack.submit(
+                super::auto_attack::Edit::Enable {
+                    profile,
+                    target_priority,
+                },
+                detached.clone(),
+                Instant::now(),
+            );
+        }
+        Command::DisableAutoAttack {} => {
+            return records.auto_attack.submit(
+                super::auto_attack::Edit::Disable,
+                detached.clone(),
+                Instant::now(),
+            );
+        }
+        Command::UpdateEnvironment { edit } => {
+            let environment = records.environment.clone();
+            let changes = records.changes.clone();
+            return inbox.read_projection(move |projection| {
+                let mut state = environment.write();
+                let before = state.clone();
+                super::environment::apply(&mut state, edit, projection);
+                let changed = *state != before;
+                let result = serde_json::to_string(&*state).unwrap();
+                drop(state);
+                if changed {
+                    changes.notify();
+                }
+                result
+            });
+        }
+        Command::SetAutoReloginEnabled { enabled } => return submit(Edit::Enabled(enabled)),
+        Command::SetAutoReloginDelay { delay_ms } => return submit(Edit::Delay(delay_ms)),
+        Command::SetAutoReloginServer { server } => return submit(Edit::Server(server)),
+        other => other,
+    };
+    let (reply, pending) = Pending::channel();
+    inbox.post(crate::player::Msg::Command(command, reply));
+    pending
 }
 
 #[cfg(test)]

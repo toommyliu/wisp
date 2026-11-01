@@ -20,6 +20,7 @@ pub(crate) enum Edit {
 
 #[derive(Default)]
 pub(crate) struct Shared {
+    pub changes: Arc<super::Changes>,
     pub records: Arc<parking_lot::RwLock<lucent_protocol::auto_attack::AutoAttackRecords>>,
     queue: Mutex<VecDeque<Request>>,
     waker: Mutex<Option<Waker>>,
@@ -45,6 +46,12 @@ impl Drop for Request {
     }
 }
 impl Shared {
+    pub fn new(changes: Arc<super::Changes>) -> Self {
+        Self {
+            changes,
+            ..Self::default()
+        }
+    }
     pub fn submit(&self, edit: Edit, detached: Arc<AtomicBool>, now: Instant) -> Pending<String> {
         let (reply, pending) = Pending::channel();
         let mut queue = self.queue.lock();
