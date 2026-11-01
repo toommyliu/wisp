@@ -1,5 +1,5 @@
 mod alarm;
-mod cpu_time;
+pub(crate) mod cpu_time;
 mod engine;
 mod host;
 mod interrupt;

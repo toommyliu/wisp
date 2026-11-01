@@ -8,7 +8,7 @@ import {
   makeFakeHostState,
   monster,
   player,
-} from "../testing/FakeHost";
+} from "./FakeHost";
 import { DiagnosticSink } from "../bridge/DiagnosticSink";
 
 type Snapshot = {
@@ -42,6 +42,7 @@ type Scenario = {
     args: string[];
     patch: Partial<Snapshot>;
     reply: boolean;
+    delay_ms?: number;
   }[];
   updates: { at: number; patch: Partial<Snapshot> }[];
   outcome: boolean;
@@ -132,7 +133,7 @@ describe("shared travel transcripts", () => {
             sync();
           }, update.at);
         const run = Effect.gen(function* () {
-          const api = yield* makeFakeApi(target, state);
+          const api = yield* makeFakeApi(target, state, scenario.commands.find((command) => command.delay_ms)?.delay_ms ?? 0);
           const request = scenario.request;
           if (request.kind === "join")
             return yield* api.player.joinMap(request.target!, {

@@ -9,6 +9,8 @@ import { completeOperation, startOperation, failOperations, setOperationResponsi
 
 import { completeIo } from "./io";
 
+import { completeTravel, failTravels } from "./travel";
+
 import { prepareJob, failJob, failJobs } from "./jobs";
 
 import type { ScriptSource } from "../game/scripting/ScriptRunner";
@@ -26,6 +28,8 @@ declare global {
     prepareOperation(): string;
     operate(id: string, operationJson: string): void;
     cancelOperation(id: string): void;
+    startTravel(requestJson: string): string | undefined;
+    cancelTravel(id: string): void;
     startJob(requestJson: string): string;
     engageJob(id: string, engaged: boolean): void;
     cancelJob(id: string): void;
@@ -54,6 +58,7 @@ declare global {
 }
 
 type ScriptEvent =
+  | { type: "traveldone"; id: string; value: boolean }
   | { type: "io"; id: string; result: unknown }
   | { type: "jobprepared"; id: string; label: string; classNames: string[]; warnings: string[] }
   | { type: "jobwarning"; id: string; warning: string }
@@ -139,7 +144,10 @@ export const turn = (itemsJson: string): string[] => {
       const error = new Error("Host events were lost; pending requests failed");
       failOperations(error);
       failJobs(error);
+      failTravels();
       invoke(() => window.onHostEventsLost?.());
+    } else if (item.type === "traveldone") {
+      completeTravel(item.id, item.value);
     } else if (item.type === "jobprepared") {
       prepareJob(item.id, item.label, item.warnings, item.classNames);
     } else if (item.type === "jobwarning") {

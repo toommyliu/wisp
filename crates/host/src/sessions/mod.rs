@@ -314,8 +314,30 @@ impl Session {
     }
 
     #[cfg(feature = "testing")]
+    pub fn live_travel_job_count(&self) -> usize {
+        self.jobs.travel_len()
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn has_job_controller(&self) -> bool {
+        self.jobs.has_controller()
+    }
+
+    #[cfg(feature = "testing")]
     pub fn live_profile_job_count(&self) -> usize {
         self.jobs.len()
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn player_cpu_time(&self) -> crate::bridge::Pending<Option<std::time::Duration>> {
+        match &self.player {
+            Some(player) => player.inbox.read_projection(|_| {
+                crate::scripting::cpu_time::ThreadCpu::current()
+                    .ok()
+                    .and_then(|clock| clock.elapsed().ok())
+            }),
+            None => crate::bridge::Pending::stopped(),
+        }
     }
 
     #[cfg(feature = "testing")]
@@ -399,6 +421,10 @@ impl Session {
         let inbox = player.inbox.clone();
         let (producer, events) = script_events(EVENT_CAPACITY, interests);
         inbox.post(player::Msg::Attach(attachment, producer));
+        #[cfg(feature = "testing")]
+        if interests == crate::game::jobs::ProfileJobs::INTERESTS {
+            self.jobs.controller_links.lock().insert(attachment);
+        }
         Some(ScriptLink::new(
             self.id,
             attachment,

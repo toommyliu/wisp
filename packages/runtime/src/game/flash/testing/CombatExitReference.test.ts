@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { combatExitCells } from "./CombatExit";
+import { combatExitCells } from "./CombatExitReference";
 
 describe("combatExitCells", () => {
   it("orders the current cell, then empty cells, then passive cells", () => {

@@ -113,6 +113,10 @@ fn wait<T>(pending: Pending<T>, interrupt: &Interrupt) -> Result<T, String> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub(crate) enum Item {
+    TravelDone {
+        id: String,
+        value: bool,
+    },
     Io {
         id: String,
         result: Box<serde_json::value::RawValue>,
@@ -162,6 +166,10 @@ pub(crate) enum Item {
 impl From<ScriptEvent> for Item {
     fn from(event: ScriptEvent) -> Self {
         match event {
+            ScriptEvent::TravelDone { id, value } => Item::TravelDone {
+                id: id.to_string(),
+                value,
+            },
             ScriptEvent::JobPrepared {
                 id,
                 label,

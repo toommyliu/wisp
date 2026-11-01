@@ -142,6 +142,9 @@ pub fn start(
     script: Script,
     inputs: lucent_protocol::script::ScriptInputs,
 ) -> ScriptRun {
+    if script.entry().package().is_some() && !session.has_job_controller() {
+        session.supervise(None).unwrap();
+    }
     ScriptRun::start(session.attach(EventInterests::ALL).unwrap(), script, inputs).unwrap()
 }
 

@@ -26,6 +26,18 @@ impl Running {
             .ok_or_else(|| commands::decode_error(name, "the callback returned undefined"))
     }
 
+    pub(super) fn refresh_cells(
+        &mut self,
+        mut read: impl FnMut(&mut Self, &str) -> Result<Json, Error>,
+    ) -> Result<String, Error> {
+        let loaded = commands::decode::<bool>("world.isLoaded", read(self, "world.isLoaded")?)?;
+        if !loaded {
+            return self.commit_command(|projection| Ok(projection.world.cells()));
+        }
+        let answer = read(self, "world.getCells")?;
+        self.commit_command(|projection| commands::refresh_cells(projection, answer))
+    }
+
     fn commit_command<R: Serialize>(
         &mut self,
         commit: impl FnOnce(&mut Projection) -> Result<R, Error>,
@@ -209,15 +221,7 @@ impl Running {
                 self.commit_command(|projection| commands::reject_drop(projection, id, answer))
             }
             Command::RefreshCells {} => {
-                let loaded = commands::decode::<bool>(
-                    "world.isLoaded",
-                    self.command_answer("world.isLoaded", vec![])?,
-                )?;
-                if !loaded {
-                    return self.commit_command(|projection| Ok(projection.world.cells()));
-                }
-                let answer = self.command_answer("world.getCells", vec![])?;
-                self.commit_command(|projection| commands::refresh_cells(projection, answer))
+                self.refresh_cells(|player, name| player.command_answer(name, vec![]))
             }
             Command::RefreshCellPads {} => {
                 let loaded = commands::decode::<bool>(

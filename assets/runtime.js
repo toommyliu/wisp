@@ -5599,17 +5599,17 @@ ${prefix}}`;
       return;
     }
     const cancel = /* @__PURE__ */ __name(() => {
-      const pending2 = operations.get(id);
-      if (pending2 === void 0) return;
+      const pending3 = operations.get(id);
+      if (pending3 === void 0) return;
       operations.delete(id);
-      clearTimeout(pending2.timeout);
+      clearTimeout(pending3.timeout);
       host4.cancelOperation(id);
     }, "cancel");
     const complete = /* @__PURE__ */ __name((answer, error) => {
-      const pending2 = operations.get(id);
-      if (pending2 === void 0) return;
+      const pending3 = operations.get(id);
+      if (pending3 === void 0) return;
       operations.delete(id);
-      clearTimeout(pending2.timeout);
+      clearTimeout(pending3.timeout);
       resume(answer === null ? fail5(new Error(error ?? "The host operation failed")) : succeed7(answer));
     }, "complete");
     const fail7 = /* @__PURE__ */ __name((cause) => {
@@ -5631,24 +5631,24 @@ ${prefix}}`;
     return sync2(cancel);
   }), "operate");
   var setOperationResponsibility = /* @__PURE__ */ __name((id, responsible) => {
-    const pending2 = operations.get(id);
-    if (pending2 === void 0 || pending2.started) return;
-    clearTimeout(pending2.timeout);
-    pending2.timeout = responsible ? setTimeout(() => pending2.fail(new Error("The equip permit timed out")), 5e3) : void 0;
+    const pending3 = operations.get(id);
+    if (pending3 === void 0 || pending3.started) return;
+    clearTimeout(pending3.timeout);
+    pending3.timeout = responsible ? setTimeout(() => pending3.fail(new Error("The equip permit timed out")), 5e3) : void 0;
   }, "setOperationResponsibility");
   var startOperation = /* @__PURE__ */ __name((id, issued = false) => {
-    const pending2 = operations.get(id);
-    if (pending2 === void 0 || pending2.started || pending2.requiresIssuance && !issued) return;
-    pending2.started = true;
-    clearTimeout(pending2.timeout);
-    pending2.timeout = setTimeout(() => {
-      pending2.fail(new Error("The host operation timed out"));
+    const pending3 = operations.get(id);
+    if (pending3 === void 0 || pending3.started || pending3.requiresIssuance && !issued) return;
+    pending3.started = true;
+    clearTimeout(pending3.timeout);
+    pending3.timeout = setTimeout(() => {
+      pending3.fail(new Error("The host operation timed out"));
     }, 35e3);
   }, "startOperation");
   var completeOperation = /* @__PURE__ */ __name((id, answer, error) => operations.get(id)?.complete(answer, error), "completeOperation");
   var failOperations = /* @__PURE__ */ __name((cause) => {
-    for (const pending2 of operations.values()) {
-      pending2.fail(cause);
+    for (const pending3 of operations.values()) {
+      pending3.fail(cause);
     }
   }, "failOperations");
 
@@ -5682,6 +5682,43 @@ ${prefix}}`;
     pending.get(id)?.(result2);
   }, "completeIo");
 
+  // packages/runtime/src/host/travel.ts
+  var pending2 = /* @__PURE__ */ new Map();
+  var travelHost = globalThis.__host;
+  var startTravel = /* @__PURE__ */ __name((request, host4) => scoped2(gen2(function* () {
+    const id = yield* acquireRelease2(
+      sync2(() => {
+        const id2 = host4.startTravel(JSON.stringify(request));
+        if (id2 !== void 0) pending2.set(id2, {});
+        return id2;
+      }),
+      (id2) => sync2(() => {
+        if (id2 !== void 0) {
+          host4.cancelTravel(id2);
+          pending2.delete(id2);
+        }
+      })
+    );
+    if (id === void 0) return false;
+    return yield* callback2((resume) => {
+      const job = pending2.get(id);
+      job.resume = (value) => resume(succeed7(value));
+      if (job.answer !== void 0) job.resume(job.answer);
+      return sync2(() => {
+        job.resume = void 0;
+      });
+    });
+  })), "startTravel");
+  var completeTravel = /* @__PURE__ */ __name((id, value) => {
+    const job = pending2.get(id);
+    if (job === void 0) return;
+    job.answer = value;
+    job.resume?.(value);
+  }, "completeTravel");
+  var failTravels = /* @__PURE__ */ __name(() => {
+    for (const id of pending2.keys()) completeTravel(id, false);
+  }, "failTravels");
+
   // packages/runtime/src/host/jobs.ts
   var profileJobHost = globalThis.__host;
   var jobs = /* @__PURE__ */ new Map();
@@ -5698,52 +5735,52 @@ ${prefix}}`;
       })
     );
     const failed = callback2((resume) => {
-      const pending2 = jobs.get(id);
-      if (pending2?.error !== void 0) {
-        resume(die3(pending2.error));
+      const pending3 = jobs.get(id);
+      if (pending3?.error !== void 0) {
+        resume(die3(pending3.error));
         return;
       }
       const fail7 = /* @__PURE__ */ __name((error) => resume(die3(error)), "fail");
-      pending2?.listeners.add(fail7);
+      pending3?.listeners.add(fail7);
       return sync2(() => {
-        pending2?.listeners.delete(fail7);
+        pending3?.listeners.delete(fail7);
       });
     });
     return yield* callback2((resume) => {
-      const pending2 = jobs.get(id);
-      if (pending2 === void 0) {
+      const pending3 = jobs.get(id);
+      if (pending3 === void 0) {
         resume(die3(new Error("Combat profile job was cancelled")));
         return;
       }
-      pending2.prepared = (answer) => {
-        pending2.preparation = void 0;
+      pending3.prepared = (answer) => {
+        pending3.preparation = void 0;
         resume(succeed7({ id, ...answer, failed }));
       };
       const fail7 = /* @__PURE__ */ __name((error) => resume(die3(error)), "fail");
-      pending2.listeners.add(fail7);
-      if (pending2.error !== void 0) fail7(pending2.error);
-      else if (pending2.preparation !== void 0) {
-        pending2.prepared(pending2.preparation);
+      pending3.listeners.add(fail7);
+      if (pending3.error !== void 0) fail7(pending3.error);
+      else if (pending3.preparation !== void 0) {
+        pending3.prepared(pending3.preparation);
       }
       return sync2(() => {
-        pending2.prepared = void 0;
-        pending2.listeners.delete(fail7);
+        pending3.prepared = void 0;
+        pending3.listeners.delete(fail7);
       });
     });
   }), "startProfileJob");
   var prepareJob = /* @__PURE__ */ __name((id, label, warnings, classNames) => {
-    const pending2 = jobs.get(id);
-    if (pending2 === void 0 || pending2.error !== void 0) return;
+    const pending3 = jobs.get(id);
+    if (pending3 === void 0 || pending3.error !== void 0) return;
     const answer = { label, warnings, classNames };
-    pending2.preparation = answer;
-    pending2.prepared?.(answer);
+    pending3.preparation = answer;
+    pending3.prepared?.(answer);
   }, "prepareJob");
   var failJob = /* @__PURE__ */ __name((id, error) => {
-    const pending2 = jobs.get(id);
-    if (pending2 === void 0) return;
-    pending2.preparation = void 0;
-    pending2.error = new Error(error);
-    for (const fail7 of pending2.listeners) fail7(pending2.error);
+    const pending3 = jobs.get(id);
+    if (pending3 === void 0) return;
+    pending3.preparation = void 0;
+    pending3.error = new Error(error);
+    for (const fail7 of pending3.listeners) fail7(pending3.error);
   }, "failJob");
   var failJobs = /* @__PURE__ */ __name((error) => {
     for (const id of jobs.keys()) failJob(id, error.message);
@@ -5794,7 +5831,10 @@ ${prefix}}`;
         const error = new Error("Host events were lost; pending requests failed");
         failOperations(error);
         failJobs(error);
+        failTravels();
         invoke(() => window.onHostEventsLost?.());
+      } else if (item.type === "traveldone") {
+        completeTravel(item.id, item.value);
       } else if (item.type === "jobprepared") {
         prepareJob(item.id, item.label, item.warnings, item.classNames);
       } else if (item.type === "jobwarning") {
@@ -7293,9 +7333,9 @@ ${prefix}}`;
       }, "makeFallback");
       if (indexCount) return makeFallback();
       let fallback;
-      const resume = /* @__PURE__ */ __name((state, index, pending2) => {
+      const resume = /* @__PURE__ */ __name((state, index, pending3) => {
         const property = properties[index];
-        return flatMap3(exit2(pending2), (exit3) => {
+        return flatMap3(exit2(pending3), (exit3) => {
           const terminal = stepProperty(state, property, exit3);
           if (terminal) return terminal;
           const done4 = /* @__PURE__ */ __name(() => succeed8(state.out), "done");
@@ -14947,23 +14987,6 @@ ${prefix}}`;
     };
   });
 
-  // packages/runtime/src/game/flash/domain/CombatExit.ts
-  var cellKey = /* @__PURE__ */ __name((cell) => cell.trim().toLowerCase(), "cellKey");
-  var transitionCells = /* @__PURE__ */ new Set(["", "blank", "wait"]);
-  var combatExitCells = /* @__PURE__ */ __name((cells, monsters, currentCell) => {
-    const aggressiveCells = new Set(
-      monsters.filter((monster) => monster.aggressive).map((monster) => cellKey(monster.cell))
-    );
-    const occupiedCells = new Set(
-      monsters.map((monster) => cellKey(monster.cell))
-    );
-    const current = cellKey(currentCell);
-    const rank = /* @__PURE__ */ __name((cell) => cellKey(cell) === current ? 0 : occupiedCells.has(cellKey(cell)) ? 2 : 1, "rank");
-    return cells.filter(
-      (cell) => !transitionCells.has(cellKey(cell)) && !aggressiveCells.has(cellKey(cell))
-    ).toSorted((left, right) => rank(left) - rank(right));
-  }, "combatExitCells");
-
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Random.js
   var Random2 = Random;
   var randomWith = /* @__PURE__ */ __name((f) => withFiber2((fiber2) => succeed7(f(fiber2.getRef(Random2)))), "randomWith");
@@ -15016,25 +15039,6 @@ ${prefix}}`;
     return withRoomNumber(trimmed, room);
   });
   var roomPolicyAcceptsRoom = /* @__PURE__ */ __name((policy, roomNumber) => policy.kind === "public" || (policy.kind === "random-private" ? isPrivateRoom(roomNumber) : roomNumber === policy.roomNumber), "roomPolicyAcceptsRoom");
-  var parseMapTarget = /* @__PURE__ */ __name((map8) => gen2(function* () {
-    const target = splitRoom(map8);
-    if (target.roomToken === void 0) {
-      return {
-        map: target.map,
-        name: target.name,
-        requireExactRoom: false
-      };
-    }
-    const fixedRoom = parseRoom(target.roomToken);
-    const roomNumber = fixedRoom ?? (yield* randomPrivateRoom);
-    const requireExactRoom = fixedRoom === void 0 || fixedRoom >= minimumPrivateRoom && fixedRoom <= maximumRoom;
-    return {
-      map: fixedRoom === void 0 ? `${target.name}-${roomNumber}` : target.map,
-      name: target.name,
-      requireExactRoom,
-      roomNumber
-    };
-  }), "parseMapTarget");
 
   // packages/runtime/src/game/flash/api/Player.ts
   var FactionPayload = Struct({
@@ -15077,7 +15081,6 @@ ${prefix}}`;
     reputation: payload.iRep ?? 0
   }), "toFaction");
   var equippedItemId = /* @__PURE__ */ __name((value) => value === void 0 || value === 0 ? void 0 : value, "equippedItemId");
-  var maxCombatExitJumps = 3;
   var toOutfit = /* @__PURE__ */ __name((payload) => new LiveOutfit({
     colors: {
       accessory: payload.colors?.accessory,
@@ -15248,110 +15251,11 @@ ${prefix}}`;
     ), "isAlive");
     const isMember = /* @__PURE__ */ __name(() => read("player.isMember", Boolean3, false), "isMember");
     const isReady = makePlayerReadiness(host4, auth, map8, bridge);
-    const readLiveLocation = /* @__PURE__ */ __name(() => all2({
-      cell: bridge.invoke("player.getCell", void 0, String4).pipe(map5(getOrElse(() => ""))),
-      pad: bridge.invoke("player.getPad", void 0, String4).pipe(map5(getOrElse(() => "")))
-    }), "readLiveLocation");
-    const isCellReady = /* @__PURE__ */ __name((cell, pad) => {
-      const args2 = pad === void 0 ? [cell] : [cell, pad];
-      return bridge.invoke("world.isCellReady", args2, Boolean3).pipe(map5(getOrElse(() => false)));
-    }, "isCellReady");
-    const jumpToCell = fn2("Player.jumpToCell")(function* (cell, pad) {
-      const targetCell = cell.trim();
-      if (targetCell === "") return false;
-      const args2 = pad === void 0 ? [targetCell] : [targetCell, pad];
-      const invoked = yield* bridge.invoke("player.jump", args2, Void2);
-      if (isNone2(invoked)) return false;
-      let requestedLocationObserved = false;
-      let settledAtRequestedLocation = false;
-      const settled = yield* wait.until(
-        gen2(function* () {
-          const observed = yield* readLiveLocation();
-          const atRequestedLocation = sameText(observed.cell, targetCell) && (pad === void 0 || sameText(observed.pad, pad));
-          if (atRequestedLocation) requestedLocationObserved = true;
-          if (!requestedLocationObserved) return false;
-          const readinessCell = atRequestedLocation ? targetCell : observed.cell.trim();
-          const readinessPad = atRequestedLocation ? pad : observed.pad.trim() || void 0;
-          if (readinessCell === "") return false;
-          const ready = yield* isCellReady(readinessCell, readinessPad);
-          if (ready) settledAtRequestedLocation = atRequestedLocation;
-          return ready;
-        }),
-        { timeout: "3 seconds" }
-      );
-      if (!settled) return false;
-      return settledAtRequestedLocation;
-    });
-    const stopCombat2 = stopCombat(bridge);
-    const waitUntilIdle = /* @__PURE__ */ __name((timeout2) => wait.until(
-      getState().pipe(
-        flatMap3(
-          (state) => state !== EntityState.Idle ? succeed7(false) : sleep2("500 millis").pipe(
-            andThen2(getState()),
-            map5((confirmed) => confirmed === EntityState.Idle)
-          )
-        )
-      ),
-      { interval: "100 millis", timeout: timeout2 }
-    ), "waitUntilIdle");
-    const exitCombat = fn2("Player.exitCombat")(function* () {
-      if ((yield* getState()) === EntityState.Idle) return true;
-      const currentCell = yield* getCell();
-      const currentPad = yield* getPad();
-      const cells = combatExitCells(
-        yield* map8.getCells(),
-        yield* host4.read({ kind: "monsters" }),
-        currentCell
-      );
-      for (const cell of cells.slice(0, maxCombatExitJumps)) {
-        yield* stopCombat2;
-        yield* jumpToCell(
-          cell,
-          sameText(cell, currentCell) ? currentPad : void 0
-        );
-        if (yield* waitUntilIdle("2 seconds")) return true;
-      }
-      return false;
-    });
+    const jumpToCell = /* @__PURE__ */ __name((cell, pad) => startTravel({ kind: "jump", cell, pad }, travelHost), "jumpToCell");
+    const exitCombat = /* @__PURE__ */ __name(() => startTravel({ kind: "exit" }, travelHost), "exitCombat");
     const joinMap = /* @__PURE__ */ __name((target, options) => gen2(function* () {
-      const { cell, pad } = options ?? {};
-      const destination = yield* parseMapTarget(target);
-      if (destination.map === "") return false;
-      const targetCell = cell ?? (pad === void 0 ? void 0 : "Enter");
-      const currentMap = yield* host4.read({ kind: "map" });
-      const alreadyLoaded = (yield* map8.isLoaded()) && sameText(currentMap.name, destination.name) && (!destination.requireExactRoom || currentMap.roomNumber === destination.roomNumber);
-      if (alreadyLoaded) {
-        if (!(yield* wait.until(isReady(), { timeout: "10 seconds" })))
-          return false;
-        return targetCell === void 0 ? true : yield* jumpToCell(targetCell, pad);
-      }
-      if (!(yield* wait.until(isReady(), { timeout: "10 seconds" })))
-        return false;
-      if (!(yield* wait.forGameAction("tfer", { timeout: "10 seconds" })))
-        return false;
-      if (!(yield* wait.until(isAlive(), { timeout: "15 seconds" })))
-        return false;
-      if (!(yield* exitCombat())) return false;
-      const args2 = cell === void 0 && pad === void 0 ? [destination.map] : pad === void 0 ? [destination.map, cell ?? "Enter"] : [destination.map, cell ?? "Enter", pad];
-      if (isNone2(yield* bridge.invoke("player.joinMap", args2, Void2)))
-        return false;
-      const loaded = yield* wait.until(
-        host4.read({ kind: "map" }).pipe(
-          flatMap3(
-            (current) => map8.isLoaded().pipe(
-              map5(
-                (ready) => ready && sameText(current.name, destination.name) && (!destination.requireExactRoom || current.roomNumber === destination.roomNumber)
-              )
-            )
-          )
-        ),
-        { timeout: "20 seconds" }
-      );
-      if (!loaded) return false;
-      if (!(yield* wait.until(isReady(), { timeout: "10 seconds" })))
-        return false;
-      if (targetCell === void 0) return true;
-      return yield* jumpToCell(targetCell, pad);
+      const random_room = yield* randomPrivateRoom;
+      return yield* startTravel({ kind: "join", target, ...options, random_room }, travelHost);
     }), "joinMap");
     const rest = /* @__PURE__ */ __name((options) => gen2(function* () {
       const current = yield* get5();
@@ -16311,21 +16215,21 @@ ${prefix}}`;
       null
     );
     const nextIdRef = yield* make16(0);
-    const clearActive = /* @__PURE__ */ __name((pending2) => gen2(function* () {
+    const clearActive = /* @__PURE__ */ __name((pending3) => gen2(function* () {
       const active = yield* get3(activeRef);
-      if (active !== pending2) return;
+      if (active !== pending3) return;
       yield* set2(activeRef, null);
       yield* set3(currentRef, null);
     }), "clearActive");
     const processNext = fn2("ScriptDialogs.processNext")(function* () {
-      const pending2 = yield* take3(queue);
-      if (yield* isDone2(pending2.canceled)) return;
-      yield* set2(activeRef, pending2);
-      yield* set3(currentRef, snapshotRequest(pending2.request));
+      const pending3 = yield* take3(queue);
+      if (yield* isDone2(pending3.canceled)) return;
+      yield* set2(activeRef, pending3);
+      yield* set3(currentRef, snapshotRequest(pending3.request));
       yield* raceFirst2(
-        _await(pending2.response).pipe(asVoid2),
-        _await(pending2.canceled)
-      ).pipe(ensuring2(clearActive(pending2)));
+        _await(pending3.response).pipe(asVoid2),
+        _await(pending3.canceled)
+      ).pipe(ensuring2(clearActive(pending3)));
     });
     yield* gen2(function* () {
       while (true) {
@@ -16336,16 +16240,16 @@ ${prefix}}`;
       return yield* acquireUseRelease2(
         gen2(function* () {
           const id = yield* updateAndGet(nextIdRef, (current) => current + 1);
-          const pending2 = {
+          const pending3 = {
             canceled: yield* make5(),
             request: requestWithId(request, id),
             response: yield* make5()
           };
-          yield* offer(queue, pending2);
-          return pending2;
+          yield* offer(queue, pending3);
+          return pending3;
         }),
-        (pending2) => _await(pending2.response),
-        (pending2) => succeed5(pending2.canceled, void 0).pipe(asVoid2)
+        (pending3) => _await(pending3.response),
+        (pending3) => succeed5(pending3.canceled, void 0).pipe(asVoid2)
       );
     });
     const alert = /* @__PURE__ */ __name((source, message2) => enqueue({ ...source, kind: "alert", message: message2 }).pipe(asVoid2), "alert");
@@ -16507,9 +16411,9 @@ ${prefix}}`;
     });
     const close2 = gen2(function* () {
       yield* cancel;
-      const pending2 = Array.from(cleanups).reverse();
+      const pending3 = Array.from(cleanups).reverse();
       cleanups.clear();
-      yield* forEach2(pending2, runCleanup, { discard: true });
+      yield* forEach2(pending3, runCleanup, { discard: true });
     });
     return {
       addCleanup: /* @__PURE__ */ __name((cleanup) => suspend2(() => {
@@ -19539,8 +19443,8 @@ ${prefix}}`;
         function* (id, done4, terminal, finalization) {
           yield* lifecycleGate.withPermit(
             gen2(function* () {
-              const pending2 = yield* get3(pendingFinalizationRef);
-              if (pending2?.id !== id || pending2.done !== done4) {
+              const pending3 = yield* get3(pendingFinalizationRef);
+              if (pending3?.id !== id || pending3.done !== done4) {
                 yield* succeed5(done4, yield* getStatus());
                 return;
               }
@@ -19602,14 +19506,14 @@ ${prefix}}`;
       );
       const cancelPendingRestart = fn2("ScriptRunner.cancelPendingRestart")(
         function* (reason) {
-          const pending2 = yield* get3(pendingRestartRef);
-          if (pending2 !== null) {
+          const pending3 = yield* get3(pendingRestartRef);
+          if (pending3 !== null) {
             yield* succeed5(
-              pending2.cancel,
+              pending3.cancel,
               reason === void 0 ? {} : { reason }
             );
           }
-          return pending2;
+          return pending3;
         }
       );
       const stopActive = fn2("ScriptRunner.stopActive")(function* (reason) {
@@ -19628,10 +19532,10 @@ ${prefix}}`;
                 kind: "waiting"
               };
             }
-            const pending2 = yield* get3(pendingFinalizationRef);
-            if (pending2 !== null) {
+            const pending3 = yield* get3(pendingFinalizationRef);
+            if (pending3 !== null) {
               return {
-                done: restart?.done ?? pending2.done,
+                done: restart?.done ?? pending3.done,
                 kind: "waiting"
               };
             }
@@ -20011,23 +19915,23 @@ ${prefix}}`;
       });
       const completePendingRestart = fn2(
         "ScriptRunner.completePendingRestart"
-      )(function* (pending2, status) {
+      )(function* (pending3, status) {
         yield* lifecycleGate.withPermit(
           gen2(function* () {
             const current = yield* get3(pendingRestartRef);
-            const authoritative = current === pending2 ? status : yield* getStatus();
-            if (current === pending2) {
+            const authoritative = current === pending3 ? status : yield* getStatus();
+            if (current === pending3) {
               yield* set2(pendingRestartRef, null);
               yield* setStatus(status);
             }
-            yield* succeed5(pending2.done, snapshotStatus(authoritative));
+            yield* succeed5(pending3.done, snapshotStatus(authoritative));
             if (status.state === "stopped") {
               yield* succeed5(
-                pending2.terminal,
+                pending3.terminal,
                 externalStopOutcome({ ...status })
               );
             } else if (status.state === "failed") {
-              yield* succeed5(pending2.terminal, {
+              yield* succeed5(pending3.terminal, {
                 kind: "failed",
                 status: { ...status }
               });
@@ -20037,7 +19941,7 @@ ${prefix}}`;
       });
       const awaitRestartReadiness = fn2(
         "ScriptRunner.awaitRestartReadiness"
-      )(function* (pending2) {
+      )(function* (pending3) {
         return (yield* wait.untilSome(
           gen2(function* () {
             const options = yield* scriptOptions.get();
@@ -20047,22 +19951,22 @@ ${prefix}}`;
             const readiness = yield* scriptStartReadiness.get();
             if (!readiness.ready) return none2();
             return some2({
-              kind: readiness.username === pending2.username ? "ready" : "account-changed"
+              kind: readiness.username === pending3.username ? "ready" : "account-changed"
             });
           }),
           { interval: "250 millis" }
         )) ?? { kind: "disabled" };
       });
       const resumePendingRestart = fn2("ScriptRunner.resumePendingRestart")(
-        function* (pending2) {
+        function* (pending3) {
           const result2 = yield* lifecycleGate.withPermit(
             gen2(function* () {
               const current = yield* get3(pendingRestartRef);
               const latestCommandId = yield* get3(latestCommandIdRef);
               const options = yield* scriptOptions.get();
-              if (current !== pending2 || latestCommandId !== pending2.commandId || !options.restartAfterReconnect) {
+              if (current !== pending3 || latestCommandId !== pending3.commandId || !options.restartAfterReconnect) {
                 const status2 = yield* getStatus();
-                if (current === pending2) {
+                if (current === pending3) {
                   const stopped = {
                     state: "stopped",
                     stoppedAt: nowIso()
@@ -20074,10 +19978,10 @@ ${prefix}}`;
                 return { kind: "settled", status: status2 };
               }
               const starting = yield* beginStarting(
-                pending2.commandId,
-                pending2.source,
-                pending2.inputs,
-                pending2
+                pending3.commandId,
+                pending3.source,
+                pending3.inputs,
+                pending3
               );
               return {
                 done: starting.done,
@@ -20089,32 +19993,32 @@ ${prefix}}`;
           if (status.state === "waiting-to-restart") {
             return true;
           }
-          yield* completePendingRestart(pending2, status);
+          yield* completePendingRestart(pending3, status);
           return false;
         }
       );
       const runPendingRestart = fn2("ScriptRunner.runPendingRestart")(
-        function* (pending2, finalized) {
+        function* (pending3, finalized) {
           yield* awaitStatus(finalized);
           while (true) {
             const outcome2 = yield* raceFirst2(
-              _await(pending2.cancel).pipe(
+              _await(pending3.cancel).pipe(
                 map5(
                   (cancellation) => ({ cancellation, kind: "cancelled" })
                 )
               ),
-              awaitRestartReadiness(pending2).pipe(
+              awaitRestartReadiness(pending3).pipe(
                 map5(
                   (readiness) => ({ kind: "readiness", readiness })
                 )
               )
             );
             if (outcome2.kind === "readiness" && outcome2.readiness.kind === "ready") {
-              if (yield* resumePendingRestart(pending2)) continue;
+              if (yield* resumePendingRestart(pending3)) continue;
               return;
             }
             const reason = outcome2.kind === "cancelled" ? outcome2.cancellation.reason : outcome2.readiness.kind === "account-changed" ? "Account changed" : void 0;
-            yield* completePendingRestart(pending2, {
+            yield* completePendingRestart(pending3, {
               ...reason === void 0 ? {} : { reason },
               state: "stopped",
               stoppedAt: nowIso()
@@ -20243,10 +20147,10 @@ ${prefix}}`;
                     kind: "waiting"
                   };
                 }
-                const pending2 = yield* get3(pendingFinalizationRef);
-                if (pending2 !== null) {
+                const pending3 = yield* get3(pendingFinalizationRef);
+                if (pending3 !== null) {
                   return {
-                    done: restart?.done ?? pending2.done,
+                    done: restart?.done ?? pending3.done,
                     kind: "waiting"
                   };
                 }

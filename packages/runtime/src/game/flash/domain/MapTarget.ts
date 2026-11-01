@@ -13,13 +13,6 @@ export const minimumPrivateRoom = MINIMUM_PRIVATE_ROOM;
 export const minimumRandomPrivateRoom = MINIMUM_RANDOM_PRIVATE_ROOM;
 export const maximumRoom = MAXIMUM_ROOM_NUMBER;
 
-export interface MapTarget {
-  readonly map: string;
-  readonly name: string;
-  readonly requireExactRoom: boolean;
-  readonly roomNumber?: number;
-}
-
 interface MapParts {
   readonly map: string;
   readonly name: string;
@@ -96,28 +89,3 @@ export const roomPolicyAcceptsRoom = (
   (policy.kind === "random-private"
     ? isPrivateRoom(roomNumber)
     : roomNumber === policy.roomNumber);
-
-export const parseMapTarget = (map: string): Effect.Effect<MapTarget> =>
-  Effect.gen(function* () {
-    const target = splitRoom(map);
-    if (target.roomToken === undefined) {
-      return {
-        map: target.map,
-        name: target.name,
-        requireExactRoom: false,
-      };
-    }
-
-    const fixedRoom = parseRoom(target.roomToken);
-    const roomNumber = fixedRoom ?? (yield* randomPrivateRoom);
-    const requireExactRoom =
-      fixedRoom === undefined ||
-      (fixedRoom >= minimumPrivateRoom && fixedRoom <= maximumRoom);
-    return {
-      map:
-        fixedRoom === undefined ? `${target.name}-${roomNumber}` : target.map,
-      name: target.name,
-      requireExactRoom,
-      roomNumber,
-    };
-  });

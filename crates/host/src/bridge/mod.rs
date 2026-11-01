@@ -166,6 +166,10 @@ pub(crate) fn invoke(player: &mut Player, name: &str, args: Vec<Value>) -> Resul
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScriptEvent {
+    TravelDone {
+        id: u64,
+        value: bool,
+    },
     JobPrepared {
         id: u64,
         label: String,

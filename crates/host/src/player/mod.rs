@@ -5,6 +5,7 @@ pub(crate) mod frames;
 mod net;
 mod projection;
 pub(crate) mod surface;
+mod travel;
 pub(crate) mod view;
 
 use lucent_protocol::auto_zone::{AutoZoneConfig, AutoZonePatch};
@@ -169,6 +170,18 @@ impl Read {
 }
 
 pub(crate) enum Msg {
+    ObserveTravel {
+        reads: crate::game::travel::Reads,
+        gate: Arc<crate::game::jobs::JobGate>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<crate::game::travel::Snapshot>,
+    },
+    DispatchTravel {
+        action: crate::game::travel::Action,
+        gate: Arc<crate::game::jobs::JobGate>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<Value>,
+    },
     ObserveProfile {
         priorities: Arc<[lucent_protocol::query::MonsterSelector]>,
         clock: crate::game::jobs::JobClock,
@@ -363,6 +376,12 @@ fn first_viewport(
             Msg::LinkCount(reply) => {
                 let _ = reply.send(Ok(script_events.len()));
             }
+            Msg::ObserveTravel { reply, .. } => {
+                let _ = reply.send(Ok(Default::default()));
+            }
+            Msg::DispatchTravel { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
             Msg::ObserveProfile { reply, .. } => {
                 let _ = reply.send(Ok(crate::game::jobs::Observation {
                     binding: packets.binding(),
@@ -507,6 +526,30 @@ impl Running {
                 deliver_operation_answer(&self.script_events, attachment, answer);
             }
             Msg::Read(read) => (read.0)(Ok(&self.projection.read())),
+            Msg::ObserveTravel {
+                reads,
+                gate,
+                deadline,
+                reply,
+            } => {
+                let snapshot = self.observe_travel(reads, &gate, deadline);
+                let _ = reply.send(Ok(snapshot));
+            }
+            Msg::DispatchTravel {
+                action,
+                gate,
+                deadline,
+                reply,
+            } => {
+                let (name, args) = action.loader_call();
+                let result = self.travel_call(
+                    &gate,
+                    deadline,
+                    name,
+                    args.into_iter().map(Value::String).collect(),
+                );
+                let _ = reply.send(result);
+            }
             Msg::ObserveProfile {
                 priorities,
                 clock,

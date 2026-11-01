@@ -25,6 +25,12 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct JobId(u64);
+impl JobId {
+    fn next() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
 impl std::fmt::Display for JobId {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(formatter)
@@ -39,6 +45,7 @@ impl std::str::FromStr for JobId {
 
 const MAX_MESSAGES: usize = 16;
 mod owner;
+pub(crate) mod travel;
 #[cfg(feature = "testing")]
 pub(crate) use owner::{ActionProbe, ObservationProbe};
 pub(crate) use owner::{JobGate, JobRequests, ScriptJobs};
@@ -142,6 +149,7 @@ pub(crate) struct ProfileJobs {
     waker: Waker,
     clock: JobClock,
     jobs: Vec<Job>,
+    travel: Vec<travel::Travel>,
     auto_attack: Option<JobId>,
     auto_attack_replies: Vec<(crate::bridge::Reply<String>, String)>,
 }
@@ -181,6 +189,15 @@ enum Waiting {
 
 impl JobRequests {
     #[cfg(feature = "testing")]
+    pub(crate) fn travel_len(&self) -> usize {
+        self.handoff.lock().travel_live
+    }
+    #[cfg(feature = "testing")]
+    pub(crate) fn has_controller(&self) -> bool {
+        !self.controller_links.lock().is_empty()
+    }
+
+    #[cfg(feature = "testing")]
     pub(crate) fn len(&self) -> usize {
         self.handoff.lock().live
     }
@@ -209,6 +226,7 @@ impl ProfileJobs {
                 origin: Instant::now(),
             },
             jobs: Vec::new(),
+            travel: Vec::new(),
             auto_attack: None,
             auto_attack_replies: Vec::new(),
         }
@@ -295,6 +313,7 @@ impl ProfileJobs {
         shared.changes.set(&shared.records, records);
     }
     pub(crate) fn advance(&mut self, now: Instant) -> Option<Instant> {
+        let travel_deadline = self.advance_travel(now);
         self.reconcile_auto_attack(now);
         let requests = {
             self.requests
@@ -391,7 +410,11 @@ impl ProfileJobs {
         if self.jobs.is_empty() {
             self.link.set_waker(Waker::noop().clone());
         }
-        self.jobs.iter().filter_map(|job| job.deadline()).min()
+        self.jobs
+            .iter()
+            .filter_map(|job| job.deadline())
+            .chain(travel_deadline)
+            .min()
     }
     fn event(&mut self, event: ScriptEvent, now: Instant) {
         for job in &mut self.jobs {
@@ -463,6 +486,18 @@ impl Drop for ProfileJobs {
         handoff.live = 0;
         handoff.scripts = 0;
         handoff.queue.clear();
+        for mut request in handoff.travel.drain(..) {
+            request.gate.close();
+            request.owner.complete(
+                super::travel::Outcome::Cancelled,
+                request.id,
+                &request.player.inbox,
+            );
+        }
+        handoff.travel_live = 0;
+        for travel in &mut self.travel {
+            travel.cancel();
+        }
         for job in &mut self.jobs {
             job.cancel();
         }
