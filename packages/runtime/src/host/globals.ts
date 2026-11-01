@@ -1,3 +1,4 @@
+import { URL, URLSearchParams, TextDecoder, Headers } from "./web";
 type Listener = ((event: Event) => void) | { handleEvent(event: Event): void };
 interface Registration {
   readonly listener: Listener;
@@ -207,6 +208,10 @@ export const runtimeConsole = Object.freeze({
 
 if (typeof __host !== "undefined") {
   Object.assign(globalThis, {
+    URL,
+    URLSearchParams,
+    TextDecoder,
+    Headers,
     Event,
     EventTarget,
     AbortController,

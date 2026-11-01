@@ -210,3 +210,6 @@ impl From<ScriptEvent> for Item {
         }
     }
 }
+
+#[path = "web.rs"]
+pub(crate) mod web;
