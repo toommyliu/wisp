@@ -53,8 +53,27 @@ impl Running {
                 }
             }
             drop(projection);
+            let countered: Vec<i64> = match &event {
+                Some(ScriptEvent::Loader { projected, .. })
+                    if self.settings.read().anti_counter_enabled =>
+                {
+                    projected
+                        .iter()
+                        .filter_map(|event| match event {
+                            ProjectionEvent::CounterAttackStart { monster_map_id, .. } => {
+                                Some(*monster_map_id)
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                }
+                _ => Vec::new(),
+            };
             if let Some(event) = event {
                 self.publish(event);
+            }
+            for monster_map_id in countered {
+                self.stop_attacking_countered(monster_map_id);
             }
             if ready && !self.settings_applied {
                 self.settings_applied = true;
@@ -63,6 +82,24 @@ impl Running {
             if invalidated {
                 self.publish(ScriptEvent::Invalidated);
             }
+        }
+    }
+
+    fn stop_attacking_countered(&mut self, monster_map_id: i64) {
+        let mut player = self.player.lock().unwrap();
+        let targeted = bridge::invoke(&mut player, "combat.getTarget", vec![])
+            .ok()
+            .and_then(to_json)
+            .is_some_and(|target| {
+                target.get("type").and_then(serde_json::Value::as_str) == Some("monster")
+                    && target
+                        .get("monsterMapId")
+                        .and_then(crate::projection::wire::wire_i64)
+                        == Some(monster_map_id)
+            });
+        if targeted {
+            let _ = bridge::invoke(&mut player, "combat.cancelAutoAttack", vec![]);
+            let _ = bridge::invoke(&mut player, "combat.cancelTarget", vec![]);
         }
     }
 
