@@ -112,7 +112,7 @@ fn windows_device_names_are_invalid_for_every_filesystem_operation() {
     let results = run(
         &host,
         r#"
-        const names = ["COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³", "CONIN$", "CONOUT$"];
+        const names = ["COM0", "LPT0", "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³", "CONIN$", "CONOUT$"];
         const results = [];
         for (const name of names) {
             const mixed = name[0] + name.slice(1).toLowerCase();
@@ -131,25 +131,8 @@ fn windows_device_names_are_invalid_for_every_filesystem_operation() {
     for result in results.as_array().unwrap() {
         assert_eq!(result[1], json!("invalid-path"), "{}", result[0]);
     }
-    assert_eq!(results.as_array().unwrap().len(), 8 * 4 * 7);
+    assert_eq!(results.as_array().unwrap().len(), 10 * 4 * 7);
     assert_eq!(fs::read_dir(workspace.root()).unwrap().count(), 0);
-    assert_eq!(
-        run(
-            &host,
-            r#"
-        for (const path of ["COM0", "LPT0", "cOm0.txt", "lPt0.txt"]) {
-            yield* fs.writeText(path, "ordinary file");
-        }
-        return yield* Effect.forEach(["COM0", "LPT0", "cOm0.txt", "lPt0.txt"], path => fs.readText(path));
-    "#,
-        ),
-        json!([
-            "ordinary file",
-            "ordinary file",
-            "ordinary file",
-            "ordinary file"
-        ])
-    );
 }
 
 #[test]
