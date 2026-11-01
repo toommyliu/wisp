@@ -7,3 +7,11 @@ publish.workspace = true
 [[bin]]
 name = "gallery"
 path = "src/bin/gallery.rs"
+
+[dependencies]
+gpui.workspace = true
+gpui_platform.workspace = true
+unicode-segmentation = "1"
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }

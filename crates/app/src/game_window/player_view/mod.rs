@@ -42,6 +42,13 @@ pub struct PlayerView {
 }
 
 impl PlayerView {
+    pub(super) fn session(&self) -> &Session {
+        &self.session
+    }
+    pub(super) fn session_mut(&mut self) -> &mut Session {
+        &mut self.session
+    }
+
     pub fn new(
         host: &Host,
         script: Option<ScriptRequest>,
