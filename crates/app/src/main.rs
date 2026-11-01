@@ -29,6 +29,7 @@ fn main() -> anyhow::Result<()> {
         }
     });
     app.run(move |cx| {
+        lucent_ui::text_field::init(cx);
         if let Err(error) = game_window::open(&host, request, cx) {
             tracing::error!(%error, "couldn't open a game window");
             cx.quit();

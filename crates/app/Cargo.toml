@@ -5,6 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+lucent-ui.workspace = true
+lucent-protocol.workspace = true
+serde_json = "1"
 lucent-host.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
@@ -36,3 +39,7 @@ windows = { version = "0.61", features = [
 [[bin]]
 name = "lucent"
 path = "src/main.rs"
+
+[dev-dependencies]
+lucent-host = { workspace = true, features = ["testing"] }
+gpui = { workspace = true, features = ["test-support"] }
