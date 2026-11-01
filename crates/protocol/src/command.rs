@@ -36,6 +36,8 @@ macro_rules! commands {
 }
 
 commands! {
+    UpdateScriptOptions { patch: crate::script_options::ScriptOptionsPatch } => crate::script_options::ScriptOptions,
+    ResetScriptOptions {} => crate::script_options::ScriptOptions,
     UpdateEnvironment { edit: crate::environment::EnvironmentEdit } => crate::environment::EnvironmentState,
     RefreshCombatState {} => crate::combat_state::CombatSnapshot,
     EnableAutoAttack { profile: serde_json::Value, target_priority: Vec<String> } => crate::auto_attack::AutoAttackRecords,

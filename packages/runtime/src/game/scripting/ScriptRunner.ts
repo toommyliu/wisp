@@ -12,10 +12,12 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import type { ScriptInputValues } from "@lucent/schemas/scriptInputs";
 import { Api } from "../flash/api/Api";
+import { HostState } from "../flash/state/HostState";
+import { makeScriptOptionsApi } from "../../host/scriptOptions";
 import { ProjectionReadiness } from "../flash/api/ProjectionReadiness";
 import { Bridge } from "../flash/bridge/Bridge";
 import type { Event as FlashEvent } from "../flash/contract/Event";
-import type { ScriptMain, ScriptRuntimeOptions } from "@lucent/scripting-api/contract";
+import type { ScriptMain } from "@lucent/scripting-api/contract";
 import {
   makeScriptAsyncScope,
   type ScriptAsyncScope,
@@ -26,11 +28,8 @@ import {
   attributedScriptErrorMessage,
 } from "./scriptSourceAttribution";
 import {
-  DEFAULT_SCRIPT_RUNTIME_OPTIONS,
   makeScriptRuntimeApi,
   snapshotRoomPolicy,
-  snapshotScriptRuntimeOptions,
-  type ScriptRuntimeOptionsUpdate,
 } from "./ScriptRuntime";
 import type { ScriptBuiltinModules } from "./ScriptBuiltinModules";
 import { makeScriptBuiltinModules } from "./ScriptBuiltinModules";
@@ -151,21 +150,11 @@ const terminalFinalization = (
 ): ScriptFinalization => ({ outcome, status: outcome.status });
 
 export interface ScriptRunnerShape {
-  readonly bindAccount: (
-    username: string,
-  ) => Effect.Effect<ScriptRuntimeOptions>;
-  readonly getOptions: () => Effect.Effect<ScriptRuntimeOptions>;
   readonly getStatus: () => Effect.Effect<ScriptRunnerStatus>;
   readonly isRunning: () => Effect.Effect<boolean>;
   readonly onStatus: (
     listener: (status: ScriptRunnerStatus) => void,
   ) => Effect.Effect<StateDisposer>;
-  readonly onOptions: (
-    listener: (options: ScriptRuntimeOptions) => void,
-  ) => Effect.Effect<StateDisposer>;
-  readonly setOptions: (
-    update: ScriptRuntimeOptionsUpdate,
-  ) => Effect.Effect<ScriptRuntimeOptions>;
   readonly start: (
     source: ScriptSource,
     inputs: ScriptInputValues,
@@ -253,9 +242,6 @@ const externalStopOutcome = (
 
 const statusName = (source: Pick<ScriptSource, "name">) =>
   source.name.trim() === "" ? "script" : source.name;
-
-const normalizeUsername = (username: string): string =>
-  username.trim().toLowerCase();
 
 export const statusFromStartingCancellation = (
   starting: {
@@ -385,35 +371,6 @@ const isConnectionLoss = (event: FlashEvent): boolean =>
   (event.status === "OnConnectionLost" ||
     event.status === "OnConnectionFailed");
 
-export const makeScriptOptions = Effect.fnUntraced(function* () {
-  const optionsRef = yield* SubscriptionRef.make<ScriptRuntimeOptions>(
-    snapshotScriptRuntimeOptions(DEFAULT_SCRIPT_RUNTIME_OPTIONS),
-  );
-  const accountUsernameRef = yield* Ref.make("");
-  const getOptions = () =>
-    SubscriptionRef.get(optionsRef).pipe(
-      Effect.map(snapshotScriptRuntimeOptions),
-    );
-
-  const bindAccount: ScriptRunnerShape["bindAccount"] = (username) =>
-    Effect.gen(function* () {
-      const normalized = normalizeUsername(username);
-      if ((yield* Ref.getAndSet(accountUsernameRef, normalized)) !== normalized)
-        yield* SubscriptionRef.set(
-          optionsRef,
-          snapshotScriptRuntimeOptions(DEFAULT_SCRIPT_RUNTIME_OPTIONS),
-        );
-      return yield* getOptions();
-    });
-
-  const setOptions: ScriptRunnerShape["setOptions"] = (update) =>
-    SubscriptionRef.updateAndGet(optionsRef, (current) =>
-      snapshotScriptRuntimeOptions(update(snapshotScriptRuntimeOptions(current))),
-    ).pipe(Effect.map(snapshotScriptRuntimeOptions));
-
-  return { optionsRef, bindAccount, getOptions, setOptions };
-});
-
 export const layer = Layer.effect(
   ScriptRunner,
   Effect.gen(function* () {
@@ -450,8 +407,7 @@ export const layer = Layer.effect(
     );
     const pendingRestartRef = yield* Ref.make<PendingRestart | null>(null);
     const startingRef = yield* Ref.make<StartingScript | null>(null);
-    const { optionsRef, bindAccount, getOptions, setOptions } =
-      yield* makeScriptOptions();
+    const scriptOptions = makeScriptOptionsApi(yield* HostState);
     const statusRef = yield* SubscriptionRef.make<ScriptRunnerStatus>({
       state: "idle",
     });
@@ -737,7 +693,7 @@ export const layer = Layer.effect(
       map,
       packet,
       player,
-      roomPolicy: SubscriptionRef.get(optionsRef).pipe(
+      roomPolicy: scriptOptions.get().pipe(
         Effect.map((options) => snapshotRoomPolicy(options.roomPolicy)),
       ),
       wait,
@@ -753,7 +709,7 @@ export const layer = Layer.effect(
           >;
           return yield* iterator;
         }).pipe(Effect.asVoid),
-        SubscriptionRef.get(optionsRef).pipe(
+        scriptOptions.get().pipe(
           Effect.map((options) => options.safeStartStop),
         ),
         moveToSafeMap,
@@ -900,18 +856,16 @@ export const layer = Layer.effect(
       const setup = Effect.gen(function* () {
         const readiness = yield* scriptStartReadiness.awaitReady();
         const username = readiness.username;
-        yield* bindAccount(username);
 
         yield* scriptScope.addCleanup(() =>
           army.leave().pipe(Effect.catchCause(() => Effect.void)),
         );
         const script = makeScriptRuntimeApi({
           dialogs,
-          getOptions,
+          scriptOptions,
           getInputValues: () => inputValues,
           log: (...values) => console.log("[script]", ...values),
           scope: scriptScope,
-          setOptions,
           source: { sourceName: statusName(source) },
         });
         const http = yield* makeHttpApi(scriptScope);
@@ -922,7 +876,7 @@ export const layer = Layer.effect(
           failCause: (cause) => failActiveCause(starting.id, cause),
           fileSystem: makeScriptFileSystemApi(fileSystemBridge, scriptScope),
           http,
-          roomPolicy: SubscriptionRef.get(optionsRef).pipe(
+          roomPolicy: scriptOptions.get().pipe(
             Effect.map((options) => snapshotRoomPolicy(options.roomPolicy)),
           ),
           scope: scriptScope,
@@ -1138,7 +1092,7 @@ export const layer = Layer.effect(
       return (
         (yield* wait.untilSome(
           Effect.gen(function* () {
-            const options = yield* SubscriptionRef.get(optionsRef);
+            const options = yield* scriptOptions.get();
             if (!options.restartAfterReconnect) {
               return Option.some<RestartReadiness>({ kind: "disabled" });
             }
@@ -1164,7 +1118,7 @@ export const layer = Layer.effect(
           Effect.gen(function* () {
             const current = yield* Ref.get(pendingRestartRef);
             const latestCommandId = yield* Ref.get(latestCommandIdRef);
-            const options = yield* SubscriptionRef.get(optionsRef);
+            const options = yield* scriptOptions.get();
             if (
               current !== pending ||
               latestCommandId !== pending.commandId ||
@@ -1274,7 +1228,7 @@ export const layer = Layer.effect(
                 const active = yield* Ref.get(activeRef);
                 if (active?.id !== id) return null;
 
-                const options = yield* SubscriptionRef.get(optionsRef);
+                const options = yield* scriptOptions.get();
                 const shouldRestart =
                   options.restartAfterReconnect && active.username !== "";
                 const disconnectedAt = nowIso();
@@ -1455,8 +1409,6 @@ export const layer = Layer.effect(
     yield* Effect.addFinalizer(() => stop("shutdown").pipe(Effect.asVoid));
 
     return ScriptRunner.of({
-      bindAccount,
-      getOptions,
       getStatus,
       isRunning: () =>
         getStatus().pipe(
@@ -1468,15 +1420,8 @@ export const layer = Layer.effect(
               status.state === "waiting-to-restart",
           ),
         ),
-      onOptions: (listener) =>
-        observe(
-          SubscriptionRef.changes(optionsRef),
-          snapshotScriptRuntimeOptions,
-          listener,
-        ),
       onStatus: (listener) =>
         observe(SubscriptionRef.changes(statusRef), snapshotStatus, listener),
-      setOptions,
       start,
       stop,
     });
