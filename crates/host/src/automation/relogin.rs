@@ -323,9 +323,7 @@ impl Policy {
     }
     fn publish(&mut self, shared: &Shared) {
         self.records.status.phase = self.recovery.phase();
-        if *shared.records.read() != self.records {
-            *shared.records.write() = self.records.clone();
-        }
+        shared.changes.set(&shared.records, self.records.clone());
     }
     fn resynchronize(&mut self, now: Instant) {
         if self.records.config.enabled {

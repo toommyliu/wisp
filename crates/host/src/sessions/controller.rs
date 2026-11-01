@@ -14,7 +14,7 @@ use crate::{
     automation::{AutoZonePolicy, ReloginPolicy, SettingsPolicy},
     bridge, reap,
 };
-use lucent_protocol::script::{Script, ScriptOutcome};
+use lucent_protocol::script::{Script, ScriptOutcome, ScriptPhase, ScriptStatus};
 use tracing::{Level, info, warn};
 
 use crate::scripting::{Kill, RuntimeError, ScriptRun};
@@ -81,6 +81,9 @@ struct Player {
 }
 
 impl Supervisor {
+    pub(super) fn controls(&self) -> ScriptControls {
+        ScriptControls(self.inbox.clone())
+    }
     pub fn start(
         session: &mut Session,
         script: Option<ScriptRequest>,
@@ -99,6 +102,8 @@ impl Supervisor {
         let has_script = script.is_some();
         let first = attach(session, has_script).ok_or(RuntimeError::Stopped)?;
         let supervision = Supervision {
+            status: session.script_status.clone(),
+            changes: session.changes.clone(),
             session: first.relogin.id(),
             notify: Arc::new(Notify {
                 inbox: inbox.clone(),
@@ -199,6 +204,8 @@ impl Wake for Notify {
 }
 
 struct Supervision {
+    status: Arc<parking_lot::RwLock<ScriptStatus>>,
+    changes: Arc<super::Changes>,
     session: u64,
     notify: Arc<Notify>,
     script: ScriptState,
@@ -213,6 +220,7 @@ struct CurrentRun {
     id: u64,
     name: String,
     run: ScriptRun,
+    stopping: bool,
 }
 enum ScriptState {
     Idle,
@@ -249,8 +257,10 @@ impl Wake for RunNotify {
 impl Supervision {
     fn run(mut self, first: Player, messages: mpsc::Receiver<Msg>) {
         self.player(first);
+        self.publish();
         loop {
             self.settle();
+            self.publish();
             let message = match self.deadline {
                 Some(deadline) => {
                     messages.recv_timeout(deadline.saturating_duration_since(Instant::now()))
@@ -310,6 +320,7 @@ impl Supervision {
                 Ok(Msg::Kill) => self.control(true),
                 Ok(Msg::Status) => self.status(),
             }
+            self.publish();
         }
         if matches!(
             self.script,
@@ -463,7 +474,12 @@ impl Supervision {
             notify(false),
         ) {
             Ok(run) => {
-                self.script = ScriptState::Booting(CurrentRun { id, name, run });
+                self.script = ScriptState::Booting(CurrentRun {
+                    id,
+                    name,
+                    run,
+                    stopping: false,
+                });
             }
             Err(error) => {
                 self.ended(&name, Err(error));
@@ -489,8 +505,19 @@ impl Supervision {
 
     fn control(&mut self, kill: bool) {
         match &mut self.script {
-            ScriptState::Booting(CurrentRun { name, run, .. })
-            | ScriptState::Running(CurrentRun { name, run, .. }) => {
+            ScriptState::Booting(CurrentRun {
+                name,
+                run,
+                stopping,
+                ..
+            })
+            | ScriptState::Running(CurrentRun {
+                name,
+                run,
+                stopping,
+                ..
+            }) => {
+                *stopping = true;
                 if kill {
                     run.kill();
                     info!("session {}: killing {name}", self.session);
@@ -505,6 +532,14 @@ impl Supervision {
                     self.session,
                     script.entry()
                 );
+                let mut status = self.status.read().clone();
+                status.phase = ScriptPhase::Idle;
+                status.script = None;
+                status.last_end = Some(format!(
+                    "{} was cancelled before it started",
+                    script.entry()
+                ));
+                self.changes.set(&self.status, status);
                 self.script = ScriptState::Idle;
             }
             ScriptState::Reaping { next, .. } => {
@@ -514,6 +549,32 @@ impl Supervision {
         }
     }
 
+    fn publish(&self) {
+        let (phase, script) = match &self.script {
+            ScriptState::Idle => (ScriptPhase::Idle, None),
+            ScriptState::Reaping { next, .. } => match next {
+                Some((script, _)) => (ScriptPhase::Waiting, Some(script.entry().to_string())),
+                None => (ScriptPhase::Idle, None),
+            },
+            ScriptState::Waiting { script, .. } => {
+                (ScriptPhase::Waiting, Some(script.entry().to_string()))
+            }
+            ScriptState::Booting(run) | ScriptState::Running(run) if run.stopping => {
+                (ScriptPhase::Stopping, Some(run.name.clone()))
+            }
+            ScriptState::Booting(run) => (ScriptPhase::Starting, Some(run.name.clone())),
+            ScriptState::Running(run) => (ScriptPhase::Running, Some(run.name.clone())),
+        };
+        let last_end = self.status.read().last_end.clone();
+        self.changes.set(
+            &self.status,
+            ScriptStatus {
+                phase,
+                script,
+                last_end,
+            },
+        );
+    }
     fn status(&mut self) {
         match &self.script {
             ScriptState::Idle | ScriptState::Reaping { .. } => {
@@ -531,6 +592,11 @@ impl Supervision {
 
     fn ended(&self, name: &str, result: Result<ScriptOutcome, RuntimeError>) {
         let (level, line) = ended(name, result);
+        let mut status = self.status.read().clone();
+        status.phase = ScriptPhase::Idle;
+        status.script = None;
+        status.last_end = Some(line.clone());
+        self.changes.set(&self.status, status);
         if level == Level::WARN {
             warn!("session {}: {line}", self.session);
         } else {

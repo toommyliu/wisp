@@ -108,6 +108,8 @@ fn declarations(config: &Config) -> String {
         QuestData,
         ShopData,
         MonsterDrop,
+        ScriptPhase,
+        ScriptStatus,
         ScriptOutcome
     );
     output.push_str(&query_outputs(config));

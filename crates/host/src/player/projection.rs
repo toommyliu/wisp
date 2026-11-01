@@ -200,6 +200,7 @@ mod tests {
             Running {
                 settings: Default::default(),
                 auto_zone: Default::default(),
+                changes: Default::default(),
                 settings_applied: false,
                 rejected_settings: Default::default(),
                 operation_packets: Default::default(),
@@ -641,7 +642,8 @@ mod tests {
                 false,
                 &Default::default(),
                 &Default::default(),
-                &Default::default()
+                &Default::default(),
+                &Default::default(),
             )
             .is_none()
         );
