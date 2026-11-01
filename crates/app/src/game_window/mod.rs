@@ -123,7 +123,11 @@ impl Render for GameWindow {
                 .child(error.to_string()),
         };
         #[cfg(feature = "overlay-check")]
-        let game_area = game_area.relative().children(overlay_check::overlay());
+        let game_area = if std::env::var_os("LUCENT_OPEN_MENU").is_some() {
+            game_area
+        } else {
+            game_area.relative().children(overlay_check::overlay())
+        };
         div()
             .size_full()
             .flex()
