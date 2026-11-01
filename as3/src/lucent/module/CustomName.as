@@ -25,7 +25,7 @@ package lucent.module {
       avatar.objData.strUsername = avatar.pnm;
       avatar.pMC.pAV.objData.strUsername = avatar.pnm;
       avatar.pMC.updateName();
-      game.ui.mcPortrait.strName.text = avatar.pnm;
+      game.ui.mcPortrait.strName.text = String(avatar.pnm).toUpperCase();
     }
 
     public function resetGuild():void {
@@ -47,7 +47,7 @@ package lucent.module {
 
       if (customName !== null) {
         game.world.myAvatar.pMC.pname.ti.text = customName;
-        game.ui.mcPortrait.strName.text = customName;
+        game.ui.mcPortrait.strName.text = String(customName).toUpperCase();
         game.world.myAvatar.objData.strUsername = customName;
         game.world.myAvatar.pMC.pAV.objData.strUsername = customName;
       }
