@@ -479,7 +479,7 @@ fn forced_kill_still_runs_safe_stop_and_reaping_cannot_skip_it() {
     assert!(machine.status().active.is_none());
 }
 #[test]
-fn readiness_has_one_loader_read_and_a_ten_second_bound() {
+fn readiness_waits_for_a_pending_read_within_the_ten_second_bound() {
     let mut machine = Lifecycle::new(binding());
     let not_ready = Readiness::default();
     let result = machine.advance(
@@ -1084,5 +1084,138 @@ fn reconnect_compares_normalized_account_names() {
         );
         assert_eq!(machine.status().waiting_to_restart, restart);
         assert_eq!(machine.status().active.is_some(), restart);
+    }
+}
+
+#[test]
+fn readiness_polls_until_the_third_read_starts_the_run() {
+    let mut machine = Lifecycle::new(binding());
+    send(&mut machine, Event::Command(Command::Start(request())), 0);
+    let run = machine.status().active.unwrap().run;
+    for at in [1, 102] {
+        let reply = send(&mut machine, Event::PlayerReady { run, ready: false }, at);
+        assert!(reply.effects.contains(&Effect::ScheduleDeadline(at + 100)));
+        assert!(terminals(&reply).is_empty());
+        assert!(
+            send(&mut machine, Event::Deadline, at + 99)
+                .effects
+                .is_empty()
+        );
+        let poll = send(&mut machine, Event::Deadline, at + 100);
+        assert!(poll.effects.contains(&Effect::ReadPlayerReady {
+            run,
+            binding: binding(),
+            deadline: 10_000,
+        }));
+        assert!(
+            send(&mut machine, Event::ProjectionChanged, at + 100)
+                .effects
+                .is_empty()
+        );
+    }
+    let ready = send(&mut machine, Event::PlayerReady { run, ready: true }, 203);
+    assert!(
+        ready
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::Spawn { run: id, .. } if *id == run))
+    );
+    assert_eq!(machine.status().active.unwrap().phase, RunPhase::Booting);
+}
+
+#[test]
+fn readiness_polling_never_extends_the_ten_second_deadline() {
+    let mut machine = Lifecycle::new(binding());
+    send(&mut machine, Event::Command(Command::Start(request())), 0);
+    let run = machine.status().active.unwrap().run;
+    for at in (0..10_000).step_by(100) {
+        if at > 0 {
+            let poll = send(&mut machine, Event::Deadline, at);
+            assert!(poll.effects.contains(&Effect::ReadPlayerReady {
+                run,
+                binding: binding(),
+                deadline: 10_000,
+            }));
+        }
+        let reply = send(&mut machine, Event::PlayerReady { run, ready: false }, at);
+        assert!(reply.effects.contains(&Effect::ScheduleDeadline(at + 100)));
+        assert!(terminals(&reply).is_empty());
+    }
+    assert!(send(&mut machine, Event::Deadline, 9999).effects.is_empty());
+    let expired = send(&mut machine, Event::Deadline, 10_000);
+    assert_eq!(
+        terminals(&expired),
+        vec![Outcome::Failed(
+            "Script readiness timed out after 10 s".into()
+        )]
+    );
+    assert!(
+        !expired
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::ReadPlayerReady { .. } | Effect::Spawn { .. }))
+    );
+    assert!(
+        send(
+            &mut machine,
+            Event::PlayerReady { run, ready: true },
+            10_001
+        )
+        .effects
+        .is_empty()
+    );
+}
+
+#[test]
+fn readiness_polling_waits_for_lost_facts_without_accepting_an_old_answer() {
+    for missing in [
+        Readiness {
+            logged_in: false,
+            ..readiness()
+        },
+        Readiness {
+            username: " ".into(),
+            ..readiness()
+        },
+        Readiness {
+            projections_ready: false,
+            ..readiness()
+        },
+    ] {
+        let mut machine = Lifecycle::new(binding());
+        send(&mut machine, Event::Command(Command::Start(request())), 0);
+        let run = machine.status().active.unwrap().run;
+        machine.advance(Event::ProjectionChanged, &missing, &options(), 1);
+        let rejected = machine.advance(
+            Event::PlayerReady { run, ready: true },
+            &missing,
+            &options(),
+            2,
+        );
+        assert!(
+            !rejected
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::Spawn { .. }))
+        );
+        assert!(
+            machine
+                .advance(Event::Deadline, &missing, &options(), 102)
+                .effects
+                .is_empty()
+        );
+        let resumed = send(&mut machine, Event::ProjectionChanged, 103);
+        assert!(resumed.effects.contains(&Effect::ReadPlayerReady {
+            run,
+            binding: binding(),
+            deadline: 10_000,
+        }));
+        let ready = send(&mut machine, Event::PlayerReady { run, ready: true }, 104);
+        assert!(
+            ready
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::Spawn { .. }))
+        );
     }
 }

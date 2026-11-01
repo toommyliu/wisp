@@ -36,7 +36,8 @@ fn outcome(kind: &str) -> Outcome {
 }
 #[test]
 fn shared_queue_transcripts() {
-    let scenarios: Vec<Value> = serde_json::from_str(include_str!("queue-corpus.json")).unwrap();
+    let scenarios: Vec<Value> =
+        serde_json::from_str(include_str!("../../../tests/fixtures/lifecycle/queue.json")).unwrap();
     for scenario in &scenarios {
         let mut queue = Queue::default();
         let mut preparations: Vec<(PreparationId, Entry)> = vec![];

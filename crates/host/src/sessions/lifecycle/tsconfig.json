@@ -1,7 +1,0 @@
-{
-  "extends": "../../../../../packages/runtime/tsconfig.json",
-  "compilerOptions": {
-    "allowImportingTsExtensions": true
-  },
-  "include": ["./replay-queue.ts", "../../../../../packages/runtime/src/**/*"]
-}

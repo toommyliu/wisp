@@ -32,9 +32,8 @@ struct Run {
 }
 #[derive(Clone, Copy, Debug)]
 enum PlayerRead {
-    NotRequested,
+    Scheduled(u64),
     Requested,
-    Answered,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Worker {
@@ -214,11 +213,14 @@ impl Lifecycle {
                 }
             }
             Event::PlayerReady { run: id, ready } => {
-                if let State::Waiting { run, read, .. } = &mut self.state
+                if let State::Waiting {
+                    run,
+                    read,
+                    deadline,
+                } = &mut self.state
                     && run.id == id
                     && matches!(read, PlayerRead::Requested)
                 {
-                    *read = PlayerRead::Answered;
                     if ready
                         && readiness.ready()
                         && matches!(self.connection, Connection::Up(_))
@@ -236,6 +238,10 @@ impl Lifecycle {
                         } else {
                             self.spawn(run, &mut result.effects);
                         }
+                    } else {
+                        let next = now.saturating_add(100).min(*deadline);
+                        *read = PlayerRead::Scheduled(next);
+                        result.effects.push(Effect::ScheduleDeadline(next));
                     }
                 }
             }
@@ -439,7 +445,7 @@ impl Lifecycle {
             deadline,
             read,
         } = &mut self.state
-            && matches!(read, PlayerRead::NotRequested)
+            && matches!(read, PlayerRead::Scheduled(at) if now >= *at)
             && readiness.ready()
             && matches!(self.connection, Connection::Up(_))
         {
@@ -480,7 +486,7 @@ impl Lifecycle {
         self.state = State::Waiting {
             run,
             deadline,
-            read: PlayerRead::NotRequested,
+            read: PlayerRead::Scheduled(now),
         };
         effects.push(Effect::ScheduleDeadline(deadline));
         Ok(())
