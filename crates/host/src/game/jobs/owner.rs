@@ -64,6 +64,9 @@ pub(crate) type DispatchProbe = Arc<dyn Fn(u64, bool) + Send + Sync>;
 pub(crate) type ActionProbe = Arc<dyn Fn(bool) + Send + Sync>;
 #[cfg(feature = "testing")]
 pub(crate) type ObservationProbe = Arc<dyn Fn(Duration) + Send + Sync>;
+#[cfg(feature = "testing")]
+pub(crate) type TravelObservationProbe =
+    Arc<dyn Fn(crate::game::travel::Reads, Vec<String>) + Send + Sync>;
 
 #[derive(Default)]
 pub(crate) struct JobRequests {
@@ -76,6 +79,8 @@ pub(crate) struct JobRequests {
     pub(crate) action_probe: Mutex<Option<ActionProbe>>,
     #[cfg(feature = "testing")]
     pub(crate) observation_probe: Mutex<Option<ObservationProbe>>,
+    #[cfg(feature = "testing")]
+    pub(crate) travel_observation_probe: Mutex<Option<TravelObservationProbe>>,
 }
 #[derive(Default)]
 pub(super) struct Handoff {

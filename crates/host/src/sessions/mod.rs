@@ -371,6 +371,14 @@ impl Session {
     }
 
     #[cfg(feature = "testing")]
+    pub fn set_travel_observation_probe(
+        &self,
+        probe: impl Fn(crate::game::travel::Reads, Vec<String>) + Send + Sync + 'static,
+    ) {
+        *self.jobs.travel_observation_probe.lock() = Some(Arc::new(probe));
+    }
+
+    #[cfg(feature = "testing")]
     pub fn set_profile_observation_probe(
         &self,
         probe: impl Fn(std::time::Duration) + Send + Sync + 'static,

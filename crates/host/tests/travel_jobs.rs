@@ -4,6 +4,7 @@ use common::*;
 use lucent_host::{
     Supervisor,
     bridge::Value,
+    game::travel::Reads,
     scripting::{Kill, RuntimeError},
     testing,
 };
@@ -77,7 +78,15 @@ fn script_jump_runs_as_a_host_job() {
         "world.isCellReady",
     ] {
         let event = await_event(&observer, "onProbeCall", Some(&run));
-        assert_eq!(event.args[0], Value::String(method.into()));
+        let args = if matches!(method, "player.jump" | "world.isCellReady") {
+            vec![Value::String("r2".into()), Value::String("Left".into())]
+        } else {
+            vec![]
+        };
+        assert_eq!(
+            event.args,
+            vec![Value::String(method.into()), Value::List(args)]
+        );
     }
     assert_eq!(
         run.wait(TIMEOUT).unwrap(),
@@ -185,13 +194,13 @@ fn combat_exit_refreshes_cells_before_cancelling_and_jumping() {
 
 #[test]
 fn an_already_loaded_join_uses_the_native_readiness_order() {
-    let (mut session, observer, _supervisor) = setup_with(|movie| {
-        movie
-            .recording("auth.isLoggedIn")
-            .recording("world.isLoaded")
-            .recording("player.isLoaded")
+    let (mut session, observer, _supervisor) = setup();
+    let (observed, observations) = std::sync::mpsc::channel();
+    session.set_travel_observation_probe(move |reads, calls| {
+        if reads.contains(Reads::READY) {
+            let _ = observed.send(calls);
+        }
     });
-    while observer.try_event().unwrap().is_some() {}
     let run = start(
         &mut session,
         loose(&[(
@@ -199,40 +208,48 @@ fn an_already_loaded_join_uses_the_native_readiness_order() {
             r#"
         import * as api from "lucent/api";
         import * as script from "lucent/script";
-        export default function* () { yield* api.packet.sendToClient("started"); yield* script.stop(String(yield* api.player.joinMap("buyhouse"))); }
+        export default function* () { yield* script.stop(String(yield* api.player.joinMap("buyhouse"))); }
     "#,
         )]),
         Default::default(),
     );
-    await_event(&observer, "onDebug", Some(&run));
-    for method in [
-        "world.isLoaded",
-        "auth.isLoggedIn",
-        "world.isLoaded",
-        "player.isLoaded",
-    ] {
-        assert_eq!(
-            await_event(&observer, "onProbeCall", Some(&run)).args[0],
-            Value::String(method.into())
-        );
-    }
+    assert_eq!(
+        observations.recv_timeout(TIMEOUT).unwrap(),
+        vec![
+            "auth.isLoggedIn".to_owned(),
+            "world.isLoaded".to_owned(),
+            "player.isLoaded".to_owned()
+        ]
+    );
     assert_eq!(
         run.wait(TIMEOUT).unwrap(),
         ScriptOutcome::StoppedByScript {
             reason: Some("true".into())
         }
     );
+    observer
+        .call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    while let Some(event) = observer.try_event().unwrap() {
+        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event {
+            assert!(
+                event.name != "onProbeCall"
+                    || event.args.first() != Some(&Value::String("player.joinMap".into()))
+            );
+        }
+    }
     await_no_travel(&session);
 }
 
 #[test]
 fn a_native_join_reads_only_loading_fields_between_polls() {
-    let (mut session, observer, _supervisor) = setup_with(|movie| {
-        movie
-            .recording("world.isLoaded")
-            .recording("auth.isLoggedIn")
-            .recording("player.isLoaded")
-            .recording("world.isActionAvailable")
+    let (mut session, observer, _supervisor) = setup();
+    let (observed, observations) = std::sync::mpsc::channel();
+    session.set_travel_observation_probe(move |reads, calls| {
+        if reads.contains(Reads::LOAD) {
+            let _ = observed.send(calls);
+        }
     });
     let run = start(
         &mut session,
@@ -240,29 +257,19 @@ fn a_native_join_reads_only_loading_fields_between_polls() {
             "join.js",
             r#"
         import * as api from "lucent/api";
-        export default function* () {
-            yield* api.packet.sendToClient("started");
-            yield* api.player.joinMap("doom");
-        }
+        export default function* () { yield* api.player.joinMap("doom"); }
     "#,
         )]),
         Default::default(),
     );
-    await_event(&observer, "onDebug", Some(&run));
-    for method in [
-        "world.isLoaded",
-        "auth.isLoggedIn",
-        "world.isLoaded",
-        "player.isLoaded",
-        "world.isActionAvailable",
-        "player.joinMap",
-        "world.isLoaded",
-        "world.isLoaded",
-        "world.isLoaded",
-    ] {
+    assert_eq!(
+        await_event(&observer, "onProbeCall", Some(&run)).args[0],
+        Value::String("player.joinMap".into())
+    );
+    for _ in 0..4 {
         assert_eq!(
-            await_event(&observer, "onProbeCall", Some(&run)).args[0],
-            Value::String(method.into())
+            observations.recv_timeout(TIMEOUT).unwrap(),
+            vec!["world.isLoaded".to_owned()]
         );
     }
     assert_eq!(session.live_travel_job_count(), 1);
@@ -271,6 +278,7 @@ fn a_native_join_reads_only_loading_fields_between_polls() {
         run.wait(TIMEOUT),
         Err(RuntimeError::Killed(Kill::Requested))
     ));
+    await_no_travel(&session);
 }
 
 #[test]

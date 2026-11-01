@@ -16,6 +16,10 @@ use crate::projection::{
 
 impl Running {
     pub(super) fn invoke_command(&mut self, name: &str, args: Vec<Value>) -> Result<Value, Error> {
+        #[cfg(feature = "testing")]
+        if let Some(calls) = &mut self.travel_calls {
+            calls.push(name.to_owned());
+        }
         let result = bridge::invoke(&mut self.player.lock().unwrap(), name, args);
         self.drain_events();
         result

@@ -303,6 +303,8 @@ impl Travel {
                 .min(now + REPLY_TIMEOUT);
             link.inbox().post(Msg::ObserveTravel {
                 reads,
+                #[cfg(feature = "testing")]
+                probe: link.records.jobs.travel_observation_probe.lock().clone(),
                 gate: self.request.gate.clone(),
                 deadline,
                 reply,

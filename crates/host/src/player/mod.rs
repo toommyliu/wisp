@@ -175,6 +175,8 @@ pub(crate) enum Msg {
         gate: Arc<crate::game::jobs::JobGate>,
         deadline: Instant,
         reply: crate::bridge::Reply<crate::game::travel::Snapshot>,
+        #[cfg(feature = "testing")]
+        probe: Option<crate::game::jobs::TravelObservationProbe>,
     },
     DispatchTravel {
         action: crate::game::travel::Action,
@@ -442,6 +444,8 @@ struct Running {
     tasks: Tasks,
     viewport: Viewport,
     profile_area: u64,
+    #[cfg(feature = "testing")]
+    travel_calls: Option<Vec<String>>,
     last_tick: Instant,
     effects: Vec<Effect>,
     drawn: u32,
@@ -499,6 +503,8 @@ impl Running {
             tasks,
             viewport,
             profile_area: 0,
+            #[cfg(feature = "testing")]
+            travel_calls: None,
             last_tick: now,
             effects: Vec::new(),
             drawn: 0,
@@ -531,8 +537,18 @@ impl Running {
                 gate,
                 deadline,
                 reply,
+                #[cfg(feature = "testing")]
+                probe,
             } => {
+                #[cfg(feature = "testing")]
+                if probe.is_some() {
+                    self.travel_calls = Some(Vec::new());
+                }
                 let snapshot = self.observe_travel(reads, &gate, deadline);
+                #[cfg(feature = "testing")]
+                if let Some(probe) = probe {
+                    probe(reads, self.travel_calls.take().unwrap());
+                }
                 let _ = reply.send(Ok(snapshot));
             }
             Msg::DispatchTravel {
@@ -691,6 +707,8 @@ mod tests {
             tasks: Tasks::default(),
             viewport: Viewport::new(1024.0, 768.0, 1.0).unwrap(),
             profile_area: 0,
+            #[cfg(feature = "testing")]
+            travel_calls: None,
             last_tick: now,
             effects: Vec::new(),
             drawn: 0,
