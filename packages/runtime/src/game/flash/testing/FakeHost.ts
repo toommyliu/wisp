@@ -31,9 +31,6 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { makeApi } from "../api/Api";
-import { makeTravelReference } from "./TravelReference";
-import { makeWaitApi } from "../api/Wait";
-import { makeMap } from "../api/Map";
 import { Bridge, makeBridge } from "../bridge/Bridge";
 import { Gateway, makeGateway } from "../bridge/Gateway";
 import { HostState, type HostStateService } from "../state/HostState";
@@ -498,22 +495,15 @@ export const emitExtension = (target: Window, dataObj: object): void => {
   target.onExtensionResponse?.(JSON.stringify({ dataObj, type: "json" }));
 };
 
-export const makeFakeApi = (target: Window, state: FakeHostState, delayCellReady = 0) =>
+export const makeFakeApi = (target: Window, state: FakeHostState) =>
   Effect.gen(function* () {
-    const original = yield* makeBridge(target);
-    const bridge = { ...original, invoke: ((...args: Parameters<typeof original.invoke>) =>
-      original.invoke(...args).pipe(Effect.flatMap((value) => args[0] === "world.isCellReady" && delayCellReady > 0
-        ? Effect.sleep(delayCellReady).pipe(Effect.as(value)) : Effect.succeed(value)))) as typeof original.invoke };
+    const bridge = yield* makeBridge(target);
     const gateway = yield* makeGateway(target).pipe(
       Effect.provideService(Bridge, bridge),
     );
-    const api = yield* makeApi.pipe(
+    return yield* makeApi.pipe(
       Effect.provideService(Bridge, bridge),
       Effect.provideService(Gateway, gateway),
       Effect.provideService(HostState, makeFakeHost(state, target)),
     );
-    const host = makeFakeHost(state, target);
-    const wait = makeWaitApi(bridge, gateway);
-    const travel = makeTravelReference(bridge, host, makeMap(bridge, host, wait), wait, api.player);
-    return { ...api, combat: { ...api.combat, exit: travel.exitCombat }, player: { ...api.player, ...travel } };
   });
