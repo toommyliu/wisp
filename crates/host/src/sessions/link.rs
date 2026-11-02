@@ -406,6 +406,8 @@ impl ScriptLink {
         if self.stopped.load(Ordering::Acquire) {
             return Err(bridge::Error::Stopped);
         }
+        #[cfg(test)]
+        tests::record_timeout(timeout);
         if matches!(query, Some(Query::ScriptOptions {})) {
             let options = self
                 .records
@@ -499,6 +501,8 @@ impl ScriptLink {
         if self.stopped.load(Ordering::Acquire) {
             return Err(bridge::Error::Stopped);
         }
+        #[cfg(test)]
+        tests::record_timeout(timeout);
         let projection = self
             .projection
             .try_read_for(timeout)
@@ -612,7 +616,25 @@ fn write_script_options(
 mod tests {
     use super::*;
     use crate::testing;
-    use std::{sync::mpsc, thread};
+    use std::{cell::RefCell, sync::mpsc, thread};
+
+    thread_local! {
+        static REQUESTED_TIMEOUTS: RefCell<Option<Vec<Duration>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn record_timeout(timeout: Duration) {
+        REQUESTED_TIMEOUTS.with_borrow_mut(|requested| {
+            if let Some(requested) = requested {
+                requested.push(timeout);
+            }
+        });
+    }
+
+    fn requested_timeouts<R>(run: impl FnOnce() -> R) -> (R, Vec<Duration>) {
+        REQUESTED_TIMEOUTS.set(Some(Vec::new()));
+        let result = run();
+        (result, REQUESTED_TIMEOUTS.take().unwrap())
+    }
 
     #[test]
     fn queued_scoped_calls_cannot_dispatch_after_their_reply_scope_or_caller_ends() {
@@ -849,9 +871,13 @@ mod tests {
                 hold_write(projection)
             };
             let at = now + Duration::from_millis(500);
-            let next = policy.advance(at);
+            let (next, requested) = requested_timeouts(|| policy.advance(at));
             let _ = release.send(());
             assert!(holder.join().unwrap(), "the policy blocked on a writer");
+            assert!(
+                !requested.is_empty() && requested.iter().all(Duration::is_zero),
+                "the policy asked to wait on a writer: {requested:?}"
+            );
             let next = next.expect("contention must retry");
             assert!(
                 next > at && next <= at + Duration::from_millis(20),
