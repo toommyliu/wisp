@@ -1018,3 +1018,89 @@ fn login_is_refreshed_after_a_blocking_accept_settles() {
     assert_eq!(remaining(&link), [70]);
     assert_eq!(drain_rejects(&link), []);
 }
+
+#[test]
+fn protecting_accept_cancellation_and_settlement_wake_the_policy_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Counter(AtomicUsize, thread::Thread);
+    impl Wake for Counter {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            self.1.unpark();
+        }
+    }
+    for cancel_queued in [true, false] {
+        let host = testing::headless_host();
+        let (mut session, link) = testing::start_probe(
+            &host,
+            movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
+        );
+        common::log_in(&link);
+        reject_else(&link);
+        if cancel_queued {
+            drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);
+        } else {
+            drops(&link, &[(70, "Blocker")]);
+        }
+        link.operate(Operation::AcceptDrop {
+            selector: ItemSelector::Id(70.0),
+        })
+        .unwrap();
+        common::await_event(&link, "onProbeAccept", None);
+        let queued = if cancel_queued {
+            Some(
+                link.operate(Operation::AcceptDrop {
+                    selector: ItemSelector::Id(69.0),
+                })
+                .unwrap(),
+            )
+        } else {
+            None
+        };
+        let counter = Arc::new(Counter(AtomicUsize::new(0), thread::current()));
+        let mut policy = lucent_host::automation::DropPolicy::new(
+            session
+                .attach(lucent_host::automation::DropPolicy::INTERESTS)
+                .unwrap(),
+            Waker::from(counter.clone()),
+        );
+        let mut now = Instant::now();
+        assert_eq!(settle_policy(&mut policy, &mut now), None);
+        counter.0.store(0, Ordering::SeqCst);
+        for _ in 0..100 {
+            assert_eq!(policy.advance(now), None);
+        }
+        assert_eq!(counter.0.load(Ordering::SeqCst), 0);
+        assert!(drain_rejects(&link).is_empty());
+        if let Some(id) = queued {
+            link.cancel_operation(id);
+        } else {
+            emit(
+                &link,
+                "onExtensionResponse",
+                packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":false})),
+            );
+        }
+        let until = Instant::now() + TIMEOUT;
+        while counter.0.load(Ordering::SeqCst) == 0 {
+            assert!(
+                Instant::now() < until,
+                "protecting accept did not wake policy"
+            );
+            thread::park_timeout(until.saturating_duration_since(Instant::now()));
+        }
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        assert_eq!(settle_policy(&mut policy, &mut now), None);
+        assert_eq!(
+            drain_rejects(&link),
+            [Value::Number(if cancel_queued { 69.0 } else { 70.0 })]
+        );
+        if cancel_queued {
+            emit(
+                &link,
+                "onExtensionResponse",
+                packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":true,"iQtyNow":1})),
+            );
+        }
+    }
+}
