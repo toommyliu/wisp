@@ -1,9 +1,12 @@
-use super::lifecycle::{self as lc, Lifecycle, RunId};
+use super::{
+    lifecycle::{self as lc, Lifecycle, RunId},
+    reaper::{self, Reapers},
+};
 use crate::scripting::{Kill, RuntimeError, ScriptRun};
 use crate::{
     HostError, ScriptLink, Session, Surface,
     automation::{AutoZonePolicy, ReloginPolicy, SettingsPolicy},
-    bridge, reap,
+    bridge,
 };
 use lucent_protocol::script::{Script, ScriptOutcome, ScriptPhase, ScriptStatus};
 use std::{
@@ -14,7 +17,6 @@ use std::{
         mpsc,
     },
     task::{Wake, Waker},
-    thread,
     time::{Duration, Instant},
 };
 use tracing::{Level, info, warn};
@@ -69,7 +71,30 @@ impl ScriptControls {
 pub struct Supervisor {
     inbox: mpsc::Sender<Msg>,
     active: Arc<parking_lot::RwLock<lc::Status>>,
-    thread: Option<thread::JoinHandle<()>>,
+    shutdown: Arc<Shutdown>,
+}
+pub(super) struct Shutdown {
+    inbox: mpsc::Sender<Msg>,
+    thread: parking_lot::Mutex<Option<reaper::Join>>,
+    reapers: Arc<Reapers>,
+    session: u64,
+    dispatch: tracing::Dispatch,
+}
+impl Shutdown {
+    pub(super) fn stop(&self) {
+        let mut thread = self.thread.lock();
+        let Some(thread) = thread.take() else { return };
+        let _guard = tracing::dispatcher::set_default(&self.dispatch);
+        let deadline = Instant::now() + reaper::SHUTDOWN_TIMEOUT;
+        let _ = self.inbox.send(Msg::Shutdown);
+        if !reaper::join_until(thread, deadline) {
+            warn!(
+                "session {}: abandoning session controller at shutdown deadline",
+                self.session
+            );
+        }
+        self.reapers.stop_session(self.session, deadline);
+    }
 }
 enum Msg {
     Player(Box<Player>),
@@ -127,7 +152,16 @@ impl Supervisor {
         };
         let machine = Lifecycle::new(binding);
         let active = session.lifecycle_status.clone();
+        let reapers = session.host.shared.reapers.clone();
+        let reaper = reapers.start(session.id).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                RuntimeError::AlreadySupervised
+            } else {
+                error.into()
+            }
+        })?;
         let supervision = Supervision {
+            reaper,
             status: session.script_status.clone(),
             active: active.clone(),
             changes: session.changes.clone(),
@@ -159,16 +193,33 @@ impl Supervisor {
             .changes
             .watch(Waker::from(supervision.notify.clone()));
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
-        let thread = thread::Builder::new()
-            .name(format!("lucent-supervisor-{}", first.watch.id()))
-            .spawn(move || {
-                let _dispatch = tracing::dispatcher::set_default(&dispatch);
+        let worker_dispatch = dispatch.clone();
+        let thread = reaper::Join::spawn(
+            format!("lucent-supervisor-{}", first.watch.id()),
+            move || {
+                let _dispatch = tracing::dispatcher::set_default(&worker_dispatch);
                 supervision.run(first, script, messages);
-            })?;
+            },
+        );
+        let thread = match thread {
+            Ok(thread) => thread,
+            Err(error) => {
+                reapers.stop_session(session.id, Instant::now() + reaper::SHUTDOWN_TIMEOUT);
+                return Err(error.into());
+            }
+        };
+        let shutdown = Arc::new(Shutdown {
+            inbox: inbox.clone(),
+            thread: parking_lot::Mutex::new(Some(thread)),
+            reapers,
+            session: session.id,
+            dispatch,
+        });
+        session.controller = Some(shutdown.clone());
         Ok(Self {
             inbox,
             active,
-            thread: Some(thread),
+            shutdown,
         })
     }
     pub fn start_script(
@@ -208,10 +259,7 @@ impl Supervisor {
 }
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        let _ = self.inbox.send(Msg::Shutdown);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        self.shutdown.stop();
     }
 }
 fn attach(session: &mut Session) -> Option<Player> {
@@ -248,6 +296,15 @@ struct Worker {
     run: ScriptRun,
     revoke: Option<Box<dyn FnOnce() + Send>>,
 }
+struct Reaped {
+    inbox: mpsc::Sender<Msg>,
+    run: RunId,
+}
+impl Drop for Reaped {
+    fn drop(&mut self) {
+        let _ = self.inbox.send(Msg::Event(lc::Event::Reaped(self.run)));
+    }
+}
 struct ReadyRead {
     run: RunId,
     binding: lc::Binding,
@@ -258,6 +315,7 @@ struct ReadyRead {
     player_ready: Option<bool>,
 }
 struct Supervision {
+    reaper: reaper::Sender,
     status: Arc<parking_lot::RwLock<ScriptStatus>>,
     active: Arc<parking_lot::RwLock<lc::Status>>,
     changes: Arc<super::Changes>,
@@ -377,14 +435,15 @@ impl Supervision {
                 }
                 Ok(Msg::Queue(command, reply)) => {
                     let result = self.transition(lc::Event::Command(lc::Command::Queue(command)));
-                    let _ = reply.send(match result.rejection {
+                    let answer = match result.rejection {
                         None => Ok(()),
                         Some(lc::Rejection::Busy) => Err(RuntimeError::Busy),
                         Some(error) => {
                             Err(RuntimeError::JavaScript(format!("script queue: {error:?}")))
                         }
-                    });
+                    };
                     self.effects(result.effects);
+                    let _ = reply.send(answer);
                 }
                 Ok(Msg::Event(event)) => self.advance(event),
                 Ok(Msg::RunReady(id)) => {
@@ -415,7 +474,7 @@ impl Supervision {
             if let Some(revoke) = worker.revoke {
                 revoke();
             }
-            reap(move || drop(worker.run));
+            self.reaper.reap(move || drop(worker.run));
         }
     }
     fn player(&mut self, player: Player) {
@@ -746,9 +805,9 @@ impl Supervision {
                     if self.worker.as_ref().is_some_and(|worker| worker.id == run) {
                         let worker = self.worker.take().unwrap();
                         let inbox = self.notify.inbox.clone();
-                        reap(move || {
+                        self.reaper.reap(move || {
+                            let _reaped = Reaped { inbox, run };
                             drop(worker);
-                            let _ = inbox.send(Msg::Event(lc::Event::Reaped(run)));
                         });
                     } else {
                         answer = Some(lc::Event::Reaped(run));

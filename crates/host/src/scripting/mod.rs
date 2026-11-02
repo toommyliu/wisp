@@ -40,6 +40,8 @@ pub enum Kill {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
+    #[error("the session already has a supervisor")]
+    AlreadySupervised,
     #[error("a script is already active")]
     Busy,
     #[error("couldn't start the script thread: {0}")]
