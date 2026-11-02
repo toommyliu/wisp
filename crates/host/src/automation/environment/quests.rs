@@ -368,6 +368,9 @@ impl Quests {
                                 Outcome::Settled => {}
                                 outcome => {
                                     let success = matches!(outcome, Outcome::Success);
+                                    if success {
+                                        mutation._lease.settled();
+                                    }
                                     let intent = mutation.intent;
                                     let key = (intent.id as i64, intent.complete);
                                     logs.set(

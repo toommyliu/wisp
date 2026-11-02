@@ -13,6 +13,7 @@ use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
 pub use script_options::OptionsError;
 mod environment_order;
 pub use controller::{ScriptControls, ScriptRequest, Supervisor};
+mod actions;
 pub(crate) mod claims;
 pub mod lifecycle;
 mod link;

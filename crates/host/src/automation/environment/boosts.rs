@@ -364,6 +364,9 @@ impl Boosts {
                                 .find(|i| i.item_id == item.item_id)
                                 .is_none_or(|i| i.quantity < item.quantity) =>
                         {
+                            if let Some((lease, _)) = &mut self.lease {
+                                lease.settled();
+                            }
                             self.finish(logs, !failed, now)
                         }
                         Some(Ok(_)) => {

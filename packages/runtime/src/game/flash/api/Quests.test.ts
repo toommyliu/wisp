@@ -10,7 +10,7 @@ import type { Wait } from "./Wait";
 afterEach(() => vi.unstubAllGlobals());
 
 const makeHarness = () => {
-  vi.stubGlobal("__host", { acquireQuestClaim: () => JSON.stringify("1"), releaseClaim: () => {} });
+  vi.stubGlobal("__host", { acquireQuestClaim: () => JSON.stringify("1"), releaseClaim: () => {}, settleClaim: () => {} });
   const completions: Array<readonly unknown[]> = [];
   const bridge = {
     invoke: (method: string, args: readonly unknown[] | undefined) => {

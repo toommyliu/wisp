@@ -173,6 +173,7 @@ const makeHarness = (items: readonly ItemSnapshot[]) =>
       cancelOperation: vi.fn(),
       acquireInventoryUseClaim: () => JSON.stringify("1"),
       releaseClaim: vi.fn(),
+      settleClaim: vi.fn(),
     });
     const house = makeHouse(bridge, host);
     const wait = {

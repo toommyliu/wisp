@@ -120,6 +120,26 @@ impl Claims {
         }))
     }
 
+    pub(crate) fn resource(&self, owner: Owner, id: u64) -> Option<ClaimResource> {
+        self.holders
+            .get(&id)
+            .filter(|held| held.owner == owner && held.binding == self.binding)
+            .map(|held| held.resource)
+    }
+    pub(crate) fn owning(&self, owner: Owner, resource: ClaimResource) -> Option<u64> {
+        self.holders
+            .iter()
+            .find(|(_, held)| {
+                held.owner == owner && held.binding == self.binding && held.resource == resource
+            })
+            .map(|(id, _)| *id)
+    }
+    pub(crate) fn held_by_other(&self, owner: Owner, resource: ClaimResource) -> bool {
+        self.holders.values().any(|held| {
+            held.owner != owner && held.binding == self.binding && held.resource == resource
+        })
+    }
+
     pub(crate) fn preparation(&self, owner: Owner, id: u64) -> Option<(i64, Binding, Preparation)> {
         let held = self.holders.get(&id)?;
         if held.owner != owner || held.binding != self.binding {

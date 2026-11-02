@@ -71,7 +71,11 @@ export const makeQuests = (
     Effect.sync(() => JSON.parse(
       operationHost.acquireQuestClaim(JSON.stringify(id)),
     ) as string | null),
-    claim => claim === null ? Effect.succeed(false) : action,
+    claim => claim === null ? Effect.succeed(false) : action.pipe(
+      Effect.tap(success => Effect.sync(() => {
+        if (success) operationHost.settleClaim(claim);
+      })),
+    ),
     claim => Effect.sync(() => {
       if (claim !== null) operationHost.releaseClaim(claim);
     }),
@@ -104,7 +108,7 @@ export const makeQuests = (
 
   const abandon = (questId: number) => {
     if (!isQuestId(questId)) return Effect.succeed(false);
-    return Effect.gen(function* () {
+    return withQuestClaim(questId, Effect.gen(function* () {
       if (!(yield* isInProgress(questId))) return false;
       if (
         Option.isNone(
@@ -117,7 +121,7 @@ export const makeQuests = (
         isInProgress(questId).pipe(Effect.map((active) => !active)),
         { timeout: "5 seconds" },
       );
-    });
+    }));
   };
 
   const acceptBatch = (questIds: readonly number[], silent = false) =>

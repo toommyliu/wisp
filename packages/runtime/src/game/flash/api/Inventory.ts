@@ -293,7 +293,7 @@ export const makeInventory = (
             .pipe(Effect.map(Option.getOrElse(() => false)));
           if (!sent) return false;
 
-          return yield* wait.until(
+          const used = yield* wait.until(
             get(item.itemId).pipe(
               Effect.map(
                 (current) => current === null || current.quantity < startingQuantity,
@@ -301,6 +301,8 @@ export const makeInventory = (
             ),
             { timeout: "5 seconds" },
           );
+          if (used) operationHost.settleClaim(claim);
+          return used;
         });
       },
       claim => Effect.sync(() => {

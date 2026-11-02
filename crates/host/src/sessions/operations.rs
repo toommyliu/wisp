@@ -37,7 +37,97 @@ pub(crate) struct Packets(Mutex<PacketState>);
 struct PacketState {
     stopped: bool,
     claims: super::claims::Claims,
+    actions: super::actions::Actions,
     waiting: Option<Waiting>,
+}
+
+pub(crate) struct Guard {
+    packets: Arc<Packets>,
+    owner: super::claims::Owner,
+    detached: Arc<AtomicBool>,
+    binding: super::claims::Binding,
+    action: Option<super::actions::Action>,
+    claim: Option<u64>,
+    issued: Option<(super::actions::Resource, u64)>,
+    cancel_on_drop: bool,
+}
+impl Guard {
+    pub(crate) fn new(
+        packets: Arc<Packets>,
+        owner: super::claims::Owner,
+        detached: Arc<AtomicBool>,
+        name: &str,
+        args: &[Value],
+        cancel_on_drop: bool,
+    ) -> Self {
+        let action = super::actions::Action::parse(name, args);
+        let state = packets.0.lock();
+        let binding = state.claims.binding();
+        let claim = action.and_then(|action| state.claims.owning(owner, action.resource().claim()));
+        drop(state);
+        Self {
+            packets,
+            owner,
+            detached,
+            binding,
+            action,
+            claim,
+            issued: None,
+            cancel_on_drop,
+        }
+    }
+    fn finish(&mut self, result: &Result<Value, Error>) {
+        if let Some((resource, id)) = self.issued.take() {
+            self.packets
+                .0
+                .lock()
+                .actions
+                .returned(resource, id, result, Instant::now());
+        }
+    }
+}
+impl crate::bridge::CallGuard for Guard {
+    fn issue(&mut self, pending: &AtomicBool) -> Result<(), Error> {
+        let mut state = self.packets.0.lock();
+        if state.stopped
+            || self.detached.load(Ordering::Acquire)
+            || (self.cancel_on_drop && !pending.load(Ordering::Acquire))
+        {
+            return Err(Error::Stopped);
+        }
+        if (self.cancel_on_drop || self.action.is_some()) && state.claims.binding() != self.binding
+        {
+            return Err(Error::CommandFailed {
+                operation: "loader call".into(),
+                reason: "the connection changed before dispatch".into(),
+            });
+        }
+        if let Some(action) = self.action {
+            let resource = action.resource();
+            if self
+                .claim
+                .is_some_and(|id| state.claims.resource(self.owner, id) != Some(resource.claim()))
+            {
+                return Err(Error::Stopped);
+            }
+            if state.claims.held_by_other(self.owner, resource.claim()) {
+                return Err(super::actions::busy());
+            }
+            let id = state
+                .actions
+                .issue(self.owner.attachment, action, Instant::now())?;
+            self.issued = Some((resource, id));
+        }
+        Ok(())
+    }
+    fn returned(&mut self, result: &Result<Value, Error>) {
+        self.finish(result);
+    }
+}
+impl Drop for Guard {
+    fn drop(&mut self) {
+        self.finish(&Err(Error::ReadPanicked));
+    }
 }
 
 struct AcceptResponse {
@@ -61,6 +151,7 @@ impl Packets {
 
     pub(crate) fn packet(&self, packet: &Packet) {
         let mut state = self.0.lock();
+        state.actions.packet(packet);
         let Some(waiting) = &state.waiting else {
             return;
         };
@@ -135,6 +226,12 @@ impl Packets {
         if state.stopped || detached.load(Ordering::Acquire) {
             return Err(Error::Stopped);
         }
+        if state
+            .actions
+            .busy(super::actions::Resource::InventoryUse(id), Instant::now())
+        {
+            return Ok(None);
+        }
         state.claims.acquire(
             owner,
             super::claims::ClaimResource::InventoryUse { item: id },
@@ -150,6 +247,12 @@ impl Packets {
         let mut state = self.0.lock();
         if state.stopped || detached.load(Ordering::Acquire) {
             return Err(Error::Stopped);
+        }
+        if state
+            .actions
+            .busy(super::actions::Resource::Quest(id), Instant::now())
+        {
+            return Ok(None);
         }
         state
             .claims
@@ -169,6 +272,17 @@ impl Packets {
             owner,
             super::claims::ClaimResource::ConsumableSlot5 { item },
         )
+    }
+
+    pub(crate) fn settle_claim(&self, owner: super::claims::Owner, id: u64) {
+        let mut state = self.0.lock();
+        if let Some(resource) = state
+            .claims
+            .resource(owner, id)
+            .and_then(super::actions::Resource::from_claim)
+        {
+            state.actions.settle(owner.attachment, resource);
+        }
     }
 
     pub(crate) fn release_claim(&self, owner: super::claims::Owner, id: u64) {
@@ -207,11 +321,13 @@ impl Packets {
         let mut state = self.0.lock();
         state.waiting.take();
         state.claims.clear();
+        state.actions.clear();
     }
 
     pub(crate) fn stop(&self) {
         let mut state = self.0.lock();
         state.stopped = true;
+        state.actions.clear();
         match state.waiting.take() {
             Some(Waiting::Accept(_, reply)) => {
                 let _ = reply.send(Err(Error::Stopped));

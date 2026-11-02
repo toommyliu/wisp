@@ -23,15 +23,36 @@ const POLL: Duration = Duration::from_millis(100);
 const QUEST_INTERVAL: Duration = Duration::from_secs(1);
 const BOOST_INTERVAL: Duration = Duration::from_secs(5);
 
-pub(crate) struct Lease(Option<Box<dyn FnOnce() + Send>>);
+pub(crate) struct Lease {
+    release: Option<Box<dyn FnOnce() + Send>>,
+    settle: Option<Box<dyn FnOnce() + Send>>,
+}
 impl Lease {
+    #[cfg(test)]
     pub(crate) fn new(release: impl FnOnce() + Send + 'static) -> Self {
-        Self(Some(Box::new(release)))
+        Self {
+            release: Some(Box::new(release)),
+            settle: None,
+        }
+    }
+    pub(crate) fn with_settlement(
+        release: impl FnOnce() + Send + 'static,
+        settle: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        Self {
+            release: Some(Box::new(release)),
+            settle: Some(Box::new(settle)),
+        }
+    }
+    pub(crate) fn settled(&mut self) {
+        if let Some(settle) = self.settle.take() {
+            settle();
+        }
     }
 }
 impl Drop for Lease {
     fn drop(&mut self) {
-        if let Some(release) = self.0.take() {
+        if let Some(release) = self.release.take() {
             release();
         }
     }
@@ -57,7 +78,7 @@ impl Host for ScriptLink {
         self.environment_snapshot(register)
     }
     fn call(&self, method: &str, args: Vec<Value>) -> Pending<Value> {
-        self.call_loader(method, args)
+        self.call_loader_scoped(method, args)
     }
     fn load(&self, ids: Vec<f64>) -> Result<u64, Error> {
         self.operate(Operation::LoadQuests { ids, silent: true })

@@ -90,6 +90,7 @@ impl Engine {
                     v8::Function::new(scope, host_acquire_consumable_claim),
                 ),
                 ("releaseClaim", v8::Function::new(scope, host_release_claim)),
+                ("settleClaim", v8::Function::new(scope, host_settle_claim)),
                 (
                     "acquireInventoryUseClaim",
                     v8::Function::new(scope, host_acquire_inventory_use_claim),
@@ -760,6 +761,18 @@ fn host_acquire_consumable_claim(
     let result =
         host::acquire_consumable_claim(scope.get_slot::<ScriptLink>().unwrap(), &json).map(Some);
     return_reply(scope, reply, result);
+}
+
+fn host_settle_claim(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    _reply: v8::ReturnValue<v8::Value>,
+) {
+    if let Some(id) = args.get(0).to_string(scope)
+        && let Ok(id) = id.to_rust_string_lossy(scope).parse()
+    {
+        scope.get_slot::<ScriptLink>().unwrap().settle_claim(id);
+    }
 }
 
 fn host_release_claim(

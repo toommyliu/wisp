@@ -25,6 +25,7 @@ declare global {
     command(commandJson: string): string;
     acquireConsumableClaim(itemJson: string): string;
     releaseClaim(id: string): void;
+    settleClaim(id: string): void;
     acquireQuestClaim(id: string): string;
     acquireInventoryUseClaim(id: string): string;
     prepareOperation(): string;

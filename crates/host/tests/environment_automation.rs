@@ -227,7 +227,7 @@ fn native_quest_turn_in_excludes_a_script_and_registers_late_targets() {
 }
 
 #[test]
-fn script_quest_claims_release_after_kill_stop_and_fiber_timeout() {
+fn issued_quest_actions_survive_kill_stop_and_fiber_timeout_until_confirmation() {
     for ending in ["kill", "stop", "timeout"] {
         let host = testing::headless_host();
         let (mut session, link) = testing::start_probe(
@@ -280,6 +280,25 @@ fn script_quest_claims_release_after_kill_stop_and_fiber_timeout() {
                 await_event(&link, "onDebug", run.as_ref());
             }
         }
+        assert!(
+            link.acquire_quest_claim(802).unwrap().is_none(),
+            "{ending} released an unconfirmed turn-in"
+        );
+        assert!(
+            link.call_loader(
+                "quests.complete",
+                vec![
+                    Value::Number(802.),
+                    Value::Number(1.),
+                    Value::Number(-1.),
+                    Value::Bool(false)
+                ]
+            )
+            .recv_timeout(TIMEOUT)
+            .is_err(),
+            "{ending} permitted a second unconfirmed turn-in"
+        );
+        emit(&link, json!({"cmd":"ccqr","QuestID":802,"bSuccess":1}));
         let grant = link
             .acquire_quest_claim(802)
             .unwrap()
@@ -385,4 +404,52 @@ fn registered_boosts_use_the_first_inactive_inventory_boost_without_a_script() {
             .is_empty())
             .unwrap()
     );
+}
+
+#[test]
+fn an_issued_item_use_remains_reserved_after_its_script_is_killed() {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        ready_movie().responding("inventory.use", [(json!(true), vec![])]),
+    );
+    become_ready(&link);
+    emit(
+        &link,
+        json!({"cmd":"loadInventoryBig","items":[{"ItemID":1,"sName":"XP Boost","sType":"ServerUse","sLink":"xpboost::1","iQty":2}],"hitems":[]}),
+    );
+    let run = start(
+        &mut session,
+        loose(&[(
+            "use.js",
+            r#"
+        import {inventory} from "lucent/api";
+        export default function* () {yield* inventory.use(1);}
+    "#,
+        )]),
+        Default::default(),
+    );
+    next_call(&link, "inventory.use");
+    run.kill();
+    let _ = run.wait(TIMEOUT);
+    drop(run);
+    assert!(link.acquire_inventory_use_claim(1).unwrap().is_none());
+    assert!(
+        link.call_loader(
+            "inventory.use",
+            vec![lucent_protocol::bridge::from_json(json!({"itemId":1}))]
+        )
+        .recv_timeout(TIMEOUT)
+        .is_err()
+    );
+    while let Some(event) = link.try_event().unwrap() {
+        if let ScriptEvent::Loader { event, .. } = event
+            && event.name == "onProbeCall"
+        {
+            assert_ne!(
+                event.args.first(),
+                Some(&Value::String("inventory.use".into()))
+            );
+        }
+    }
 }

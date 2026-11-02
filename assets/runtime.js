@@ -14532,7 +14532,7 @@ ${prefix}}`;
             const startingQuantity = item.quantity;
             const sent = yield* bridge.invoke("inventory.use", [{ itemId: item.itemId }], Boolean3).pipe(map5(getOrElse(() => false)));
             if (!sent) return false;
-            return yield* wait.until(
+            const used = yield* wait.until(
               get5(item.itemId).pipe(
                 map5(
                   (current) => current === null || current.quantity < startingQuantity
@@ -14540,6 +14540,8 @@ ${prefix}}`;
               ),
               { timeout: "5 seconds" }
             );
+            if (used) operationHost.settleClaim(claim);
+            return used;
           });
         },
         (claim) => sync2(() => {
@@ -15303,7 +15305,11 @@ ${prefix}}`;
       sync2(() => JSON.parse(
         operationHost.acquireQuestClaim(JSON.stringify(id))
       )),
-      (claim) => claim === null ? succeed7(false) : action,
+      (claim) => claim === null ? succeed7(false) : action.pipe(
+        tap2((success) => sync2(() => {
+          if (success) operationHost.settleClaim(claim);
+        }))
+      ),
       (claim) => sync2(() => {
         if (claim !== null) operationHost.releaseClaim(claim);
       })
@@ -15330,7 +15336,7 @@ ${prefix}}`;
     }, "accept");
     const abandon = /* @__PURE__ */ __name((questId) => {
       if (!isQuestId(questId)) return succeed7(false);
-      return gen2(function* () {
+      return withQuestClaim(questId, gen2(function* () {
         if (!(yield* isInProgress(questId))) return false;
         if (isNone2(
           yield* bridge.invoke("quests.abandon", [questId], Void2)
@@ -15341,7 +15347,7 @@ ${prefix}}`;
           isInProgress(questId).pipe(map5((active) => !active)),
           { timeout: "5 seconds" }
         );
-      });
+      }));
     }, "abandon");
     const acceptBatch = /* @__PURE__ */ __name((questIds, silent = false) => forEach2(questIds, (questId) => accept(questId, silent), {
       concurrency: 1

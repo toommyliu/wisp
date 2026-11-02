@@ -23,7 +23,7 @@ pub(crate) fn swf(
     let args: Vec<serde_json::Value> =
         serde_json::from_str(args).map_err(|error| error.to_string())?;
     let value = wait(
-        link.call_loader(method, args.into_iter().map(from_json).collect()),
+        link.call_loader_scoped(method, args.into_iter().map(from_json).collect()),
         interrupt,
     )?;
     Ok(to_json(value).map(|value| value.to_string()))

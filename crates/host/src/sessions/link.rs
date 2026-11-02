@@ -159,7 +159,30 @@ impl ScriptLink {
     }
 
     pub fn call_loader(&self, name: impl Into<String>, args: Vec<Value>) -> PendingCall {
-        self.inbox.call_loader(name, args)
+        self.call_loader_owned(name.into(), args, false)
+    }
+    pub(crate) fn call_loader_scoped(
+        &self,
+        name: impl Into<String>,
+        args: Vec<Value>,
+    ) -> PendingCall {
+        self.call_loader_owned(name.into(), args, true)
+    }
+    fn call_loader_owned(
+        &self,
+        name: String,
+        args: Vec<Value>,
+        cancel_on_drop: bool,
+    ) -> PendingCall {
+        let guard = super::operations::Guard::new(
+            self.packets.clone(),
+            super::claims::Owner::script(self.attachment),
+            self.detached.clone(),
+            &name,
+            &args,
+            cancel_on_drop,
+        );
+        self.inbox.call_loader_guarded(name, args, Box::new(guard))
     }
 
     pub fn operate(
@@ -246,10 +269,12 @@ impl ScriptLink {
     ) -> Result<Option<crate::automation::environment::Lease>, bridge::Error> {
         let owner = super::claims::Owner::script(self.attachment);
         let packets = self.packets.clone();
+        let settlement = packets.clone();
         Ok(self.acquire_inventory_use_claim(id)?.map(|grant| {
-            crate::automation::environment::Lease::new(move || {
-                packets.release_claim(owner, grant.id)
-            })
+            crate::automation::environment::Lease::with_settlement(
+                move || packets.release_claim(owner, grant.id),
+                move || settlement.settle_claim(owner, grant.id),
+            )
         }))
     }
 
@@ -267,10 +292,12 @@ impl ScriptLink {
     ) -> Result<Option<crate::automation::environment::Lease>, bridge::Error> {
         let owner = super::claims::Owner::script(self.attachment);
         let packets = self.packets.clone();
+        let settlement = packets.clone();
         Ok(self.acquire_quest_claim(id)?.map(|grant| {
-            crate::automation::environment::Lease::new(move || {
-                packets.release_claim(owner, grant.id)
-            })
+            crate::automation::environment::Lease::with_settlement(
+                move || packets.release_claim(owner, grant.id),
+                move || settlement.settle_claim(owner, grant.id),
+            )
         }))
     }
 
@@ -309,6 +336,11 @@ impl ScriptLink {
     ) -> Result<Option<super::ClaimGrant>, bridge::Error> {
         self.packets
             .acquire_claim(super::claims::Owner::script(self.attachment), item)
+    }
+
+    pub fn settle_claim(&self, id: u64) {
+        self.packets
+            .settle_claim(super::claims::Owner::script(self.attachment), id);
     }
 
     pub fn release_claim(&self, id: u64) {
@@ -568,6 +600,89 @@ mod tests {
     use super::*;
     use crate::testing;
     use std::{sync::mpsc, thread};
+
+    #[test]
+    fn queued_scoped_calls_cannot_dispatch_after_their_reply_scope_or_caller_ends() {
+        struct Resume(Option<mpsc::Sender<()>>);
+        impl Drop for Resume {
+            fn drop(&mut self) {
+                if let Some(release) = self.0.take() {
+                    let _ = release.send(());
+                }
+            }
+        }
+        for ending in ["reply", "scope", "caller"] {
+            let host = testing::headless_host();
+            let (mut session, owner) = testing::start_probe(
+                &host,
+                testing::ProbeMovie::new()
+                    .responding("quests.complete", [(serde_json::json!(null), vec![])]),
+            );
+            let observer = session.attach(crate::bridge::EventInterests::ALL).unwrap();
+            let grant = owner.acquire_quest_claim(802).unwrap().unwrap();
+            let (blocked, entered) = mpsc::channel();
+            let (release, resume) = mpsc::channel();
+            let release = Resume(Some(release));
+            let held = session.read_projection(move |_| {
+                blocked.send(()).unwrap();
+                resume.recv_timeout(Duration::from_secs(5)).unwrap();
+            });
+            entered.recv_timeout(Duration::from_secs(5)).unwrap();
+            let reply = owner.call_loader_scoped(
+                "quests.complete",
+                vec![
+                    Value::Number(802.),
+                    Value::Number(1.),
+                    Value::Number(-1.),
+                    Value::Bool(false),
+                ],
+            );
+            let reply = match ending {
+                "reply" => {
+                    drop(reply);
+                    owner.release_claim(grant.id);
+                    None
+                }
+                "scope" => {
+                    owner.release_claim(grant.id);
+                    Some(reply)
+                }
+                _ => {
+                    owner.revoker()();
+                    Some(reply)
+                }
+            };
+            let next = observer
+                .acquire_quest_claim(802)
+                .unwrap()
+                .expect("unissued work retained the quest");
+            drop(release);
+            held.recv_timeout(Duration::from_secs(5)).unwrap();
+            if let Some(reply) = reply {
+                assert_eq!(
+                    reply.recv_timeout(Duration::from_secs(5)),
+                    Err(bridge::Error::Stopped)
+                );
+            }
+            observer
+                .call_loader("probe.echo", vec![])
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            while let Some(event) = observer.try_event().unwrap() {
+                if let ScriptEvent::Loader { event, .. } = event
+                    && event.name == "onProbeCall"
+                {
+                    assert_ne!(
+                        event.args.first(),
+                        Some(&Value::String("quests.complete".into())),
+                        "{ending} issued a game action"
+                    );
+                }
+            }
+            assert!(observer.acquire_quest_claim(802).unwrap().is_none());
+            observer.release_claim(next.id);
+        }
+    }
 
     #[test]
     fn applied_environment_configuration_schedules_without_a_player_reply_or_record_lock() {
