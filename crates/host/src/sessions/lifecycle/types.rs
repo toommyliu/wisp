@@ -53,13 +53,12 @@ pub struct Options {
 }
 #[derive(Clone, Debug, Default)]
 pub struct Readiness {
-    pub logged_in: bool,
+    pub can_act: bool,
     pub username: String,
-    pub projections_ready: bool,
 }
 impl Readiness {
     pub(super) fn ready(&self) -> bool {
-        self.logged_in && !self.username.trim().is_empty() && self.projections_ready
+        self.can_act && !self.username.trim().is_empty()
     }
 }
 
@@ -146,10 +145,6 @@ pub enum Event {
         result: Result<Entry, String>,
     },
     ProjectionChanged,
-    PlayerReady {
-        run: RunId,
-        ready: bool,
-    },
     RunReady(RunId),
     RunExited {
         run: RunId,
@@ -173,11 +168,6 @@ pub enum Effect {
     Prepare {
         id: PreparationId,
         entry: Entry,
-    },
-    ReadPlayerReady {
-        run: RunId,
-        binding: Binding,
-        deadline: u64,
     },
     Spawn {
         run: RunId,

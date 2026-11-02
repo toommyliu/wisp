@@ -267,7 +267,13 @@ impl Running {
                             Value::String(credentials.password),
                         ],
                     )
-                    .and_then(|_| self.commit_command(|_| Ok(true)));
+                    .and_then(|_| {
+                        self.commit_command(|projection| {
+                            projection.readiness.logged_out = false;
+                            projection.refresh_readiness(false);
+                            Ok(true)
+                        })
+                    });
                 if result.is_err() {
                     self.projection.write().auth.set_credentials(previous);
                 }

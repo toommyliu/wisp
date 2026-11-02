@@ -179,9 +179,8 @@ impl Supervisor {
             binding,
             connected: None,
             username: String::new(),
-            ready_read: None,
-            auth_reads: Vec::new(),
-            auth_retry: 0,
+            credentials: None,
+            credentials_retry: 0,
             logout: None,
             safe_move: None,
             clock: Instant::now(),
@@ -313,15 +312,6 @@ impl Drop for Reaped {
         let _ = self.inbox.send(Msg::Event(lc::Event::Reaped(self.run)));
     }
 }
-struct ReadyRead {
-    run: RunId,
-    binding: lc::Binding,
-    deadline: u64,
-    world: bridge::PendingCall,
-    player: bridge::PendingCall,
-    world_ready: Option<bool>,
-    player_ready: Option<bool>,
-}
 struct Logout {
     run: RunId,
     pending: bridge::Pending<String>,
@@ -352,9 +342,8 @@ struct Supervision {
     binding: lc::Binding,
     connected: Option<bool>,
     username: String,
-    ready_read: Option<ReadyRead>,
-    auth_reads: Vec<bridge::Pending<String>>,
-    auth_retry: u64,
+    credentials: Option<bridge::Pending<String>>,
+    credentials_retry: u64,
     logout: Option<Logout>,
     safe_move: Option<SafeMove>,
     clock: Instant,
@@ -506,10 +495,9 @@ impl Supervision {
     }
     fn player(&mut self, player: Player) {
         let replacing = self.watch.is_some();
-        self.ready_read = None;
         self.logout = None;
-        self.auth_reads.clear();
-        self.auth_retry = 0;
+        self.credentials = None;
+        self.credentials_retry = 0;
         self.connected = None;
         self.username.clear();
         self.readiness = lc::Readiness::default();
@@ -648,21 +636,29 @@ impl Supervision {
             }
             return;
         }
+        if self
+            .credentials
+            .as_ref()
+            .is_some_and(|pending| pending.try_recv().is_some())
+        {
+            self.credentials = None;
+        }
         let snapshot = watch.read_for(Duration::ZERO, |p| {
             (
-                lc::Readiness {
-                    logged_in: p.auth.logged_in,
-                    username: p.auth.username.clone(),
-                    projections_ready: p.current_readiness().missing.is_empty(),
-                },
+                p.readiness,
+                p.auth.username.clone(),
+                p.auth.credentials_epoch == Some(p.receipts.epoch()),
                 p.connected,
             )
         });
-        let Ok((readiness, connected)) = snapshot else {
+        let Ok((record, username, account_read, connected)) = snapshot else {
             self.schedule(Instant::now() + Duration::from_millis(1));
             return;
         };
-        self.readiness = readiness;
+        self.readiness = lc::Readiness {
+            can_act: record.can_act() && account_read,
+            username,
+        };
         if !self.readiness.username.trim().is_empty() {
             let name = self.readiness.username.trim().to_lowercase();
             if !self.username.is_empty() && self.username != name {
@@ -684,60 +680,27 @@ impl Supervision {
         }
         self.advance(lc::Event::ProjectionChanged);
         let status = self.machine.status();
-        if self.readiness.projections_ready
+        if record.facts
             && (status.active.is_some() || status.waiting_to_restart)
-            && (!self.readiness.logged_in || self.readiness.username.trim().is_empty())
-            && self.auth_reads.is_empty()
-            && self.now() >= self.auth_retry
+            && (!account_read || self.readiness.username.trim().is_empty())
+            && self.credentials.is_none()
+            && self.now() >= self.credentials_retry
         {
-            let watch = self.watch.as_ref().unwrap();
-            for command in [
-                lucent_protocol::command::Command::RefreshCredentials {},
-                lucent_protocol::command::Command::RefreshLoggedIn {},
-            ] {
-                let pending = watch.command(command);
-                pending.set_waker(Waker::from(self.notify.clone()));
-                self.auth_reads.push(pending);
-            }
-            self.auth_retry = self.now() + 100;
-            self.deadlines.insert(self.auth_retry);
+            let pending = self
+                .watch
+                .as_ref()
+                .unwrap()
+                .command(lucent_protocol::command::Command::RefreshCredentials {});
+            pending.set_waker(Waker::from(self.notify.clone()));
+            self.credentials = Some(pending);
+            self.credentials_retry = self.now() + 100;
+            self.deadlines.insert(self.credentials_retry);
         }
         if draining {
             self.schedule(Instant::now());
         }
     }
     fn completions(&mut self) {
-        let now = self.now();
-        self.auth_reads
-            .retain(|pending| pending.try_recv().is_none());
-        if let Some(read) = &mut self.ready_read {
-            if read.world_ready.is_none() {
-                read.world_ready = read
-                    .world
-                    .try_recv()
-                    .map(|r| matches!(r, Ok(lucent_protocol::bridge::Value::Bool(true))));
-            }
-            if read.player_ready.is_none() {
-                read.player_ready = read
-                    .player
-                    .try_recv()
-                    .map(|r| matches!(r, Ok(lucent_protocol::bridge::Value::Bool(true))));
-            }
-            if read.binding != self.binding {
-                let run = read.run;
-                self.ready_read = None;
-                self.advance(lc::Event::PlayerReady { run, ready: false });
-            } else if now >= read.deadline {
-                self.ready_read = None;
-            } else if let (Some(world), Some(player)) = (read.world_ready, read.player_ready) {
-                let id = read.run;
-                self.ready_read = None;
-                self.advance(lc::Event::PlayerReady {
-                    run: id,
-                    ready: world && player,
-                });
-            }
-        }
         if let Some(logout) = &self.logout {
             if let Some(result) = logout.pending.try_recv().or_else(|| {
                 (Instant::now() >= logout.deadline).then_some(Err(bridge::Error::Timeout))
@@ -762,29 +725,6 @@ impl Supervision {
                 lc::Effect::Publish(status) => self.publish(status),
                 lc::Effect::ScheduleDeadline(at) => {
                     self.deadlines.insert(at);
-                }
-                lc::Effect::ReadPlayerReady {
-                    run,
-                    binding,
-                    deadline,
-                } => {
-                    if binding == self.binding
-                        && let Some(watch) = &self.watch
-                    {
-                        let world = watch.call_loader("world.isLoaded", vec![]);
-                        let player = watch.call_loader("player.isLoaded", vec![]);
-                        world.set_waker(Waker::from(self.notify.clone()));
-                        player.set_waker(Waker::from(self.notify.clone()));
-                        self.ready_read = Some(ReadyRead {
-                            run,
-                            binding,
-                            deadline,
-                            world,
-                            player,
-                            world_ready: None,
-                            player_ready: None,
-                        });
-                    }
                 }
                 lc::Effect::Spawn {
                     run,
@@ -855,9 +795,6 @@ impl Supervision {
                     }
                 }
                 lc::Effect::Revoke { run } => {
-                    if self.ready_read.as_ref().is_some_and(|read| read.run == run) {
-                        self.ready_read = None;
-                    }
                     if let Some(worker) = &mut self.worker
                         && worker.id == run
                         && let Some(revoke) = worker.revoke.take()

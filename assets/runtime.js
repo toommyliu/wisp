@@ -14960,7 +14960,7 @@ ${prefix}}`;
     },
     name: payload.name
   }), "toOutfit");
-  var makePlayer = /* @__PURE__ */ __name((bridge, host4, auth, inventory, map8, wait) => {
+  var makePlayer = /* @__PURE__ */ __name((bridge, host4, inventory, map8, wait) => {
     const read = /* @__PURE__ */ __name((method, schema, fallback) => bridge.invoke(method, void 0, schema).pipe(map5(getOrElse(() => fallback))), "read");
     const get5 = /* @__PURE__ */ __name(() => host4.read({ kind: "me" }).pipe(
       map5((player) => player === null ? null : toLivePlayer(player))
@@ -15108,7 +15108,7 @@ ${prefix}}`;
       )
     ), "isAlive");
     const isMember = /* @__PURE__ */ __name(() => read("player.isMember", Boolean3, false), "isMember");
-    const isReady = makePlayerReadiness(host4, auth, map8, bridge);
+    const isReady = /* @__PURE__ */ __name(() => host4.read({ kind: "readiness" }).pipe(map5((readiness) => readiness.canAct)), "isReady");
     const jumpToCell = /* @__PURE__ */ __name((cell, pad) => startTravel({ kind: "jump", cell, pad }, travelHost), "jumpToCell");
     const exitCombat = /* @__PURE__ */ __name(() => startTravel({ kind: "exit" }, travelHost), "exitCombat");
     const joinMap = /* @__PURE__ */ __name((target, options) => gen2(function* () {
@@ -15182,19 +15182,6 @@ ${prefix}}`;
       walkTo
     };
   }, "makePlayer");
-  var makePlayerReadiness = /* @__PURE__ */ __name((host4, auth, map8, bridge) => () => host4.read({ kind: "readiness" }).pipe(
-    flatMap3(
-      (readiness) => readiness.missing.length === 0 ? all2([
-        auth.isLoggedIn(),
-        map8.isLoaded(),
-        bridge.invoke("player.isLoaded", void 0, Boolean3).pipe(map5(getOrElse(() => false)))
-      ]).pipe(
-        map5(
-          ([loggedIn, loaded, playerLoaded]) => loggedIn && loaded && playerLoaded
-        )
-      ) : succeed7(false)
-    )
-  ), "makePlayerReadiness");
 
   // packages/runtime/src/game/flash/api/Players.ts
   var makePlayers = /* @__PURE__ */ __name((host4) => {
@@ -15782,7 +15769,7 @@ ${prefix}}`;
     const monsterServices = yield* makeMonsters(bridge, host4, wait);
     const monsters = monsterServices.api;
     const players = makePlayers(host4);
-    const player = makePlayer(bridge, host4, auth, inventory, map8, wait);
+    const player = makePlayer(bridge, host4, inventory, map8, wait);
     const quests = makeQuests(bridge, host4, wait);
     const settings = makeSettings(host4);
     const antiCounter = makeAntiCounter(bridge, settings.isAntiCounterEnabled);

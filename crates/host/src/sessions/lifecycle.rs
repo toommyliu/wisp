@@ -28,11 +28,6 @@ struct Run {
     source: Source,
     attempt: Attempt,
 }
-#[derive(Clone, Copy, Debug)]
-enum PlayerRead {
-    Scheduled(u64),
-    Requested,
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Worker {
     Reaping,
@@ -52,7 +47,6 @@ enum State {
     Waiting {
         run: Run,
         deadline: u64,
-        read: PlayerRead,
     },
     SafeBefore(Run),
     Booting(Run),
@@ -211,40 +205,6 @@ impl Lifecycle {
                         options,
                         &mut result.effects,
                     );
-                }
-            }
-            Event::PlayerReady { run: id, ready } => {
-                if let State::Waiting {
-                    run,
-                    read,
-                    deadline,
-                } = &mut self.state
-                    && run.id == id
-                    && matches!(read, PlayerRead::Requested)
-                {
-                    if ready
-                        && readiness.ready()
-                        && matches!(self.connection, Connection::Up(_))
-                        && (run.attempt != Attempt::Restart || options.restart_after_reconnect)
-                    {
-                        let run = run.clone();
-                        if options.safe_start_stop {
-                            result.effects.push(Effect::SafeMove {
-                                run: id,
-                                binding: run.binding,
-                                username: run.username.clone(),
-                                phase: SafePhase::Before,
-                                room_policy: options.room_policy.clone(),
-                            });
-                            self.state = State::SafeBefore(run);
-                        } else {
-                            self.spawn(run, &mut result.effects);
-                        }
-                    } else {
-                        let next = now.saturating_add(100).min(*deadline);
-                        *read = PlayerRead::Scheduled(next);
-                        result.effects.push(Effect::ScheduleDeadline(next));
-                    }
                 }
             }
             Event::RunReady(id) => {
@@ -443,23 +403,25 @@ impl Lifecycle {
                 }
             }
         }
-        if let State::Waiting {
-            run,
-            deadline,
-            read,
-        } = &mut self.state
-            && matches!(read, PlayerRead::Scheduled(at) if now >= *at)
+        if let State::Waiting { run, .. } = &mut self.state
             && readiness.ready()
             && matches!(self.connection, Connection::Up(_))
         {
             run.binding = self.connection.binding();
             run.username = readiness.username.trim().to_lowercase();
-            *read = PlayerRead::Requested;
-            result.effects.push(Effect::ReadPlayerReady {
-                run: run.id,
-                binding: run.binding,
-                deadline: *deadline,
-            });
+            let run = run.clone();
+            if options.safe_start_stop {
+                result.effects.push(Effect::SafeMove {
+                    run: run.id,
+                    binding: run.binding,
+                    username: run.username.clone(),
+                    phase: SafePhase::Before,
+                    room_policy: options.room_policy.clone(),
+                });
+                self.state = State::SafeBefore(run);
+            } else {
+                self.spawn(run, &mut result.effects);
+            }
         }
         let after = self.status();
         if before != after {
@@ -486,11 +448,7 @@ impl Lifecycle {
             attempt,
         };
         let deadline = now.saturating_add(10_000);
-        self.state = State::Waiting {
-            run,
-            deadline,
-            read: PlayerRead::Scheduled(now),
-        };
+        self.state = State::Waiting { run, deadline };
         effects.push(Effect::ScheduleDeadline(deadline));
         Ok(())
     }

@@ -174,6 +174,7 @@ pub(crate) fn refresh_credentials(
     if let Some(password) = password {
         projection.auth.password = password;
     }
+    projection.auth.credentials_epoch = Some(projection.receipts.epoch());
     Ok(projection.auth.credentials())
 }
 

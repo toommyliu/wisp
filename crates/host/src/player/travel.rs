@@ -3,7 +3,7 @@ use crate::{
     bridge::{Error, Value},
     game::{jobs::JobGate, travel::*},
 };
-use lucent_protocol::{command::Command, world::EntityState};
+use lucent_protocol::world::EntityState;
 use std::time::Instant;
 
 impl Running {
@@ -113,27 +113,8 @@ impl Running {
             snapshot.loaded =
                 self.travel_call(gate, deadline, "world.isLoaded", vec![]) == Ok(Value::Bool(true));
         }
-        if reads.contains(Reads::READY)
-            && self
-                .projection
-                .read()
-                .current_readiness()
-                .missing
-                .is_empty()
-        {
-            let logged_in = if gate.open() && Instant::now() < deadline {
-                self.command(Command::RefreshLoggedIn {})
-                    .ok()
-                    .and_then(|json| serde_json::from_str::<bool>(&json).ok())
-                    .unwrap_or_else(|| self.projection.read().auth.logged_in)
-            } else {
-                false
-            };
-            let loaded =
-                self.travel_call(gate, deadline, "world.isLoaded", vec![]) == Ok(Value::Bool(true));
-            let player_loaded = self.travel_call(gate, deadline, "player.isLoaded", vec![])
-                == Ok(Value::Bool(true));
-            snapshot.ready = logged_in && loaded && player_loaded;
+        if reads.contains(Reads::READY) {
+            snapshot.ready = self.projection.read().readiness.can_act();
         }
         if reads.contains(Reads::TFER) {
             snapshot.tfer = self.travel_call(

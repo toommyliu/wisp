@@ -141,8 +141,8 @@ impl ScriptLink {
                 username: projection.auth.username.clone(),
                 password: projection.auth.password.clone(),
                 connected: projection.connected,
-                logged_in: projection.auth.logged_in,
-                ready: projection.current_readiness().missing.is_empty(),
+                logged_in: projection.readiness.connected,
+                ready: projection.readiness.can_act(),
                 servers: projection
                     .auth
                     .servers()
@@ -953,10 +953,29 @@ mod tests {
     fn an_orphaned_accept_runs_to_its_end() {
         let host = testing::headless_host();
         let (mut session, link) = testing::start_probe(&host, testing::ProbeMovie::new()
-            .constant("auth.isLoggedIn", serde_json::json!(true))
+            .constant("player.isLoaded", serde_json::json!(true))
             .accepting_drop(Duration::from_millis(100), serde_json::json!({
                 "type":"json","dataObj":{"cmd":"getDrop","ItemID":70,"bSuccess":true,"iQtyNow":3}
             }).to_string()));
+        for (name, data) in [
+            ("onConnection", "OnConnection".to_owned()),
+            (
+                "onExtensionResponse",
+                serde_json::json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[],"hitems":[]}})
+                    .to_string(),
+            ),
+            (
+                "onExtensionResponse",
+                serde_json::json!({"type":"json","dataObj":{"cmd":"moveToArea","areaId":1,"areaName":"battleon-1",
+                    "uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100}]}})
+                .to_string(),
+            ),
+        ] {
+            link.call_loader("probe.emit", vec![Value::String(name.into()), Value::String(data)])
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap();
+        }
+        testing::wait_until_ready(&link);
         link.call_loader(
             "probe.emit",
             vec![

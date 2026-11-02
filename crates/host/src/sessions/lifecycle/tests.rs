@@ -10,9 +10,8 @@ fn options() -> Options {
 }
 fn readiness() -> Readiness {
     Readiness {
-        logged_in: true,
+        can_act: true,
         username: "tommy".into(),
-        projections_ready: true,
     }
 }
 fn binding() -> Binding {
@@ -43,13 +42,13 @@ fn send(machine: &mut Lifecycle, event: Event, now: u64) -> Transition {
 fn start(machine: &mut Lifecycle) -> RunId {
     let result = send(machine, Event::Command(Command::Start(request())), 0);
     assert!(result.effects.contains(&Effect::ScheduleDeadline(10_000)));
-    let run = machine.status().active.unwrap().run;
-    let read = send(machine, Event::PlayerReady { run, ready: true }, 1);
     assert!(
-        read.effects
+        result
+            .effects
             .iter()
             .any(|effect| matches!(effect, Effect::Spawn { .. }))
     );
+    let run = machine.status().active.unwrap().run;
     send(machine, Event::RunReady(run), 2);
     run
 }
@@ -157,10 +156,7 @@ fn stale_controls_and_callbacks_cannot_touch_a_new_run() {
             outcome: Outcome::Failed("late".into()),
         },
         Event::Reaped(old),
-        Event::PlayerReady {
-            run: old,
-            ready: true,
-        },
+        Event::ProjectionChanged,
         Event::SafeMoveDone {
             run: old,
             phase: SafePhase::After,
@@ -329,19 +325,13 @@ fn safe_start_boot_outcome_safe_stop_and_logout_are_ordered() {
         safe_start_stop: true,
         ..options()
     };
-    machine.advance(
+    let before = machine.advance(
         Event::Command(Command::Start(request())),
         &readiness(),
         &opts,
         0,
     );
     let run = machine.status().active.unwrap().run;
-    let before = machine.advance(
-        Event::PlayerReady { run, ready: true },
-        &readiness(),
-        &opts,
-        1,
-    );
     assert!(before.effects.iter().any(|e| matches!(
         e,
         Effect::SafeMove {
@@ -480,53 +470,46 @@ fn forced_kill_still_runs_safe_stop_and_reaping_cannot_skip_it() {
     assert!(machine.status().active.is_none());
 }
 #[test]
-fn readiness_waits_for_a_pending_read_within_the_ten_second_bound() {
+fn readiness_has_one_absolute_deadline_and_starts_on_an_edge() {
     let mut machine = Lifecycle::new(binding());
-    let not_ready = Readiness::default();
-    let result = machine.advance(
+    let waiting = machine.advance(
         Event::Command(Command::Start(request())),
-        &not_ready,
+        &Readiness::default(),
         &options(),
         50,
     );
-    assert!(result.effects.contains(&Effect::ScheduleDeadline(10050)));
+    assert!(waiting.effects.contains(&Effect::ScheduleDeadline(10050)));
     assert!(
-        !result
-            .effects
-            .iter()
-            .any(|e| matches!(e, Effect::ReadPlayerReady { .. }))
-    );
-    let run = machine.status().active.unwrap().run;
-    let read = send(&mut machine, Event::ProjectionChanged, 51);
-    assert!(read.effects.contains(&Effect::ReadPlayerReady {
-        run,
-        binding: binding(),
-        deadline: 10050
-    }));
-    assert!(
-        send(&mut machine, Event::ProjectionChanged, 52)
-            .effects
-            .is_empty()
-    );
-    assert!(
-        send(&mut machine, Event::Deadline, 10049)
-            .effects
-            .is_empty()
-    );
-    let result = send(&mut machine, Event::PlayerReady { run, ready: true }, 10050);
-    assert_eq!(
-        terminals(&result),
-        vec![Outcome::Failed(
-            "Script readiness timed out after 10 s".into()
-        )]
-    );
-    assert!(
-        !result
+        !waiting
             .effects
             .iter()
             .any(|e| matches!(e, Effect::Spawn { .. }))
     );
+    assert!(
+        machine
+            .advance(
+                Event::ProjectionChanged,
+                &Readiness::default(),
+                &options(),
+                10049
+            )
+            .effects
+            .is_empty()
+    );
+    let ready = send(&mut machine, Event::ProjectionChanged, 10049);
+    assert!(
+        ready
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::Spawn { .. }))
+    );
+    assert!(
+        send(&mut machine, Event::ProjectionChanged, 10049)
+            .effects
+            .is_empty()
+    );
 }
+
 #[test]
 fn starts_are_refused_while_a_worker_is_reaping() {
     let mut machine = Lifecycle::new(binding());
@@ -593,12 +576,7 @@ fn queued_pair(machine: &mut Lifecycle, opts: &Options) -> RunId {
             .effects;
     }
     let run = machine.status().active.unwrap().run;
-    machine.advance(
-        Event::PlayerReady { run, ready: true },
-        &readiness(),
-        opts,
-        3,
-    );
+    machine.advance(Event::ProjectionChanged, &readiness(), opts, 3);
     if opts.safe_start_stop {
         machine.advance(
             Event::SafeMoveDone {
@@ -645,14 +623,14 @@ fn queued_next_waits_for_both_safe_stop_and_reaping() {
         assert!(
             !one.effects
                 .iter()
-                .any(|e| matches!(e, Effect::ReadPlayerReady { .. } | Effect::Spawn { .. }))
+                .any(|e| matches!(e, Effect::SafeMove { .. } | Effect::Spawn { .. }))
         );
         assert_eq!(machine.status().active.unwrap().run, run);
         let two = machine.advance(second, &readiness(), &opts, 12);
         assert!(
             two.effects
                 .iter()
-                .any(|e| matches!(e, Effect::ReadPlayerReady { run: next, .. } if *next != run))
+                .any(|e| matches!(e, Effect::SafeMove { run: next, .. } if *next != run))
         );
         assert_ne!(machine.status().active.unwrap().run, run);
     }
@@ -672,18 +650,9 @@ fn reconnect_keeps_the_queue_item_until_its_fresh_run_completes() {
         connection: ConnectionEpoch(2),
         ..binding()
     };
-    machine.advance(Event::ConnectionRestored(rebound), &readiness(), &opts, 12);
+    let spawn = machine.advance(Event::ConnectionRestored(rebound), &readiness(), &opts, 12);
     let next = machine.status().active.unwrap().run;
     assert_ne!(run, next);
-    let spawn = machine.advance(
-        Event::PlayerReady {
-            run: next,
-            ready: true,
-        },
-        &readiness(),
-        &opts,
-        13,
-    );
     assert!(
         spawn
             .effects
@@ -744,69 +713,46 @@ fn queue_cancellation_during_reaping_prevents_the_next_spawn() {
     );
 }
 #[test]
-fn readiness_rejects_missing_facts_and_false_or_stale_loader_answers() {
-    for readiness in [
+fn readiness_requires_can_act_and_a_known_account() {
+    for missing in [
         Readiness {
-            logged_in: false,
+            can_act: false,
             ..readiness()
         },
         Readiness {
             username: "  ".into(),
             ..readiness()
         },
-        Readiness {
-            projections_ready: false,
-            ..readiness()
-        },
     ] {
         let mut machine = Lifecycle::new(binding());
-        let result = machine.advance(
+        let waiting = machine.advance(
             Event::Command(Command::Start(request())),
-            &readiness,
+            &missing,
             &options(),
             0,
         );
         assert!(
-            !result
+            !waiting
                 .effects
                 .iter()
-                .any(|e| matches!(e, Effect::ReadPlayerReady { .. }))
-        );
-        let run = machine.status().active.unwrap().run;
-        let result = machine.advance(
-            Event::PlayerReady { run, ready: true },
-            &readiness,
-            &options(),
-            1,
+                .any(|e| matches!(e, Effect::Spawn { .. }))
         );
         assert!(
-            !result
+            machine
+                .advance(Event::ProjectionChanged, &missing, &options(), 1)
+                .effects
+                .is_empty()
+        );
+        let ready = send(&mut machine, Event::ProjectionChanged, 2);
+        assert!(
+            ready
                 .effects
                 .iter()
                 .any(|e| matches!(e, Effect::Spawn { .. }))
         );
     }
-    let mut machine = Lifecycle::new(binding());
-    send(&mut machine, Event::Command(Command::Start(request())), 0);
-    let run = machine.status().active.unwrap().run;
-    assert!(
-        !send(&mut machine, Event::PlayerReady { run, ready: false }, 1)
-            .effects
-            .iter()
-            .any(|e| matches!(e, Effect::Spawn { .. }))
-    );
-    assert!(
-        send(&mut machine, Event::PlayerReady { run, ready: true }, 2)
-            .effects
-            .is_empty()
-    );
-    assert_eq!(
-        terminals(&send(&mut machine, Event::Deadline, 10_000)),
-        vec![Outcome::Failed(
-            "Script readiness timed out after 10 s".into()
-        )]
-    );
 }
+
 #[test]
 fn stop_before_boot_cancels_safe_start_and_never_spawns() {
     let mut machine = Lifecycle::new(binding());
@@ -821,12 +767,7 @@ fn stop_before_boot_cancels_safe_start_and_never_spawns() {
         0,
     );
     let run = machine.status().active.unwrap().run;
-    machine.advance(
-        Event::PlayerReady { run, ready: true },
-        &readiness(),
-        &opts,
-        1,
-    );
+    machine.advance(Event::ProjectionChanged, &readiness(), &opts, 1);
     let stopped = machine.advance(
         Event::Command(Command::Stop {
             run,
@@ -994,58 +935,38 @@ fn starts_are_refused_while_a_run_is_active() {
 }
 
 #[test]
-fn disabling_restart_while_the_loader_read_is_pending_cancels_the_attempt() {
-    for loader_reply in [false, true] {
-        let mut machine = Lifecycle::new(binding());
-        let run = start(&mut machine);
-        let opts = Options {
-            restart_after_reconnect: true,
-            ..options()
-        };
-        machine.advance(Event::ConnectionLost(binding()), &readiness(), &opts, 10);
-        machine.advance(Event::Reaped(run), &readiness(), &opts, 11);
-        machine.advance(
-            Event::ConnectionRestored(Binding {
-                connection: ConnectionEpoch(2),
-                ..binding()
-            }),
-            &readiness(),
-            &opts,
-            12,
-        );
-        let retry = machine.status().active.unwrap().run;
-        assert_ne!(run, retry);
-        let event = if loader_reply {
-            Event::PlayerReady {
-                run: retry,
-                ready: true,
-            }
-        } else {
-            Event::OptionsChanged
-        };
-        let canceled = send(&mut machine, event, 13);
-        assert_eq!(
-            terminals(&canceled),
-            vec![Outcome::Stopped(StopReason::Requested(
-                "Restart after reconnect disabled".into()
-            ))]
-        );
-        assert!(machine.status().active.is_none());
-        assert!(!machine.status().waiting_to_restart);
-        assert!(
-            !send(
-                &mut machine,
-                Event::PlayerReady {
-                    run: retry,
-                    ready: true
-                },
-                14
-            )
+fn disabling_restart_before_readiness_cancels_the_attempt() {
+    let mut machine = Lifecycle::new(binding());
+    let run = start(&mut machine);
+    let opts = Options {
+        restart_after_reconnect: true,
+        ..options()
+    };
+    machine.advance(Event::ConnectionLost(binding()), &readiness(), &opts, 10);
+    machine.advance(Event::Reaped(run), &readiness(), &opts, 11);
+    let unready = Readiness {
+        can_act: false,
+        ..readiness()
+    };
+    machine.advance(
+        Event::ConnectionRestored(Binding {
+            connection: ConnectionEpoch(2),
+            ..binding()
+        }),
+        &unready,
+        &opts,
+        12,
+    );
+    assert!(machine.status().waiting_to_restart);
+    send(&mut machine, Event::OptionsChanged, 13);
+    assert!(machine.status().active.is_none());
+    assert!(!machine.status().waiting_to_restart);
+    assert!(
+        !send(&mut machine, Event::ProjectionChanged, 14)
             .effects
             .iter()
             .any(|e| matches!(e, Effect::Spawn { .. }))
-        );
-    }
+    );
 }
 
 #[test]
@@ -1067,7 +988,7 @@ fn reconnect_compares_normalized_account_names() {
             0,
         );
         let run = machine.status().active.unwrap().run;
-        machine.advance(Event::PlayerReady { run, ready: true }, &account, &opts, 1);
+        machine.advance(Event::ProjectionChanged, &account, &opts, 1);
         machine.advance(Event::ConnectionLost(binding()), &account, &opts, 2);
         machine.advance(Event::Reaped(run), &account, &opts, 3);
         let account = Readiness {
@@ -1083,67 +1004,69 @@ fn reconnect_compares_normalized_account_names() {
             &opts,
             4,
         );
-        assert_eq!(machine.status().waiting_to_restart, restart);
+        assert!(!machine.status().waiting_to_restart);
         assert_eq!(machine.status().active.is_some(), restart);
     }
 }
 
 #[test]
-fn readiness_polls_until_the_third_read_starts_the_run() {
+fn readiness_starts_once_on_the_first_ready_edge() {
     let mut machine = Lifecycle::new(binding());
-    send(&mut machine, Event::Command(Command::Start(request())), 0);
-    let run = machine.status().active.unwrap().run;
+    let unready = Readiness {
+        can_act: false,
+        ..readiness()
+    };
+    machine.advance(
+        Event::Command(Command::Start(request())),
+        &unready,
+        &options(),
+        0,
+    );
     for at in [1, 102] {
-        let reply = send(&mut machine, Event::PlayerReady { run, ready: false }, at);
-        assert!(reply.effects.contains(&Effect::ScheduleDeadline(at + 100)));
-        assert!(terminals(&reply).is_empty());
         assert!(
-            send(&mut machine, Event::Deadline, at + 99)
-                .effects
-                .is_empty()
-        );
-        let poll = send(&mut machine, Event::Deadline, at + 100);
-        assert!(poll.effects.contains(&Effect::ReadPlayerReady {
-            run,
-            binding: binding(),
-            deadline: 10_000,
-        }));
-        assert!(
-            send(&mut machine, Event::ProjectionChanged, at + 100)
+            machine
+                .advance(Event::ProjectionChanged, &unready, &options(), at)
                 .effects
                 .is_empty()
         );
     }
-    let ready = send(&mut machine, Event::PlayerReady { run, ready: true }, 203);
+    let ready = send(&mut machine, Event::ProjectionChanged, 203);
     assert!(
         ready
             .effects
             .iter()
-            .any(|e| matches!(e, Effect::Spawn { run: id, .. } if *id == run))
+            .any(|e| matches!(e, Effect::Spawn { .. }))
     );
     assert_eq!(machine.status().active.unwrap().phase, RunPhase::Booting);
+    assert!(
+        send(&mut machine, Event::ProjectionChanged, 204)
+            .effects
+            .is_empty()
+    );
 }
 
 #[test]
-fn readiness_polling_never_extends_the_ten_second_deadline() {
+fn readiness_edges_never_extend_the_ten_second_deadline() {
     let mut machine = Lifecycle::new(binding());
-    send(&mut machine, Event::Command(Command::Start(request())), 0);
-    let run = machine.status().active.unwrap().run;
-    for at in (0..10_000).step_by(100) {
-        if at > 0 {
-            let poll = send(&mut machine, Event::Deadline, at);
-            assert!(poll.effects.contains(&Effect::ReadPlayerReady {
-                run,
-                binding: binding(),
-                deadline: 10_000,
-            }));
-        }
-        let reply = send(&mut machine, Event::PlayerReady { run, ready: false }, at);
-        assert!(reply.effects.contains(&Effect::ScheduleDeadline(at + 100)));
-        assert!(terminals(&reply).is_empty());
+    let unready = Readiness {
+        can_act: false,
+        ..readiness()
+    };
+    machine.advance(
+        Event::Command(Command::Start(request())),
+        &unready,
+        &options(),
+        0,
+    );
+    for at in (1..10000).step_by(100) {
+        assert!(
+            machine
+                .advance(Event::ProjectionChanged, &unready, &options(), at)
+                .effects
+                .is_empty()
+        );
     }
-    assert!(send(&mut machine, Event::Deadline, 9999).effects.is_empty());
-    let expired = send(&mut machine, Event::Deadline, 10_000);
+    let expired = send(&mut machine, Event::ProjectionChanged, 10000);
     assert_eq!(
         terminals(&expired),
         vec![Outcome::Failed(
@@ -1154,66 +1077,41 @@ fn readiness_polling_never_extends_the_ten_second_deadline() {
         !expired
             .effects
             .iter()
-            .any(|e| matches!(e, Effect::ReadPlayerReady { .. } | Effect::Spawn { .. }))
+            .any(|e| matches!(e, Effect::Spawn { .. }))
     );
     assert!(
-        send(
-            &mut machine,
-            Event::PlayerReady { run, ready: true },
-            10_001
-        )
-        .effects
-        .is_empty()
+        send(&mut machine, Event::ProjectionChanged, 10001)
+            .effects
+            .is_empty()
     );
 }
 
 #[test]
-fn readiness_polling_waits_for_lost_facts_without_accepting_an_old_answer() {
-    for missing in [
-        Readiness {
-            logged_in: false,
-            ..readiness()
-        },
-        Readiness {
-            username: " ".into(),
-            ..readiness()
-        },
-        Readiness {
-            projections_ready: false,
-            ..readiness()
-        },
-    ] {
+fn stopped_waiters_ignore_a_later_ready_edge() {
+    for kill in [false, true] {
         let mut machine = Lifecycle::new(binding());
-        send(&mut machine, Event::Command(Command::Start(request())), 0);
-        let run = machine.status().active.unwrap().run;
-        machine.advance(Event::ProjectionChanged, &missing, &options(), 1);
-        let rejected = machine.advance(
-            Event::PlayerReady { run, ready: true },
-            &missing,
+        let unready = Readiness {
+            can_act: false,
+            ..readiness()
+        };
+        machine.advance(
+            Event::Command(Command::Start(request())),
+            &unready,
             &options(),
-            2,
+            0,
         );
+        let run = machine.status().active.unwrap().run;
+        let command = if kill {
+            Command::Kill { run }
+        } else {
+            Command::Stop {
+                run,
+                reason: "user".into(),
+            }
+        };
+        machine.advance(Event::Command(command), &unready, &options(), 1);
         assert!(
-            !rejected
-                .effects
-                .iter()
-                .any(|e| matches!(e, Effect::Spawn { .. }))
-        );
-        assert!(
-            machine
-                .advance(Event::Deadline, &missing, &options(), 102)
-                .effects
-                .is_empty()
-        );
-        let resumed = send(&mut machine, Event::ProjectionChanged, 103);
-        assert!(resumed.effects.contains(&Effect::ReadPlayerReady {
-            run,
-            binding: binding(),
-            deadline: 10_000,
-        }));
-        let ready = send(&mut machine, Event::PlayerReady { run, ready: true }, 104);
-        assert!(
-            ready
+            !send(&mut machine, Event::ProjectionChanged, 2)
                 .effects
                 .iter()
                 .any(|e| matches!(e, Effect::Spawn { .. }))

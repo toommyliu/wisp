@@ -119,7 +119,7 @@ fn replies_before_registration_wake_each_drop_rejection_transition() {
     }
     let host = testing::headless_host();
     let (mut session, writer) = testing::start_probe(&host, movie(true));
-    common::log_in(&writer);
+    common::log_in_ready(&writer);
     reject_else(&writer);
     drops(&writer, &[(69, "Unwanted")]);
     let (sender, wakes) = std::sync::mpsc::channel();
@@ -199,6 +199,7 @@ fn wanted_names_and_buckets_accept_while_reject_else_rejects_others() {
         let _guard = tracing::dispatcher::set_default(&logs.dispatch());
         let host = testing::headless_host();
         let (mut session, link) = testing::start_probe(&host, movie(true));
+        common::log_in_ready(&link);
         if let Some((bucket, coins, member)) = bucket {
             edit(
                 &link,
@@ -283,7 +284,7 @@ fn wakes_during_backoff_coalesce_into_one_follow_up_pass() {
     let _guard = tracing::dispatcher::set_default(&logs.dispatch());
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(&host, movie(false));
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     drops(&link, &[(1, "A")]);
     let _supervisor = Supervisor::start(&mut session, None).unwrap();
@@ -330,7 +331,7 @@ fn turning_drops_off_stops_retries_and_later_drop_actions() {
     let _guard = tracing::dispatcher::set_default(&logs.dispatch());
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(&host, movie(false));
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     drops(&link, &[(1, "A")]);
     let _supervisor = Supervisor::start(&mut session, None).unwrap();
@@ -367,6 +368,7 @@ fn adding_a_registered_name_accepts_an_already_present_drop() {
     let _guard = tracing::dispatcher::set_default(&logs.dispatch());
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(&host, movie(true));
+    common::log_in_ready(&link);
     drops(&link, &[(70, "Wanted")]);
     let _supervisor = Supervisor::start(&mut session, None).unwrap();
     edit(&link, json!({"kind":"addItem","name":"wanted"}));
@@ -416,7 +418,7 @@ fn concurrent_script_accept_and_policy_issue_one_accept() {
             packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":true,"iQtyNow":1})),
         ),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     drops(&link, &[(70, "Wanted")]);
     let mut supervisor = Supervisor::start(&mut session, None).unwrap();
     supervisor
@@ -447,7 +449,7 @@ fn concurrent_script_accept_and_policy_issue_one_accept() {
 fn settings_keep_their_cadence_during_a_drop_burst() {
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(&host, movie(false));
-    common::log_in(&link);
+    common::log_in_ready(&link);
     link.command(
         serde_json::from_value::<Command>(
             json!({"kind":"updateSettings","patch":{"walkSpeed":30,"enemyMagnetEnabled":true}}),
@@ -507,6 +509,7 @@ fn empty_configuration_does_not_wake_and_overflow_rescans_current_drops() {
     }
     let host = testing::headless_host();
     let (mut session, writer) = testing::start_probe(&host, movie(true));
+    common::log_in_ready(&writer);
     let counter = Arc::new(Counter {
         wakes: std::sync::atomic::AtomicUsize::new(0),
         thread: thread::current(),
@@ -561,7 +564,7 @@ fn failed_accepts_wait_for_a_later_wake_without_retrying() {
         &host,
         movie(true).responding("drops.accept", [(json!(false), vec![])]),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     edit(&link, json!({"kind":"addItem","name":"Wanted"}));
     drops(&link, &[(70, "Wanted")]);
     let _supervisor = Supervisor::start(&mut session, None).unwrap();
@@ -684,7 +687,7 @@ fn policy_never_rejects_a_scripts_in_flight_accept() {
             packet(json!({"cmd":"getDrop","ItemID":71,"bSuccess":true,"iQtyNow":1})),
         ),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     edit(
         &link,
         json!({"kind":"setAutomationEnabled","capability":"drops","enabled":false}),
@@ -733,7 +736,7 @@ fn policy_never_rejects_an_accept_queued_by_name() {
         &host,
         movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);
     link.operate(Operation::AcceptDrop {
@@ -794,7 +797,7 @@ fn policy_never_rejects_an_accept_queued_by_name() {
 fn wanted_during_backoff(metadata_changes: bool) {
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(&host, movie(false));
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     if metadata_changes {
         edit(
@@ -858,7 +861,7 @@ fn a_detached_accept_protects_its_resolved_item_until_settlement() {
         &host,
         movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     drops(&link, &[(70, "Original")]);
     let id = link
@@ -909,7 +912,7 @@ fn cancelling_a_queued_accept_wakes_the_policy_to_reconsider_rejection() {
         &host,
         movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);
     let (release, resumed) = std::sync::mpsc::channel::<()>();
@@ -969,7 +972,7 @@ fn an_accept_prepared_before_issuance_protects_its_resolved_item() {
         &host,
         movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     drops(&link, &[(70, "Original")]);
     let (entered, arrived) = std::sync::mpsc::channel();
@@ -1028,12 +1031,11 @@ fn login_is_refreshed_after_a_blocking_accept_settles() {
                 [
                     (json!(true), vec![]),
                     (json!(true), vec![]),
-                    (json!(true), vec![]),
                     (json!(false), vec![]),
                 ],
             ),
     );
-    common::log_in(&link);
+    common::log_in_ready(&link);
     reject_else(&link);
     drops(&link, &[(70, "Unwanted")]);
     link.operate(Operation::AcceptDrop {
@@ -1087,7 +1089,7 @@ fn protecting_accept_cancellation_and_settlement_wake_the_policy_once() {
             &host,
             movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
         );
-        common::log_in(&link);
+        common::log_in_ready(&link);
         reject_else(&link);
         if cancel_queued {
             drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);

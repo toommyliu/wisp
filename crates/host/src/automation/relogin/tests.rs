@@ -71,7 +71,7 @@ impl ReloginHost for Host {
             password: self.password.borrow().clone(),
             connected: Some(self.logged_in.get()),
             logged_in: self.logged_in.get(),
-            ready: self.ready.get(),
+            ready: self.ready.get() && self.logged_in.get(),
             servers: vec!["Artix".into()],
         }))
     }
@@ -82,7 +82,6 @@ impl ReloginHost for Host {
                 json!({"username":*self.username.borrow(),"password":*self.password.borrow()}),
             ),
             Command::RefreshServers {} => ("servers", json!([{ "name":"Artix" }])),
-            Command::RefreshLoggedIn {} => ("logged", json!(self.logged_in.get())),
             Command::Login { username, password } => {
                 assert_eq!((username.as_str(), password.as_str()), ("Hero", "pw"));
                 if self.failure("login").is_none() {
@@ -118,7 +117,6 @@ impl ReloginHost for Host {
             return reply(Err(Error::ReadPanicked));
         }
         reply(Ok(match method {
-            "world.isLoaded" | "player.isLoaded" => Value::Bool(self.ready.get()),
             "flash.isNull" => Value::Bool(!self.select.get()),
             "auth.isTemporarilyKicked" => Value::Bool(self.kicked.get()),
             "flash.getGameObject" => Value::String("1".into()),
@@ -497,15 +495,14 @@ fn repeated_connection_failures_do_not_restart_a_running_recovery() {
     assert_eq!(h.host.count("login"), 2);
 }
 #[test]
-fn logged_in_refresh_failures_use_cached_auth_and_successful_connections_do_not_cancel_recovery() {
-    for cached_login in [true, false] {
+fn successful_connections_do_not_cancel_recovery() {
+    for connected in [true, false] {
         let mut h = Harness::default();
         h.enabled();
-        h.host.failures.borrow_mut().push(("logged", "error"));
         h.lost();
-        h.host.logged_in.set(cached_login);
+        h.host.logged_in.set(connected);
         h.after(POLL);
-        if !cached_login {
+        if !connected {
             h.after(Duration::from_millis(250));
         }
         h.host.ready.set(true);
@@ -515,7 +512,7 @@ fn logged_in_refresh_failures_use_cached_auth_and_successful_connections_do_not_
         assert_eq!(h.policy.records.status.phase, Phase::Armed);
         assert_eq!(h.host.count("login"), 1);
         assert_eq!(h.host.count("logout"), 0);
-        assert_eq!(h.host.count("auth.connectTo"), usize::from(!cached_login));
+        assert_eq!(h.host.count("auth.connectTo"), usize::from(!connected));
     }
 }
 #[test]
@@ -988,13 +985,10 @@ fn disabling_during_boot_capture_discards_the_late_credentials() {
 }
 
 #[test]
-fn readiness_errors_prevent_arming_a_logged_in_player() {
+fn snapshot_errors_prevent_arming_a_logged_in_player() {
     let mut h = Harness::default();
     h.enabled();
-    h.host
-        .failures
-        .borrow_mut()
-        .push(("player.isLoaded", "error"));
+    h.host.failures.borrow_mut().push(("snapshot", "error"));
     h.lost();
     h.after(POLL);
     h.after(Duration::from_millis(250));

@@ -22,7 +22,6 @@ import {
   readItems,
   type HostStateService,
 } from "../state/HostState";
-import type { Auth } from "./Auth";
 import type { Inventory } from "./Inventory";
 import type { CellPositionOptions, Map } from "./Map";
 import type { Wait } from "./Wait";
@@ -118,7 +117,6 @@ const toOutfit = (payload: typeof OutfitPayload.Type): LiveOutfit =>
 export const makePlayer = (
   bridge: BridgeService,
   host: HostStateService,
-  auth: Auth,
   inventory: Inventory,
   map: Map,
   wait: Wait,
@@ -339,7 +337,10 @@ export const makePlayer = (
       ),
     );
   const isMember = () => read("player.isMember", Schema.Boolean, false);
-  const isReady = makePlayerReadiness(host, auth, map, bridge);
+  const isReady = () =>
+    host
+      .read({ kind: "readiness" })
+      .pipe(Effect.map((readiness) => readiness.canAct));
 
   const jumpToCell = (cell: string, pad?: string) =>
     startTravel({ kind: "jump", cell, pad }, travelHost);
@@ -436,23 +437,3 @@ export const makePlayer = (
 };
 
 export type Player = ReturnType<typeof makePlayer>;
-
-export const makePlayerReadiness = (host: HostStateService, auth: Auth, map: Map, bridge: BridgeService) => () =>
-    host
-      .read({ kind: "readiness" })
-      .pipe(
-        Effect.flatMap((readiness) =>
-          readiness.missing.length === 0
-            ? Effect.all([
-                auth.isLoggedIn(),
-                map.isLoaded(),
-                bridge.invoke("player.isLoaded", undefined, Schema.Boolean).pipe(Effect.map(Option.getOrElse(() => false))),
-              ]).pipe(
-                Effect.map(
-                  ([loggedIn, loaded, playerLoaded]) =>
-                    loggedIn && loaded && playerLoaded,
-                ),
-              )
-            : Effect.succeed(false),
-        ),
-      );

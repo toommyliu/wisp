@@ -622,7 +622,7 @@ fn exit_flags_reach_the_host_and_logout_finishes_before_idle() {
 }
 
 #[test]
-fn a_readiness_reply_from_an_old_connection_is_ignored() {
+fn a_run_waiting_across_a_connection_change_starts_on_the_new_connection() {
     let logs = Logs::default();
     let (ctl_h, ctl) = hold(
         "session 1: o.js is waiting for login",
@@ -636,8 +636,7 @@ fn a_readiness_reply_from_an_old_connection_is_ignored() {
     );
     let _guard = tracing::dispatcher::set_default(&dispatch);
     let host = testing::headless_host();
-    let (mut session, observer) =
-        testing::start_probe(&host, ready_movie().recording("player.isLoaded"));
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
     let mut supervisor = Supervisor::start(&mut session, None).unwrap();
     log_in(&observer);
     supervisor
@@ -648,7 +647,7 @@ fn a_readiness_reply_from_an_old_connection_is_ignored() {
         .unwrap();
     logs.wait_for(INFO, "session 1: p.js completed");
     wait_idle(&session);
-    while observer.try_event().unwrap().is_some() {}
+    emit_connection(&observer, "OnConnection");
     std::thread::scope(|scope| {
         let starting = scope.spawn(|| {
             supervisor.start_script(
@@ -660,7 +659,13 @@ fn a_readiness_reply_from_an_old_connection_is_ignored() {
             )
         });
         ctl.wait();
-        emit_connection(&observer, "OnConnection");
+        assert_eq!(
+            logs.messages(INFO)
+                .iter()
+                .filter(|line| *line == "o body")
+                .count(),
+            0
+        );
         log_in(&observer);
         ctl.open();
         starting.join().unwrap().unwrap();
@@ -671,26 +676,16 @@ fn a_readiness_reply_from_an_old_connection_is_ignored() {
             .is_some_and(|end| end.starts_with("o.js"))
     });
     wait_idle(&session);
-    let mut reads = 0;
-    while let Some(event) = observer.try_event().unwrap() {
-        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event
-            && event.name == "onProbeCall"
-            && event.args.first() == Some(&Value::String("player.isLoaded".into()))
-        {
-            reads += 1;
-        }
-    }
-    println!(
-        "last_end {:?} body {} isLoaded reads {reads}",
-        session.script_status().last_end,
-        logs.messages(INFO)
-            .iter()
-            .filter(|line| *line == "o body")
-            .count()
-    );
     assert_eq!(
         session.script_status().last_end.as_deref(),
         Some("o.js completed")
+    );
+    assert_eq!(
+        logs.messages(INFO)
+            .iter()
+            .filter(|line| *line == "o body")
+            .count(),
+        1
     );
 }
 

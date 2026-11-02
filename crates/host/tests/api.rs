@@ -292,7 +292,7 @@ fn a_killed_runs_accept_finishes_before_the_next_starts() {
             .accepting_drop(Duration::from_secs(2), packet),
     );
     let runtime = Runtime::start(link).unwrap();
-    common::ready(&runtime);
+    common::log_in_ready(&session.attach(EventInterests::ALL).unwrap());
     runtime
         .eval(
             "drop.js",
@@ -374,9 +374,9 @@ fn a_killed_runs_queued_accepts_never_reach_the_loader() {
             json!({"type":"json","dataObj":{"cmd":"unrelated"}}).to_string(),
         ),
     );
-    let runtime = Runtime::start(link).unwrap();
-    common::ready(&runtime);
+    let _runtime = Runtime::start(link).unwrap();
     let control = session.attach(EventInterests::ALL).unwrap();
+    common::log_in_ready(&control);
     let emit = |data: Value| {
         control
             .call_loader(

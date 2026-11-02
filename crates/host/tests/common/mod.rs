@@ -153,6 +153,11 @@ pub fn log_in(link: &lucent_host::ScriptLink) {
     }
 }
 
+pub fn log_in_ready(link: &lucent_host::ScriptLink) {
+    log_in(link);
+    testing::wait_until_ready(link);
+}
+
 pub fn start(
     session: &mut Session,
     script: Script,
