@@ -24,7 +24,7 @@ export const makeDrops = Effect.fnUntraced(function* (
   const accept = (selector: ItemQuery) =>
     isSelectable(selector)
       ? operate({ kind: "acceptDrop", selector }, operationHost).pipe(
-          Effect.map((answer) => answer.value),
+          Effect.map((answer) => answer.kind === "acceptDrop" && answer.value),
           Effect.catch(() => Effect.succeed(false)),
         )
       : Effect.succeed(false);

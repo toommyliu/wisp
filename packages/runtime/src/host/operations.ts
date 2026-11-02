@@ -9,6 +9,7 @@ const operations = new Map<
     timeout?: ReturnType<typeof setTimeout> | undefined;
     started?: boolean;
     requiresIssuance: boolean;
+    completionTimeoutMs: number;
   }
 >();
 
@@ -52,6 +53,9 @@ export const operate = (
       complete,
       fail,
       requiresIssuance,
+      completionTimeoutMs: operation.kind === "loadQuests"
+        ? 60_000 * Math.max(1, Math.ceil(operation.ids.length / 30))
+        : operation.kind === "openBank" ? 45_000 : 35_000,
       timeout: requiresIssuance
         ? setTimeout(() => fail(new Error("The equip permit timed out")), Math.max(0, queueDeadline - Date.now()))
         : undefined,
@@ -80,7 +84,7 @@ export const startOperation = (id: string, issued = false): void => {
   clearTimeout(pending.timeout);
   pending.timeout = setTimeout(() => {
     pending.fail(new Error("The host operation timed out"));
-  }, 35_000);
+  }, pending.completionTimeoutMs);
 };
 
 export const completeOperation = (
