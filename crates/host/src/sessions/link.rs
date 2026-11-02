@@ -406,6 +406,8 @@ impl ScriptLink {
         if self.stopped.load(Ordering::Acquire) {
             return Err(bridge::Error::Stopped);
         }
+        #[cfg(test)]
+        tests::record_timeout(timeout);
         if matches!(query, Some(Query::ScriptOptions {})) {
             let options = self
                 .records
@@ -499,6 +501,8 @@ impl ScriptLink {
         if self.stopped.load(Ordering::Acquire) {
             return Err(bridge::Error::Stopped);
         }
+        #[cfg(test)]
+        tests::record_timeout(timeout);
         let projection = self
             .projection
             .try_read_for(timeout)
@@ -612,7 +616,25 @@ fn write_script_options(
 mod tests {
     use super::*;
     use crate::testing;
-    use std::{sync::mpsc, thread};
+    use std::{cell::RefCell, sync::mpsc, thread};
+
+    thread_local! {
+        static REQUESTED_TIMEOUTS: RefCell<Option<Vec<Duration>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn record_timeout(timeout: Duration) {
+        REQUESTED_TIMEOUTS.with_borrow_mut(|requested| {
+            if let Some(requested) = requested {
+                requested.push(timeout);
+            }
+        });
+    }
+
+    fn requested_timeouts<R>(run: impl FnOnce() -> R) -> (R, Vec<Duration>) {
+        REQUESTED_TIMEOUTS.set(Some(Vec::new()));
+        let result = run();
+        (result, REQUESTED_TIMEOUTS.take().unwrap())
+    }
 
     #[test]
     fn queued_scoped_calls_cannot_dispatch_after_their_reply_scope_or_caller_ends() {
@@ -778,6 +800,19 @@ mod tests {
 
     #[test]
     fn projection_and_config_contention_retry_auto_zone_without_a_failure() {
+        fn hold_write<T: Send + Sync + 'static>(
+            lock: Arc<RwLock<T>>,
+        ) -> (mpsc::Sender<()>, thread::JoinHandle<bool>) {
+            let (held, entered) = mpsc::channel();
+            let (release, resume) = mpsc::channel();
+            let holder = thread::spawn(move || {
+                let _guard = lock.write();
+                held.send(()).unwrap();
+                resume.recv_timeout(Duration::from_secs(5)).is_ok()
+            });
+            entered.recv_timeout(Duration::from_secs(5)).unwrap();
+            (release, holder)
+        }
         let logs = crate::automation::test_logs::Logs::default();
         let _guard = tracing::dispatcher::set_default(&logs.dispatch());
         for config_lock in [false, true] {
@@ -830,21 +865,24 @@ mod tests {
                 });
                 policy.advance(now);
             }
-            let projection_guard = (!config_lock).then(|| projection.write());
-            let config_guard = config_lock.then(|| config.write());
+            let (release, holder) = if config_lock {
+                hold_write(config)
+            } else {
+                hold_write(projection)
+            };
             let at = now + Duration::from_millis(500);
-            let before = Instant::now();
-            let next = policy.advance(at).expect("contention must retry");
+            let (next, requested) = requested_timeouts(|| policy.advance(at));
+            let _ = release.send(());
+            assert!(holder.join().unwrap(), "the policy blocked on a writer");
             assert!(
-                before.elapsed() < Duration::from_millis(100),
-                "the policy blocked on a writer"
+                !requested.is_empty() && requested.iter().all(Duration::is_zero),
+                "the policy asked to wait on a writer: {requested:?}"
             );
+            let next = next.expect("contention must retry");
             assert!(
                 next > at && next <= at + Duration::from_millis(20),
                 "contention used the failure backoff: {next:?}"
             );
-            drop(projection_guard);
-            drop(config_guard);
             if config_lock {
                 assert_eq!(policy.advance(next), None);
                 events.send(ScriptEvent::Loader {
