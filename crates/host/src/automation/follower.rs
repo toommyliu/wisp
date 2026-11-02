@@ -1,7 +1,7 @@
-#![allow(dead_code, reason = "The pure follower core has no driver yet.")]
-
+mod driver;
 mod movement;
 mod types;
+pub use driver::FollowerPolicy;
 pub(crate) use types::*;
 #[cfg(test)]
 mod tests;
@@ -80,6 +80,17 @@ impl Follower {
     }
     pub fn status(&self) -> &Status {
         &self.status
+    }
+    pub fn target_name(&self) -> &str {
+        &self.config.target_name
+    }
+    pub fn restore(&mut self, status: Status) {
+        if !self.status.running {
+            self.status = Status {
+                running: false,
+                ..status
+            };
+        }
     }
     pub fn configure(&mut self, mut config: Config) -> bool {
         if self.status.running {
@@ -430,14 +441,25 @@ impl Follower {
             }
             Event::OwnMapJoined | Event::ConnectionChanged => {
                 self.movement = Movement::default();
-                self.wake(&mut effects);
+                let joining = matches!(
+                    self.stage,
+                    Stage::Pending {
+                        kind: Pending::Join { .. },
+                        ..
+                    } | Stage::LateRoomFull { .. }
+                );
+                if !joining || matches!(event, Event::ConnectionChanged) {
+                    self.wake(&mut effects);
+                }
             }
             Event::PlayersChanged => {
-                if self.target_present != snapshot.target.is_some() || !self.traveling() {
+                let present = snapshot.target.is_some();
+                if self.target_present != present || !self.traveling() {
                     self.wake(&mut effects);
                 } else {
                     self.wake_deferred = true;
                 }
+                self.target_present = present;
             }
             Event::ReadinessChanged => {
                 if self.traveling() {
@@ -451,7 +473,6 @@ impl Follower {
             }
             _ => {}
         }
-        self.target_present = snapshot.target.is_some();
         for _ in 0..8 {
             let stage = std::mem::replace(&mut self.stage, Stage::Dormant);
             match stage {

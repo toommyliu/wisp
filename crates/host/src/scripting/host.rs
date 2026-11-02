@@ -214,8 +214,8 @@ impl From<ScriptEvent> for Item {
                 id: id.to_string(),
                 error,
             },
-            ScriptEvent::ProfileDeath { .. } => {
-                unreachable!("profile deaths only reach the controller")
+            ScriptEvent::ProfileDeath { .. } | ScriptEvent::ServerMessage { .. } => {
+                unreachable!("profile deaths and server messages only reach the controller")
             }
             ScriptEvent::OperationResponsibility { id, responsible } => {
                 Item::OperationResponsibility {

@@ -76,6 +76,7 @@ queries! {
     Environment {} => crate::environment::EnvironmentState,
     CombatState { priorities: Vec<MonsterSelector> } => Vec<crate::combat_state::CombatMonsterState>,
     AutoAttack {} => crate::auto_attack::AutoAttackRecords,
+    Follower {} => crate::follower::FollowerRecords,
     AutoRelogin {} => crate::auto_relogin::AutoReloginRecords,
     AutoZone {} => AutoZoneConfig,
     Settings {} => GameSettings,

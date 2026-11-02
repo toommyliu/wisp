@@ -1,4 +1,5 @@
 pub(crate) mod auto_attack;
+pub(crate) mod follower;
 mod changes;
 mod controller;
 pub(crate) mod dialogs;
@@ -35,6 +36,7 @@ pub(crate) struct Records {
     pub(crate) dialogs: Arc<dialogs::Dialogs>,
     pub(crate) changes: Arc<Changes>,
     pub(crate) auto_attack: Arc<auto_attack::Shared>,
+    pub(crate) follower: Arc<follower::Shared>,
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
     pub(crate) environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
@@ -149,6 +151,7 @@ impl Host {
         let operations = operations::Operations::start(id).map_err(HostError::OperationThread)?;
         let relogin = Arc::new(relogin::Shared::new(changes.clone()));
         let auto_attack = Arc::new(auto_attack::Shared::new(changes.clone()));
+        let follower = Arc::new(follower::Shared::new(changes.clone()));
         Ok(Session {
             supervisor: None,
             controller: None,
@@ -164,6 +167,7 @@ impl Host {
             changes,
             detached: Arc::default(),
             auto_attack,
+            follower,
             jobs: Arc::default(),
             environment: Arc::default(),
             environment_updates: Arc::default(),
@@ -224,6 +228,7 @@ pub struct Session {
     changes: Arc<Changes>,
     detached: Arc<AtomicBool>,
     auto_attack: Arc<auto_attack::Shared>,
+    follower: Arc<follower::Shared>,
     jobs: Arc<crate::game::jobs::JobRequests>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
     environment_updates: Arc<environment::Updates>,
@@ -346,6 +351,7 @@ impl Session {
             http: self.host.shared.http.clone(),
             dialogs: self.dialogs.clone(),
             auto_attack: self.auto_attack.clone(),
+            follower: self.follower.clone(),
             changes: self.changes.clone(),
             jobs: self.jobs.clone(),
             environment: self.environment.clone(),
@@ -391,6 +397,11 @@ impl Session {
         probe: impl Fn(crate::game::travel::Reads, Vec<String>) + Send + Sync + 'static,
     ) {
         *self.jobs.travel_observation_probe.lock() = Some(Arc::new(probe));
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn set_follower_issue_probe(&self, probe: impl Fn(&str) + Send + Sync + 'static) {
+        *self.jobs.follower_probe.lock() = Some(Arc::new(probe));
     }
 
     #[cfg(feature = "testing")]
@@ -463,6 +474,10 @@ impl Session {
 
     pub fn auto_attack(&self) -> lucent_protocol::auto_attack::AutoAttackRecords {
         self.auto_attack.records.read().clone()
+    }
+
+    pub fn follower(&self) -> lucent_protocol::follower::FollowerRecords {
+        self.follower.records.read().clone()
     }
 
     pub fn auto_relogin(&self) -> lucent_protocol::auto_relogin::AutoReloginRecords {

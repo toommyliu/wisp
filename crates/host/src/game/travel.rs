@@ -8,6 +8,17 @@ use text::same_text;
 mod types;
 pub use types::*;
 
+pub(crate) fn random_private_room() -> u32 {
+    use std::sync::atomic::AtomicU64;
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let draw = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ^ std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+    10000 + (draw % 90000) as u32
+}
+
 #[derive(Clone, Debug)]
 struct Destination {
     map: String,

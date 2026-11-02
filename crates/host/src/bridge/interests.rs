@@ -5,6 +5,7 @@ use lucent_protocol::event::ProjectionEvent;
 pub enum EventKind {
     Job,
     ProfileDeath,
+    ServerMessage,
     Loader,
     Connection,
     Invalidated,
@@ -55,14 +56,14 @@ impl EventInterests {
     }
 
     pub(crate) fn accepts(self, event: &ScriptEvent) -> bool {
-        if matches!(event, ScriptEvent::ProfileDeath { .. }) {
-            return self != Self::ALL && self.contains(EventKind::ProfileDeath);
-        }
-        if self == Self::ALL {
-            return true;
-        }
         let kind = match event {
-            ScriptEvent::ProfileDeath { .. } => EventKind::ProfileDeath,
+            ScriptEvent::ProfileDeath { .. } => {
+                return self != Self::ALL && self.contains(EventKind::ProfileDeath);
+            }
+            ScriptEvent::ServerMessage { .. } => {
+                return self != Self::ALL && self.contains(EventKind::ServerMessage);
+            }
+            _ if self == Self::ALL => return true,
             ScriptEvent::TravelDone { .. }
             | ScriptEvent::JobPrepared { .. }
             | ScriptEvent::JobWarning { .. }

@@ -895,3 +895,83 @@ fn configuration_changes_only_while_inactive_and_keeps_request_ids_distinct() {
     );
     assert_eq!(h.core.status().attempts_remaining, 5);
 }
+
+#[test]
+fn own_fallback_join_and_its_grace_never_preempt_the_join() {
+    let mut cfg = config();
+    cfg.locked_zone_fallbacks = vec!["doom".into(), "dage".into()];
+    let mut h = Harness::new(cfg, snapshot(None));
+    h.begin_goto();
+    let first = join(
+        h.deny("warning", "Cannot goto player in a locked zone."),
+        "doom",
+    );
+    assert!(h.send(Event::OwnMapJoined).actions.is_empty());
+    h.view.target = Some(player("player-b", "r1"));
+    assert_eq!(
+        h.reply(first, Reply::Returned(true)).next_deadline,
+        Some(100)
+    );
+    assert!(h.send(Event::OwnMapJoined).actions.is_empty());
+    assert!(engaged(&h.tick(100), true));
+    assert_eq!(h.core.status().attempts_remaining, 3);
+    h.view.target = None;
+    let (_, action) = issue(h.send(Event::OwnMapJoined));
+    assert!(matches!(action, Action::Travel(travel::Request::Exit)));
+}
+
+#[test]
+fn a_tick_that_sees_the_target_first_leaves_its_arrival_to_players_changed() {
+    let mut h = Harness::new(config(), snapshot(None));
+    let goto = h.begin_goto();
+    h.reply(goto, Reply::Returned(true));
+    h.view.target = Some(player("player-b", "r2"));
+    assert!(h.tick(100).actions.is_empty());
+    let (_, action) = issue(h.send(Event::PlayersChanged));
+    assert!(
+        matches!(action, Action::Travel(travel::Request::Jump { cell, .. }) if cell == "r2")
+    );
+    assert_eq!(h.core.status().attempts_remaining, 3);
+}
+
+#[test]
+fn exhausted_fallbacks_stop_with_room_join_failed() {
+    let mut cfg = config();
+    cfg.max_attempts = std::num::NonZeroU32::new(1).unwrap();
+    cfg.locked_zone_fallbacks = vec!["doom".into()];
+    let mut h = Harness::new(cfg, snapshot(None));
+    h.begin_goto();
+    let first = join(
+        h.deny("warning", "Cannot goto player in a locked zone."),
+        "doom",
+    );
+    let stopped = h.reply(first, Reply::Returned(false));
+    assert_eq!(stop_count(&stopped), 1);
+    assert_error(
+        &h,
+        0,
+        "Destination room is full or unreachable",
+        Some("Room join failed"),
+    );
+    assert!(!h.core.status().enabled);
+}
+
+#[test]
+fn no_own_player_counts_as_a_successful_follow() {
+    let mut h = Harness::new(config(), snapshot(Some("r2")));
+    let (id, _) = issue(h.tick(0));
+    h.reply(id, Reply::Returned(false));
+    assert_error(&h, 2, "Could not reach player-b", None);
+    h.view.me = None;
+    let effects = h.tick(500);
+    assert!(engaged(&effects, true));
+    assert!(
+        !effects
+            .actions
+            .iter()
+            .any(|effect| matches!(effect, Effect::Issue { .. }))
+    );
+    assert_eq!(effects.next_deadline, Some(5500));
+    assert_eq!(h.core.status().attempts_remaining, 3);
+    assert_eq!(h.core.status().last_error, None);
+}

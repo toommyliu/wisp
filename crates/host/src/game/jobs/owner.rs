@@ -95,6 +95,8 @@ pub(crate) type TravelObservationProbe =
 
 #[cfg(feature = "testing")]
 pub(crate) type SafeMoveProbe = Arc<dyn Fn(Vec<String>) + Send + Sync>;
+#[cfg(feature = "testing")]
+pub(crate) type FollowerProbe = Arc<dyn Fn(&str) + Send + Sync>;
 
 #[derive(Default)]
 pub(crate) struct JobRequests {
@@ -111,6 +113,8 @@ pub(crate) struct JobRequests {
     pub(crate) travel_observation_probe: Mutex<Option<TravelObservationProbe>>,
     #[cfg(feature = "testing")]
     pub(crate) safe_move_probe: Mutex<Option<SafeMoveProbe>>,
+    #[cfg(feature = "testing")]
+    pub(crate) follower_probe: Mutex<Option<FollowerProbe>>,
 }
 #[derive(Default)]
 pub(super) struct Handoff {
@@ -121,9 +125,15 @@ pub(super) struct Handoff {
     pub(super) travel: VecDeque<travel::Request>,
     pub(super) travel_live: usize,
 }
-pub(super) enum JobKind {
+pub(crate) enum JobKind {
     Script,
     AutoAttack(Arc<crate::sessions::auto_attack::Shared>),
+    Follower(Arc<crate::sessions::follower::Shared>),
+}
+impl JobKind {
+    pub(super) fn session(&self) -> bool {
+        !matches!(self, Self::Script)
+    }
 }
 pub(super) struct JobRequest {
     pub(super) kind: JobKind,
@@ -169,7 +179,7 @@ impl ScriptJobs {
             .map_err(|limit| format!("combat profile exceeds native {limit:?} limit"))?;
         self.submit(executor, request.target_priority, JobKind::Script)
     }
-    pub(super) fn submit(
+    pub(crate) fn submit(
         &self,
         executor: ProfileJob,
         priorities: Vec<MonsterSelector>,
