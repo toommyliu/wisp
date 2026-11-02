@@ -5,6 +5,7 @@ pub(crate) mod frames;
 mod net;
 mod projection;
 pub(crate) mod surface;
+mod travel;
 pub(crate) mod view;
 
 use lucent_protocol::auto_zone::{AutoZoneConfig, AutoZonePatch};
@@ -169,6 +170,20 @@ impl Read {
 }
 
 pub(crate) enum Msg {
+    ObserveTravel {
+        reads: crate::game::travel::Reads,
+        gate: Arc<crate::game::jobs::JobGate>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<crate::game::travel::Snapshot>,
+        #[cfg(feature = "testing")]
+        probe: Option<crate::game::jobs::TravelObservationProbe>,
+    },
+    DispatchTravel {
+        action: crate::game::travel::Action,
+        gate: Arc<crate::game::jobs::JobGate>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<Value>,
+    },
     ObserveProfile {
         priorities: Arc<[lucent_protocol::query::MonsterSelector]>,
         clock: crate::game::jobs::JobClock,
@@ -363,6 +378,12 @@ fn first_viewport(
             Msg::LinkCount(reply) => {
                 let _ = reply.send(Ok(script_events.len()));
             }
+            Msg::ObserveTravel { reply, .. } => {
+                let _ = reply.send(Ok(Default::default()));
+            }
+            Msg::DispatchTravel { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
             Msg::ObserveProfile { reply, .. } => {
                 let _ = reply.send(Ok(crate::game::jobs::Observation {
                     binding: packets.binding(),
@@ -426,6 +447,8 @@ struct Running {
     tasks: Tasks,
     viewport: Viewport,
     profile_area: u64,
+    #[cfg(feature = "testing")]
+    travel_calls: Option<Vec<String>>,
     last_tick: Instant,
     effects: Vec<Effect>,
     drawn: u32,
@@ -486,6 +509,8 @@ impl Running {
             tasks,
             viewport,
             profile_area: 0,
+            #[cfg(feature = "testing")]
+            travel_calls: None,
             last_tick: now,
             effects: Vec::new(),
             drawn: 0,
@@ -513,6 +538,40 @@ impl Running {
                 deliver_operation_answer(&self.script_events, attachment, answer);
             }
             Msg::Read(read) => (read.0)(Ok(&self.projection.read())),
+            Msg::ObserveTravel {
+                reads,
+                gate,
+                deadline,
+                reply,
+                #[cfg(feature = "testing")]
+                probe,
+            } => {
+                #[cfg(feature = "testing")]
+                if probe.is_some() {
+                    self.travel_calls = Some(Vec::new());
+                }
+                let snapshot = self.observe_travel(reads, &gate, deadline);
+                #[cfg(feature = "testing")]
+                if let Some(probe) = probe {
+                    probe(reads, self.travel_calls.take().unwrap());
+                }
+                let _ = reply.send(Ok(snapshot));
+            }
+            Msg::DispatchTravel {
+                action,
+                gate,
+                deadline,
+                reply,
+            } => {
+                let (name, args) = action.loader_call();
+                let result = self.travel_call(
+                    &gate,
+                    deadline,
+                    name,
+                    args.into_iter().map(Value::String).collect(),
+                );
+                let _ = reply.send(result);
+            }
             Msg::ObserveProfile {
                 priorities,
                 clock,
@@ -661,6 +720,8 @@ mod tests {
             tasks: Tasks::default(),
             viewport: Viewport::new(1024.0, 768.0, 1.0).unwrap(),
             profile_area: 0,
+            #[cfg(feature = "testing")]
+            travel_calls: None,
             last_tick: now,
             effects: Vec::new(),
             drawn: 0,

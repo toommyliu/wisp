@@ -325,6 +325,8 @@ mod tests {
                 tasks: Tasks::default(),
                 viewport: Viewport::new(1024.0, 768.0, 1.0).unwrap(),
                 profile_area: 0,
+                #[cfg(feature = "testing")]
+                travel_calls: None,
                 last_tick: now,
                 effects: vec![],
                 drawn: 0,

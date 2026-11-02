@@ -16,6 +16,10 @@ use crate::projection::{
 
 impl Running {
     pub(super) fn invoke_command(&mut self, name: &str, args: Vec<Value>) -> Result<Value, Error> {
+        #[cfg(feature = "testing")]
+        if let Some(calls) = &mut self.travel_calls {
+            calls.push(name.to_owned());
+        }
         let result = bridge::invoke(&mut self.player.lock().unwrap(), name, args);
         self.drain_events();
         result
@@ -24,6 +28,18 @@ impl Running {
     pub(super) fn command_answer(&mut self, name: &str, args: Vec<Value>) -> Result<Json, Error> {
         to_json(self.invoke_command(name, args)?)
             .ok_or_else(|| commands::decode_error(name, "the callback returned undefined"))
+    }
+
+    pub(super) fn refresh_cells(
+        &mut self,
+        mut read: impl FnMut(&mut Self, &str) -> Result<Json, Error>,
+    ) -> Result<String, Error> {
+        let loaded = commands::decode::<bool>("world.isLoaded", read(self, "world.isLoaded")?)?;
+        if !loaded {
+            return self.commit_command(|projection| Ok(projection.world.cells()));
+        }
+        let answer = read(self, "world.getCells")?;
+        self.commit_command(|projection| commands::refresh_cells(projection, answer))
     }
 
     fn commit_command<R: Serialize>(
@@ -209,15 +225,7 @@ impl Running {
                 self.commit_command(|projection| commands::reject_drop(projection, id, answer))
             }
             Command::RefreshCells {} => {
-                let loaded = commands::decode::<bool>(
-                    "world.isLoaded",
-                    self.command_answer("world.isLoaded", vec![])?,
-                )?;
-                if !loaded {
-                    return self.commit_command(|projection| Ok(projection.world.cells()));
-                }
-                let answer = self.command_answer("world.getCells", vec![])?;
-                self.commit_command(|projection| commands::refresh_cells(projection, answer))
+                self.refresh_cells(|player, name| player.command_answer(name, vec![]))
             }
             Command::RefreshCellPads {} => {
                 let loaded = commands::decode::<bool>(

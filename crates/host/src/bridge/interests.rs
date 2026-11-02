@@ -63,7 +63,8 @@ impl EventInterests {
         }
         let kind = match event {
             ScriptEvent::ProfileDeath { .. } => EventKind::ProfileDeath,
-            ScriptEvent::JobPrepared { .. }
+            ScriptEvent::TravelDone { .. }
+            | ScriptEvent::JobPrepared { .. }
             | ScriptEvent::JobWarning { .. }
             | ScriptEvent::JobFailed { .. } => EventKind::Job,
             ScriptEvent::OperationResponsibility { .. } => EventKind::OperationResponsibility,

@@ -1,6 +1,6 @@
 use super::*;
 
-const MAX_JOBS: usize = 32;
+pub(super) const MAX_JOBS: usize = 32;
 
 #[derive(Clone, Copy)]
 pub(super) struct GateState {
@@ -49,12 +49,13 @@ impl JobGate {
 }
 
 pub(crate) struct ScriptJobs {
-    attachment: AttachmentId,
-    detached: Arc<AtomicBool>,
-    player: Endpoint,
-    operations: Arc<Shared>,
-    requests: Arc<JobRequests>,
-    live: Mutex<HashMap<JobId, Arc<JobGate>>>,
+    pub(super) attachment: AttachmentId,
+    pub(super) detached: Arc<AtomicBool>,
+    pub(super) player: Endpoint,
+    pub(super) operations: Arc<Shared>,
+    pub(super) requests: Arc<JobRequests>,
+    pub(super) completions: crate::bridge::ScriptCompletions,
+    pub(super) live: Mutex<HashMap<JobId, Arc<JobGate>>>,
 }
 
 #[cfg(feature = "testing")]
@@ -63,9 +64,14 @@ pub(crate) type DispatchProbe = Arc<dyn Fn(u64, bool) + Send + Sync>;
 pub(crate) type ActionProbe = Arc<dyn Fn(bool) + Send + Sync>;
 #[cfg(feature = "testing")]
 pub(crate) type ObservationProbe = Arc<dyn Fn(Duration) + Send + Sync>;
+#[cfg(feature = "testing")]
+pub(crate) type TravelObservationProbe =
+    Arc<dyn Fn(crate::game::travel::Reads, Vec<String>) + Send + Sync>;
 
 #[derive(Default)]
 pub(crate) struct JobRequests {
+    #[cfg(feature = "testing")]
+    pub(crate) controller_links: Mutex<std::collections::HashSet<AttachmentId>>,
     pub(super) handoff: Mutex<Handoff>,
     #[cfg(feature = "testing")]
     pub(crate) dispatch_probe: Mutex<Option<DispatchProbe>>,
@@ -73,6 +79,8 @@ pub(crate) struct JobRequests {
     pub(crate) action_probe: Mutex<Option<ActionProbe>>,
     #[cfg(feature = "testing")]
     pub(crate) observation_probe: Mutex<Option<ObservationProbe>>,
+    #[cfg(feature = "testing")]
+    pub(crate) travel_observation_probe: Mutex<Option<TravelObservationProbe>>,
 }
 #[derive(Default)]
 pub(super) struct Handoff {
@@ -80,6 +88,8 @@ pub(super) struct Handoff {
     pub(super) queue: VecDeque<JobRequest>,
     pub(super) live: usize,
     pub(super) scripts: usize,
+    pub(super) travel: VecDeque<travel::Request>,
+    pub(super) travel_live: usize,
 }
 pub(super) enum JobKind {
     Script,
@@ -104,6 +114,7 @@ impl ScriptJobs {
         player: Endpoint,
         operations: Arc<Shared>,
         requests: Arc<JobRequests>,
+        completions: crate::bridge::ScriptCompletions,
     ) -> Self {
         Self {
             attachment,
@@ -111,6 +122,7 @@ impl ScriptJobs {
             player,
             operations,
             requests,
+            completions,
             live: Mutex::default(),
         }
     }
@@ -146,8 +158,7 @@ impl ScriptJobs {
         if script && handoff.scripts >= MAX_JOBS {
             return Err("too many combat profile jobs".into());
         }
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let id = JobId(NEXT.fetch_add(1, Ordering::Relaxed));
+        let id = JobId::next();
         let binding = self.player.packets.binding();
         let gate = Arc::new(JobGate::new(binding));
         if matches!(kind, JobKind::AutoAttack(_)) {

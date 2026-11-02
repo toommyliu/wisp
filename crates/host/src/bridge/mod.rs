@@ -3,7 +3,7 @@ pub use interests::{EventInterests, EventKind};
 
 use std::sync::mpsc::{self, RecvTimeoutError, TrySendError};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, Weak,
     atomic::{AtomicBool, Ordering},
 };
 use std::task::Waker;
@@ -166,6 +166,10 @@ pub(crate) fn invoke(player: &mut Player, name: &str, args: Vec<Value>) -> Resul
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScriptEvent {
+    TravelDone {
+        id: u64,
+        value: bool,
+    },
     JobPrepared {
         id: u64,
         label: String,
@@ -214,11 +218,19 @@ pub enum ScriptEvent {
 
 pub(crate) struct ScriptEventSender {
     interests: EventInterests,
-    events: Option<EventSender<ScriptEvent>>,
+    events: Option<Arc<EventSender<ScriptEvent>>>,
+    waker: Arc<Mutex<Option<Waker>>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ScriptCompletions {
+    interests: EventInterests,
+    events: Weak<EventSender<ScriptEvent>>,
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
 pub(crate) struct ScriptEvents {
+    completions: ScriptCompletions,
     events: Events<ScriptEvent>,
     waker: Arc<Mutex<Option<Waker>>>,
 }
@@ -228,14 +240,24 @@ pub(crate) fn script_events(
     interests: EventInterests,
 ) -> (ScriptEventSender, ScriptEvents) {
     let (sender, events) = event_queue(capacity);
+    let sender = Arc::new(sender);
     let waker = Arc::new(Mutex::new(None));
+    let completions = ScriptCompletions {
+        interests,
+        events: Arc::downgrade(&sender),
+        waker: waker.clone(),
+    };
     (
         ScriptEventSender {
             interests,
             events: Some(sender),
             waker: waker.clone(),
         },
-        ScriptEvents { events, waker },
+        ScriptEvents {
+            events,
+            waker,
+            completions,
+        },
     )
 }
 
@@ -267,7 +289,26 @@ impl Drop for ScriptEventSender {
     }
 }
 
+impl ScriptCompletions {
+    pub(crate) fn send(&self, event: ScriptEvent) {
+        if !self.interests.accepts(&event) {
+            return;
+        }
+        if let Some(sender) = self.events.upgrade() {
+            sender.send(event);
+            drop(sender);
+            let waker = self.waker.lock().unwrap().clone();
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        }
+    }
+}
+
 impl ScriptEvents {
+    pub(crate) fn completions(&self) -> ScriptCompletions {
+        self.completions.clone()
+    }
     pub(crate) fn try_recv(&self) -> Result<Option<ScriptEvent>, Error> {
         self.events.try_recv()
     }
@@ -618,5 +659,40 @@ mod tests {
         assert_eq!(old.try_recv(), Err(mpsc::TryRecvError::Disconnected));
         drop(producer);
         assert_eq!(current.try_recv().unwrap(), Err(Error::Stopped));
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+
+    #[test]
+    fn native_completions_share_event_bounds_and_end_with_the_player() {
+        let (player, events) = script_events(1, EventInterests::new(&[EventKind::Job]));
+        let completions = events.completions();
+        let event = ScriptEvent::TravelDone {
+            id: 1,
+            value: false,
+        };
+        completions.send(event.clone());
+        assert_eq!(events.try_recv(), Ok(Some(event.clone())));
+        player.send(event.clone());
+        completions.send(event.clone());
+        assert_eq!(events.try_recv(), Err(Error::Overflow));
+        assert_eq!(events.try_recv(), Ok(None));
+        drop(player);
+        assert_eq!(events.try_recv(), Err(Error::Stopped));
+        completions.send(event);
+        assert_eq!(events.try_recv(), Err(Error::Stopped));
+    }
+
+    #[test]
+    fn native_completions_respect_attachment_interests() {
+        let (_player, events) = script_events(1, EventInterests::new(&[EventKind::Loader]));
+        events.completions().send(ScriptEvent::TravelDone {
+            id: 1,
+            value: false,
+        });
+        assert_eq!(events.try_recv(), Ok(None));
     }
 }
