@@ -1224,4 +1224,54 @@ mod tests {
             assert_eq!(running.last_confirmation, Some(now));
         }
     }
+    #[test]
+    fn a_join_starts_a_fresh_confirmation_interval() {
+        let (mut running, bridge, _) = running(32, 32);
+        running.projection.write().auth.username = "player-a".into();
+        queue(&mut running, &bridge, "onConnection", "OnConnection".into());
+        running.drain_events();
+        area(&mut running, &bridge);
+        extension(
+            &mut running,
+            &bridge,
+            json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
+        );
+        running.drain_events();
+        let now = Instant::now();
+        assert_eq!(
+            running.confirm_readiness(now),
+            Some(now + Duration::from_millis(100))
+        );
+        area(&mut running, &bridge);
+        running.drain_events();
+        let joined_at = now + Duration::from_millis(1);
+        assert_eq!(
+            running.confirm_readiness(joined_at),
+            Some(joined_at + Duration::from_millis(100))
+        );
+    }
+    #[test]
+    fn logout_cancels_an_unsettled_avatar_confirmation() {
+        let (mut running, bridge, _) = running(32, 32);
+        running.projection.write().auth.username = "player-a".into();
+        queue(&mut running, &bridge, "onConnection", "OnConnection".into());
+        running.drain_events();
+        area(&mut running, &bridge);
+        extension(
+            &mut running,
+            &bridge,
+            json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
+        );
+        running.drain_events();
+        let now = Instant::now();
+        assert!(running.confirm_readiness(now).is_some());
+        let _ = running.command(lucent_protocol::command::Command::Logout {});
+        queue(&mut running, &bridge, "onDebug", "after logout".into());
+        running.drain_events();
+        assert_eq!(
+            running.confirm_readiness(now + Duration::from_secs(1)),
+            None
+        );
+        assert!(!running.projection.read().readiness.can_act());
+    }
 }

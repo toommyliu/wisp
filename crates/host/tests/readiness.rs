@@ -8,6 +8,7 @@ use lucent_host::{
 };
 use lucent_protocol::{command::Command, query::Query};
 use serde_json::json;
+use std::time::{Duration, Instant};
 
 fn emit(link: &ScriptLink, name: &str, payload: String) {
     link.call_loader(
@@ -108,13 +109,16 @@ fn connection_loss_and_logout_stop_avatar_confirmation() {
         let host = testing::headless_host();
         let (_session, link) = testing::start_probe(
             &host,
-            common::ready_movie()
-                .constant("player.isLoaded", json!(false))
-                .recording("player.isLoaded"),
+            common::ready_movie().responding("player.isLoaded", [(json!(false), vec![])]),
         );
         connect(&link);
         facts(&link);
         common::await_event(&link, "onProbeCall", None);
+        barrier(&link);
+        assert_eq!(
+            link.read(|p| p.readiness.avatar).unwrap(),
+            lucent_host::projection::Avatar::Loading
+        );
         if logout {
             link.command(Command::Logout {})
                 .recv_timeout(TIMEOUT)
@@ -212,4 +216,138 @@ fn event_overflow_discards_avatar_readiness_until_facts_recover() {
     assert_eq!(link.read(|p| p.receipts.epoch()).unwrap(), before + 1);
     facts(&link);
     confirm(&link);
+}
+
+#[test]
+fn a_reply_from_before_a_join_cannot_mark_the_avatar_loaded() {
+    let host = testing::headless_host();
+    let (_session, link) = testing::start_probe(
+        &host,
+        common::ready_movie().responding(
+            "player.isLoaded",
+            [
+                (
+                    json!(true),
+                    vec![("onExtensionResponse".into(), json!({
+                    "type":"json", "dataObj":{
+                        "cmd":"moveToArea", "areaId":2, "areaName":"battleon-2",
+                        "uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100}]
+                    }
+                }).to_string())],
+                ),
+                (json!(false), vec![]),
+            ],
+        ),
+    );
+    connect(&link);
+    facts(&link);
+    let mut confirmations = 0;
+    let deadline = Instant::now() + TIMEOUT;
+    while confirmations < 2 {
+        match next_event(&link, deadline) {
+            ScriptEvent::Readiness { can_act, .. } => {
+                assert!(!can_act, "stale confirmation made the new map ready")
+            }
+            ScriptEvent::Loader { event, .. }
+                if event.name == "onProbeCall"
+                    && event.args.first() == Some(&Value::String("player.isLoaded".into())) =>
+            {
+                confirmations += 1
+            }
+            _ => {}
+        }
+    }
+    barrier(&link);
+    while let Some(event) = link.try_event().unwrap() {
+        if let ScriptEvent::Readiness { can_act, .. } = event {
+            assert!(!can_act, "stale confirmation published readiness");
+        }
+    }
+    assert!(!ready(&link));
+    assert_eq!(
+        link.read(|p| p.readiness.avatar).unwrap(),
+        lucent_host::projection::Avatar::Loading
+    );
+}
+
+fn next_event(link: &ScriptLink, deadline: Instant) -> ScriptEvent {
+    use std::{
+        sync::Arc,
+        task::{Wake, Waker},
+    };
+    struct Unpark(std::thread::Thread);
+    impl Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    link.set_waker(Waker::from(Arc::new(Unpark(std::thread::current()))));
+    loop {
+        if let Some(event) = link.try_event().unwrap() {
+            return event;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "no player event before deadline");
+        std::thread::park_timeout(remaining);
+    }
+}
+
+#[test]
+fn a_failed_logout_stays_unready_until_the_next_connection() {
+    let host = testing::headless_host();
+    let (_session, link) = testing::start_probe(
+        &host,
+        common::ready_movie()
+            .throwing("auth.logout", "logout failed")
+            .recording("player.isLoaded"),
+    );
+    connect(&link);
+    facts(&link);
+    confirm(&link);
+    assert!(
+        link.command(Command::Logout {})
+            .recv_timeout(TIMEOUT)
+            .is_err()
+    );
+    barrier(&link);
+    assert!(!ready(&link));
+    area(&link);
+    assert!(!ready(&link));
+    connect(&link);
+    facts(&link);
+    while !ready(&link) {
+        next_event(&link, Instant::now() + TIMEOUT);
+    }
+}
+
+#[test]
+fn slow_frames_do_not_delay_avatar_confirmation() {
+    let host = testing::headless_host();
+    let (_session, link) = testing::start_probe(
+        &host,
+        common::ready_movie()
+            .frame_rate(2.0)
+            .responding("player.isLoaded", [(json!(false), vec![])]),
+    );
+    connect(&link);
+    facts(&link);
+    let deadline = Instant::now() + TIMEOUT;
+    let mut stamps = vec![];
+    while stamps.len() < 5 {
+        if let ScriptEvent::Loader { event, .. } = next_event(&link, deadline)
+            && event.name == "onProbeCall"
+            && event.args.first() == Some(&Value::String("player.isLoaded".into()))
+        {
+            stamps.push(Instant::now());
+        }
+    }
+    let gaps: Vec<_> = stamps.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    assert!(
+        gaps.iter().all(|gap| *gap < Duration::from_millis(350)),
+        "confirmations waited for slow frames: {gaps:?}"
+    );
+    assert!(
+        stamps[4] - stamps[1] >= Duration::from_millis(280),
+        "confirmations exceeded the ten-per-second limit: {gaps:?}"
+    );
 }
