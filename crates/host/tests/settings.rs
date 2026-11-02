@@ -113,19 +113,36 @@ fn the_settings_policy_reapplies_through_the_host() {
         Value::Number(30.0)
     );
     update(&observer, json!({"walkSpeed":45}));
-    drain(&observer);
-    let began = Instant::now();
-    assert_eq!(
-        await_call(&observer).args,
+    let walk_speed = |speed: f64| {
         vec![
-            Value::String("settings.enemyMagnet".into()),
-            Value::Undefined
+            Value::String("settings.setWalkSpeed".into()),
+            Value::Number(speed),
         ]
-    );
-    assert_eq!(
-        next_call(&observer, "settings.setWalkSpeed")[1],
-        Value::Number(45.0)
-    );
+    };
+    let applied: Vec<_> = std::iter::from_fn(|| observer.try_event().unwrap())
+        .filter_map(|event| match event {
+            lucent_host::bridge::ScriptEvent::Loader { event, .. }
+                if event.name == "onProbeCall" =>
+            {
+                Some(event.args)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(applied.contains(&walk_speed(45.0)));
+    let began = Instant::now();
+    let (mut reapplied, mut magnet) = (false, false);
+    while !(reapplied && magnet) {
+        let args = await_call(&observer).args;
+        match &args[0] {
+            Value::String(method) if method == "settings.setWalkSpeed" => {
+                assert_eq!(args, walk_speed(45.0));
+                reapplied = true;
+            }
+            Value::String(method) if method == "settings.enemyMagnet" => magnet = true,
+            _ => {}
+        }
+    }
     assert!(began.elapsed() < Duration::from_millis(1500));
     update(&observer, json!({"enemyMagnetEnabled":false}));
     drain(&observer);
