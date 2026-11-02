@@ -158,14 +158,16 @@ impl Packets {
         gate: &crate::game::jobs::JobGate,
         detached: &AtomicBool,
     ) -> Result<Option<super::ClaimGrant>, Error> {
-        let mut state = self.0.lock();
-        if state.stopped || detached.load(Ordering::Acquire) || !gate.open() {
-            return Err(Error::Stopped);
-        }
-        state.claims.acquire(
-            owner,
-            super::claims::ClaimResource::ConsumableSlot5 { item },
-        )
+        gate.while_open(|| {
+            let mut state = self.0.lock();
+            if state.stopped || detached.load(Ordering::Acquire) {
+                return Err(Error::Stopped);
+            }
+            state.claims.acquire(
+                owner,
+                super::claims::ClaimResource::ConsumableSlot5 { item },
+            )
+        })
     }
 
     pub(crate) fn release_attachment(&self, attachment: super::AttachmentId) {
@@ -929,12 +931,27 @@ impl Queue {
 #[cfg(feature = "testing")]
 type IssuanceProbe = Arc<dyn Fn(u64, bool) + Send + Sync>;
 
+#[cfg(feature = "testing")]
+pub(crate) type LockProbe = Arc<dyn Fn() + Send + Sync>;
+
+#[cfg(feature = "testing")]
+fn probe_lock(probe: &Mutex<Option<LockProbe>>) {
+    let probe = probe.lock().clone();
+    if let Some(probe) = probe {
+        probe();
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Shared {
     queue: Mutex<Queue>,
     ready: Condvar,
     #[cfg(feature = "testing")]
     probe: Mutex<Option<IssuanceProbe>>,
+    #[cfg(feature = "testing")]
+    pub(crate) cancel_probe: Mutex<Option<LockProbe>>,
+    #[cfg(feature = "testing")]
+    pub(crate) dispatch_probe: Mutex<Option<LockProbe>>,
 }
 
 impl Shared {
@@ -1049,6 +1066,8 @@ impl Shared {
     }
 
     pub(crate) fn cancel(&self, owner: super::AttachmentId, id: u64) {
+        #[cfg(feature = "testing")]
+        probe_lock(&self.cancel_probe);
         let mut queue = self.queue.lock();
         if let Some(entry) = queue.entries.get_mut(&id) {
             entry.cancel(owner);
@@ -1118,6 +1137,8 @@ impl Shared {
         self.probe(id, false);
         let result = {
             let mut queue = self.queue.lock();
+            #[cfg(feature = "testing")]
+            probe_lock(&self.dispatch_probe);
             let entry = queue.entries.get_mut(&id)?;
             let request = match entry {
                 Lifecycle::Queued { request, .. } => request.clone(),
