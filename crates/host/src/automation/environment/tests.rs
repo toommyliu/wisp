@@ -206,6 +206,14 @@ fn quest_loading_failures_log_once_and_recover_only_after_success() {
     }
     assert_eq!(logs.count("environment automation failed"), 1);
     assert_eq!(logs.count("environment automation recovered"), 1);
+    assert_eq!(
+        logs.count_at(tracing::Level::WARN, "environment automation failed"),
+        1
+    );
+    assert_eq!(
+        logs.count_at(tracing::Level::INFO, "environment automation recovered"),
+        1
+    );
     assert_eq!(logs.count("environment quest is unavailable"), 1);
 }
 

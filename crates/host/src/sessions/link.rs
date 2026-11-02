@@ -233,8 +233,11 @@ impl ScriptLink {
         &self,
         id: i64,
     ) -> Result<Option<super::ClaimGrant>, bridge::Error> {
-        self.packets
-            .acquire_inventory_use_claim(super::claims::Owner::script(self.attachment), id)
+        self.packets.acquire_inventory_use_claim(
+            super::claims::Owner::script(self.attachment),
+            id,
+            &self.detached,
+        )
     }
 
     pub(crate) fn inventory_use_lease(
@@ -251,8 +254,11 @@ impl ScriptLink {
     }
 
     pub fn acquire_quest_claim(&self, id: i64) -> Result<Option<super::ClaimGrant>, bridge::Error> {
-        self.packets
-            .acquire_quest_claim(super::claims::Owner::script(self.attachment), id)
+        self.packets.acquire_quest_claim(
+            super::claims::Owner::script(self.attachment),
+            id,
+            &self.detached,
+        )
     }
 
     pub(crate) fn quest_lease(
@@ -565,6 +571,24 @@ mod tests {
     use super::*;
     use crate::testing;
     use std::{sync::mpsc, thread};
+
+    #[test]
+    fn revoked_callers_cannot_acquire_quest_or_inventory_use_claims() {
+        let host = testing::headless_host();
+        let (mut session, dead) = testing::start_probe(&host, testing::ProbeMovie::new());
+        let alive = session.attach(crate::bridge::EventInterests::ALL).unwrap();
+        dead.revoker()();
+        assert!(matches!(
+            dead.acquire_quest_claim(802),
+            Err(bridge::Error::Stopped)
+        ));
+        assert!(matches!(
+            dead.acquire_inventory_use_claim(1),
+            Err(bridge::Error::Stopped)
+        ));
+        assert!(alive.acquire_quest_claim(802).unwrap().is_some());
+        assert!(alive.acquire_inventory_use_claim(1).unwrap().is_some());
+    }
 
     #[test]
     fn auto_zone_invalidation_rereads_the_host_record_without_a_config_event() {

@@ -129,9 +129,10 @@ impl Packets {
         &self,
         owner: super::claims::Owner,
         id: i64,
+        detached: &AtomicBool,
     ) -> Result<Option<super::claims::ClaimGrant>, Error> {
         let mut state = self.0.lock();
-        if state.stopped {
+        if state.stopped || detached.load(Ordering::Acquire) {
             return Err(Error::Stopped);
         }
         state.claims.acquire(
@@ -144,9 +145,10 @@ impl Packets {
         &self,
         owner: super::claims::Owner,
         id: i64,
+        detached: &AtomicBool,
     ) -> Result<Option<super::claims::ClaimGrant>, Error> {
         let mut state = self.0.lock();
-        if state.stopped {
+        if state.stopped || detached.load(Ordering::Acquire) {
             return Err(Error::Stopped);
         }
         state
