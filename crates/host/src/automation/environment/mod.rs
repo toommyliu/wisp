@@ -13,6 +13,7 @@ use lucent_protocol::{
 };
 use std::{
     collections::HashSet,
+    sync::Arc,
     task::Waker,
     time::{Duration, Instant},
 };
@@ -38,7 +39,6 @@ impl Drop for Lease {
 
 #[derive(Clone, Default, serde::Serialize)]
 pub(crate) struct Snapshot {
-    pub config: EnvironmentState,
     pub logged_in: bool,
     pub quests: Vec<f64>,
     pub items: Vec<ItemData>,
@@ -131,7 +131,7 @@ pub struct EnvironmentPolicy {
     link: ScriptLink,
     waker: Waker,
     state: Environment,
-    version: u64,
+    version: Option<u64>,
 }
 impl EnvironmentPolicy {
     pub const INTERESTS: EventInterests = EventInterests::new(&[
@@ -143,22 +143,18 @@ impl EnvironmentPolicy {
     ]);
     pub fn new(link: ScriptLink, waker: Waker) -> Self {
         link.set_waker(waker.clone());
+        link.records.changes.watch(waker.clone());
         Self {
             link,
             waker,
             state: Environment::new(),
-            version: u64::MAX,
+            version: None,
         }
     }
     pub fn advance(&mut self, now: Instant) -> Option<Instant> {
         if self.link.player_status().is_stopped() {
             self.state.reset(&self.link);
             return None;
-        }
-        let version = self.link.records.changes.version();
-        if version != self.version {
-            self.version = version;
-            self.state.dirty = true;
         }
         for index in 0..64 {
             match self.link.try_event() {
@@ -173,16 +169,16 @@ impl EnvironmentPolicy {
                             }
                             ProjectionEvent::Logout => {
                                 self.state.reset(&self.link);
-                                self.state.dirty = true;
+                                self.version = None;
                             }
-                            ProjectionEvent::Login => self.state.dirty = true,
+                            ProjectionEvent::Login => self.version = None,
                             _ => {}
                         }
                     }
                 }
                 Ok(Some(ScriptEvent::Invalidated)) | Err(Error::Overflow) => {
                     self.state.reset(&self.link);
-                    self.state.dirty = true;
+                    self.version = None;
                 }
                 Ok(Some(_)) => {}
                 Ok(None) => break,
@@ -195,14 +191,16 @@ impl EnvironmentPolicy {
                 return Some(now);
             }
         }
+        let (version, config) = self.link.records.environment_updates.read();
+        if self.version != Some(version) {
+            self.version = Some(version);
+            self.state.configure(&self.link, config, now);
+        }
         self.state.advance(&self.link, &self.waker, now)
     }
 }
 struct Environment {
-    config: EnvironmentState,
-    dirty: bool,
-    refresh: Option<Read<Snapshot>>,
-    retry: Option<Instant>,
+    config: Arc<EnvironmentState>,
     quests: quests::Quests,
     boosts: boosts::Boosts,
     failures: Failures,
@@ -210,75 +208,33 @@ struct Environment {
 impl Environment {
     fn new() -> Self {
         Self {
-            config: EnvironmentState::default(),
-            dirty: true,
-            refresh: None,
-            retry: None,
+            config: Default::default(),
             quests: Default::default(),
             boosts: Default::default(),
             failures: Default::default(),
         }
     }
+    fn configure(&mut self, host: &impl Host, config: Arc<EnvironmentState>, now: Instant) {
+        let quests = config.automation.quests && !config.quest_ids.is_empty();
+        let boosts = config.automation.boosts && !config.boosts.is_empty();
+        self.config = config;
+        self.quests.configure(host, quests, now);
+        self.boosts.configure(boosts, now);
+        if !quests {
+            self.failures.clear("quests");
+        }
+        if !boosts {
+            self.failures.clear("boosts");
+        }
+    }
     fn reset(&mut self, host: &impl Host) {
         self.quests.reset(host);
         self.boosts.reset();
-        self.refresh = None;
-        self.retry = None;
         self.config = Default::default();
         self.failures = Default::default();
     }
     fn advance(&mut self, host: &impl Host, waker: &Waker, now: Instant) -> Option<Instant> {
-        if self.retry.is_some_and(|at| now < at) {
-            return self.retry;
-        }
-        self.retry = None;
-        if self.dirty && self.refresh.is_none() {
-            self.dirty = false;
-            self.refresh = Some(Read::new(host.snapshot(false), waker, now));
-        }
-        if let Some(read) = &self.refresh
-            && let Some(result) = read.poll(now)
-        {
-            self.refresh = None;
-            match result {
-                Ok(snapshot) => {
-                    self.config = snapshot.config;
-                    self.quests.configure(
-                        host,
-                        self.config.automation.quests && !self.config.quest_ids.is_empty(),
-                        now,
-                    );
-                    self.boosts.configure(
-                        self.config.automation.boosts && !self.config.boosts.is_empty(),
-                        now,
-                    );
-                    if !self.config.automation.quests {
-                        self.failures.clear("quests");
-                    }
-                    if !self.config.automation.boosts {
-                        self.failures.clear("boosts");
-                    }
-                    self.failures.set("snapshot", true);
-                }
-                Err(_) => {
-                    self.failures.set("snapshot", false);
-                    self.dirty = true;
-                    self.retry = Some(now + QUEST_INTERVAL);
-                }
-            }
-        }
-        if let Some(read) = &self.refresh {
-            return Some(read.deadline);
-        }
-        if self.retry.is_some() {
-            return self.retry;
-        }
-        if self.dirty {
-            return Some(now);
-        }
         [
-            self.refresh.as_ref().map(|r| r.deadline),
-            self.retry,
             self.quests
                 .advance(host, waker, &self.config, &mut self.failures, now),
             self.boosts

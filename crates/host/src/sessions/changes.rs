@@ -1,11 +1,8 @@
 use parking_lot::{Mutex, RwLock};
-use std::{
-    sync::atomic::{AtomicU64, Ordering},
-    task::Waker,
-};
+use std::task::Waker;
 
 #[derive(Default)]
-pub(crate) struct Changes(Mutex<Vec<Waker>>, AtomicU64);
+pub(crate) struct Changes(Mutex<Vec<Waker>>);
 impl Changes {
     pub fn watch(&self, waker: Waker) {
         let mut watchers = self.0.lock();
@@ -13,11 +10,7 @@ impl Changes {
             watchers.push(waker);
         }
     }
-    pub fn version(&self) -> u64 {
-        self.1.load(Ordering::Acquire)
-    }
     pub fn notify(&self) {
-        self.1.fetch_add(1, Ordering::Release);
         let watchers = self.0.lock().clone();
         for watcher in watchers {
             watcher.wake();

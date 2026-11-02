@@ -1,7 +1,7 @@
 use super::environment_order::{PRIMARY, TERTIARY};
 use crate::projection::{Projection, wire::trim_js};
 use lucent_protocol::environment::*;
-use std::{cmp::Ordering, collections::HashSet};
+use std::{cmp::Ordering, collections::HashSet, sync::Arc};
 
 pub(super) fn compare_names(left: &str, right: &str) -> Ordering {
     if !left.is_ascii() || !right.is_ascii() {
@@ -188,15 +188,35 @@ pub(super) fn reduce(state: &mut EnvironmentState, edit: EnvironmentEdit) {
     }
     normalize(state);
 }
+#[derive(Default)]
+pub(crate) struct Updates(parking_lot::Mutex<(u64, Arc<EnvironmentState>)>);
+impl Updates {
+    pub(crate) fn read(&self) -> (u64, Arc<EnvironmentState>) {
+        let latest = self.0.lock();
+        (latest.0, latest.1.clone())
+    }
+    fn publish(&self, state: Arc<EnvironmentState>) {
+        let mut latest = self.0.lock();
+        latest.0 = latest.0.wrapping_add(1);
+        let old = std::mem::replace(&mut latest.1, state);
+        drop(latest);
+        drop(old);
+    }
+}
+
 pub(super) fn write(
     records: &super::Records,
     update: impl FnOnce(&mut EnvironmentState),
-) -> EnvironmentState {
+) -> Arc<EnvironmentState> {
     let mut state = records.environment.write();
-    let before = state.clone();
-    update(&mut state);
-    let changed = *state != before;
-    let result = state.clone();
+    let mut next = state.clone();
+    update(&mut next);
+    let changed = next != *state;
+    let result = Arc::new(next);
+    if changed {
+        *state = (*result).clone();
+        records.environment_updates.publish(result.clone());
+    }
     drop(state);
     if changed {
         records.changes.notify();

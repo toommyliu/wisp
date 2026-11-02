@@ -280,15 +280,12 @@ impl ScriptLink {
     ) -> Pending<crate::automation::environment::Snapshot> {
         let records = self.records.clone();
         self.inbox.read_projection(move |projection| {
-            let config = if register {
+            if register {
                 super::environment::write(&records, |state| {
                     super::environment::register_loaded(state, projection)
-                })
-            } else {
-                records.environment.read().clone()
-            };
+                });
+            }
             crate::automation::environment::Snapshot {
-                config,
                 logged_in: projection.auth.logged_in,
                 quests: projection
                     .quests
@@ -536,7 +533,7 @@ pub(super) fn route_command(
                 let state = super::environment::write(&records, |state| {
                     super::environment::apply(state, edit, projection)
                 });
-                serde_json::to_string(&state).unwrap()
+                serde_json::to_string(&*state).unwrap()
             });
         }
 
@@ -571,6 +568,30 @@ mod tests {
     use super::*;
     use crate::testing;
     use std::{sync::mpsc, thread};
+
+    #[test]
+    fn applied_environment_configuration_schedules_without_a_player_reply_or_record_lock() {
+        let host = testing::headless_host();
+        let (mut session, writer) = testing::start_probe(&host, testing::ProbeMovie::new());
+        writer
+            .command(lucent_protocol::command::Command::UpdateEnvironment {
+                edit: lucent_protocol::environment::EnvironmentEdit::AddQuest {
+                    quest_id: 802.,
+                    reward_item_id: None,
+                },
+            })
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        let link = session
+            .attach(crate::automation::EnvironmentPolicy::INTERESTS)
+            .unwrap();
+        let projection = link.projection.clone();
+        let mut policy = crate::automation::EnvironmentPolicy::new(link, Waker::noop().clone());
+        let _projection = projection.write();
+        let _record = writer.records.environment.write();
+        let now = Instant::now();
+        assert_eq!(policy.advance(now), Some(now + Duration::from_secs(1)));
+    }
 
     #[test]
     fn revoked_callers_cannot_acquire_quest_or_inventory_use_claims() {

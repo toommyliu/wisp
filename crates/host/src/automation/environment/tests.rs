@@ -7,6 +7,8 @@ use std::{
 
 struct Fake {
     snapshot: RefCell<Snapshot>,
+    config: RefCell<EnvironmentState>,
+    last_config: RefCell<Option<EnvironmentState>>,
     replies: RefCell<HashMap<String, VecDeque<Result<Value, Error>>>>,
     calls: RefCell<Vec<(Instant, String, Vec<Value>)>>,
     now: RefCell<Instant>,
@@ -15,10 +17,14 @@ struct Fake {
     hold_at: RefCell<Option<(String, usize)>>,
     held: RefCell<Vec<crate::bridge::Reply<Value>>>,
     claims: std::sync::Arc<std::sync::Mutex<HashSet<i64>>>,
+    block_snapshot: std::cell::Cell<bool>,
+    held_snapshots: RefCell<Vec<crate::bridge::Reply<Snapshot>>>,
 }
 impl Fake {
     fn new(now: Instant) -> Self {
         Self {
+            config: Default::default(),
+            last_config: Default::default(),
             snapshot: RefCell::new(Snapshot {
                 logged_in: true,
                 ..Default::default()
@@ -31,6 +37,8 @@ impl Fake {
             hold_at: Default::default(),
             held: Default::default(),
             claims: Default::default(),
+            block_snapshot: Default::default(),
+            held_snapshots: Default::default(),
         }
     }
     fn reply(&self, method: &str, values: impl IntoIterator<Item = Result<Value, Error>>) {
@@ -56,6 +64,11 @@ fn resolved<T>(value: T) -> Pending<T> {
 }
 impl Host for Fake {
     fn snapshot(&self, _: bool) -> Pending<Snapshot> {
+        if self.block_snapshot.get() {
+            let (reply, pending) = Pending::channel();
+            self.held_snapshots.borrow_mut().push(reply);
+            return pending;
+        }
         resolved(self.snapshot.borrow().clone())
     }
     fn call(&self, method: &str, args: Vec<Value>) -> Pending<Value> {
@@ -113,6 +126,11 @@ impl Host for Fake {
 }
 fn tick(state: &mut Environment, host: &Fake, now: Instant) -> Option<Instant> {
     *host.now.borrow_mut() = now;
+    let config = host.config.borrow().clone();
+    if host.last_config.borrow().as_ref() != Some(&config) {
+        state.configure(host, Arc::new(config.clone()), now);
+        *host.last_config.borrow_mut() = Some(config);
+    }
     let mut next = None;
     for _ in 0..100 {
         next = state.advance(host, Waker::noop(), now);
@@ -120,7 +138,7 @@ fn tick(state: &mut Environment, host: &Fake, now: Instant) -> Option<Instant> {
     next
 }
 fn quest_config(host: &Fake, ids: Vec<f64>) {
-    host.snapshot.borrow_mut().config.quest_ids = ids.clone();
+    host.config.borrow_mut().quest_ids = ids.clone();
     host.snapshot.borrow_mut().quests = ids;
 }
 
@@ -146,9 +164,8 @@ fn quest_accepts_then_completes_with_maximum_turn_ins_and_override() {
     let now = Instant::now();
     let host = Fake::new(now);
     quest_config(&host, vec![802.]);
-    host.snapshot
+    host.config
         .borrow_mut()
-        .config
         .quest_rewards
         .insert("802".into(), 5586.);
     host.reply(
@@ -188,7 +205,7 @@ fn quest_loading_failures_log_once_and_recover_only_after_success() {
     let _guard = tracing::dispatcher::set_default(&logs.dispatch());
     let now = Instant::now();
     let host = Fake::new(now);
-    host.snapshot.borrow_mut().config.quest_ids = vec![802.];
+    host.config.borrow_mut().quest_ids = vec![802.];
     host.reply(
         "quests.isAvailable",
         (0..10).map(|_| Ok(Value::Bool(false))),
@@ -274,7 +291,7 @@ fn boost(id: i64, name: &str, link: &str) -> ItemData {
 fn boosts_use_one_in_normalized_order_and_wait_for_quantity() {
     let now = Instant::now();
     let host = Fake::new(now);
-    host.snapshot.borrow_mut().config.boosts = vec!["Gold".into(), "XP".into()];
+    host.config.borrow_mut().boosts = vec!["Gold".into(), "XP".into()];
     host.snapshot.borrow_mut().items =
         vec![boost(1, "XP", "xpboost::1"), boost(2, "Gold", "gboost::1")];
     host.reply("player.hasActiveBoost", [Ok(Value::Bool(false))]);
@@ -300,12 +317,12 @@ fn boosts_use_one_in_normalized_order_and_wait_for_quantity() {
 fn reset_cancels_loading_and_restarts_at_the_first_interval() {
     let now = Instant::now();
     let host = Fake::new(now);
-    host.snapshot.borrow_mut().config.quest_ids = vec![1.];
+    host.config.borrow_mut().quest_ids = vec![1.];
     let mut state = Environment::new();
     tick(&mut state, &host, now);
     tick(&mut state, &host, now + QUEST_INTERVAL);
     state.reset(&host);
-    state.dirty = true;
+    *host.last_config.borrow_mut() = None;
     tick(&mut state, &host, now + QUEST_INTERVAL);
     assert_eq!(*host.cancelled.borrow(), vec![1]);
     assert_eq!(host.loads.borrow().len(), 1);
@@ -319,7 +336,7 @@ fn boosts_recover_only_after_selection_use_and_quantity_confirmation() {
     let _guard = logs.enter();
     let now = Instant::now();
     let host = Fake::new(now);
-    host.snapshot.borrow_mut().config.boosts = vec!["XP".into()];
+    host.config.borrow_mut().boosts = vec!["XP".into()];
     host.snapshot.borrow_mut().items = vec![boost(1, "XP", "xpboost::1")];
     host.reply(
         "player.hasActiveBoost",
@@ -364,11 +381,9 @@ fn unavailable_warnings_clear_after_availability_and_removal() {
         tick(&mut state, &host, now + Duration::from_secs(second));
     }
     assert_eq!(logs.count("environment quest is unavailable"), 2);
-    host.snapshot.borrow_mut().config.quest_ids.clear();
-    state.dirty = true;
+    host.config.borrow_mut().quest_ids.clear();
     tick(&mut state, &host, now + Duration::from_secs(6));
     quest_config(&host, vec![1.]);
-    state.dirty = true;
     tick(&mut state, &host, now + Duration::from_secs(7));
     host.reply("quests.isAvailable", [Ok(Value::Bool(false))]);
     tick(&mut state, &host, now + Duration::from_secs(8));
@@ -430,8 +445,7 @@ fn disabling_an_issued_turn_in_holds_its_quest_until_confirmation_or_timeout() {
         tick(&mut state, &host, now);
         tick(&mut state, &host, now + QUEST_INTERVAL);
         assert_eq!(host.names("quests.complete").len(), 1);
-        host.snapshot.borrow_mut().config.automation.quests = false;
-        state.dirty = true;
+        host.config.borrow_mut().automation.quests = false;
         tick(&mut state, &host, now + QUEST_INTERVAL);
         assert!(host.claim(1.).unwrap().is_none());
         let count = host.calls.borrow().len();
@@ -474,7 +488,7 @@ fn availability_recheck_warns_without_claiming_mutation_recovery() {
 fn a_script_using_a_boost_prevents_native_reuse_and_disable_keeps_issued_use_claimed() {
     let now = Instant::now();
     let host = Fake::new(now);
-    host.snapshot.borrow_mut().config.boosts = vec!["XP".into()];
+    host.config.borrow_mut().boosts = vec!["XP".into()];
     host.snapshot.borrow_mut().items = vec![boost(1, "XP", "xpboost::1")];
     host.reply("player.hasActiveBoost", [Ok(Value::Bool(false))]);
     let script = host.use_claim(1).unwrap().unwrap();
@@ -485,8 +499,7 @@ fn a_script_using_a_boost_prevents_native_reuse_and_disable_keeps_issued_use_cla
     drop(script);
     tick(&mut state, &host, now + BOOST_INTERVAL * 2);
     assert_eq!(host.names("inventory.use").len(), 1);
-    host.snapshot.borrow_mut().config.automation.boosts = false;
-    state.dirty = true;
+    host.config.borrow_mut().automation.boosts = false;
     tick(&mut state, &host, now + BOOST_INTERVAL * 2);
     assert!(host.use_claim(1).unwrap().is_none());
     tick(&mut state, &host, now + BOOST_INTERVAL * 2 + TIMEOUT);
@@ -544,7 +557,7 @@ fn boost_use_rechecks_quantity_after_selection_before_confirming_consumption() {
     let _guard = logs.enter();
     let now = Instant::now();
     let host = Fake::new(now);
-    host.snapshot.borrow_mut().config.boosts = vec!["XP".into()];
+    host.config.borrow_mut().boosts = vec!["XP".into()];
     host.snapshot.borrow_mut().items = vec![boost(1, "XP", "xpboost::1")];
     host.reply(
         "player.hasActiveBoost",
@@ -568,4 +581,49 @@ fn boost_use_rechecks_quantity_after_selection_before_confirming_consumption() {
     host.snapshot.borrow_mut().items[0].quantity = 0.;
     tick(&mut state, &host, now + BOOST_INTERVAL * 2 + POLL);
     assert_eq!(logs.count("environment automation recovered"), 1);
+}
+
+#[test]
+fn configuration_updates_do_not_postpone_an_issued_mutation_timeout() {
+    let now = Instant::now();
+    let host = Fake::new(now);
+    quest_config(&host, vec![1.]);
+    *host.hold_at.borrow_mut() = Some(("quests.accept".into(), 1));
+    let mut state = Environment::new();
+    tick(&mut state, &host, now);
+    tick(&mut state, &host, now + QUEST_INTERVAL);
+    host.block_snapshot.set(true);
+    host.config
+        .borrow_mut()
+        .quest_rewards
+        .insert("1".into(), 10.);
+    tick(&mut state, &host, now + Duration::from_secs(2));
+    tick(&mut state, &host, now + QUEST_INTERVAL + TIMEOUT);
+    assert!(
+        host.claim(1.).unwrap().is_some(),
+        "configuration refresh extended the mutation's claim"
+    );
+    assert_eq!(host.names("quests.accept").len(), 1);
+}
+
+#[test]
+fn empty_registration_resets_failure_suppression_before_work_is_added_again() {
+    let logs = crate::automation::test_logs::Logs::default();
+    let _guard = logs.enter();
+    let now = Instant::now();
+    let host = Fake::new(now);
+    quest_config(&host, vec![1.]);
+    host.reply(
+        "quests.accept",
+        [Ok(Value::Bool(false)), Ok(Value::Bool(false))],
+    );
+    let mut state = Environment::new();
+    tick(&mut state, &host, now);
+    tick(&mut state, &host, now + QUEST_INTERVAL);
+    host.config.borrow_mut().quest_ids.clear();
+    assert_eq!(tick(&mut state, &host, now + QUEST_INTERVAL), None);
+    quest_config(&host, vec![1.]);
+    tick(&mut state, &host, now + QUEST_INTERVAL * 2);
+    tick(&mut state, &host, now + QUEST_INTERVAL * 3);
+    assert_eq!(logs.count("environment automation failed"), 2);
 }
