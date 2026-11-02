@@ -4,6 +4,9 @@ use crate::query::ItemSelector;
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Operation {
     AcceptDrop { selector: ItemSelector },
+    LoadQuests { ids: Vec<f64>, silent: bool },
+    LoadBank { force: bool },
+    OpenBank { force: bool },
     EquipConsumable { selector: ItemSelector },
     PrepareConsumableClaim { claim: String },
 }
@@ -12,5 +15,8 @@ pub enum Operation {
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum OperationAnswer {
     AcceptDrop(bool),
+    LoadQuests(Vec<bool>),
+    LoadBank(bool),
+    OpenBank(bool),
     EquipConsumable(bool),
 }
