@@ -3,8 +3,8 @@ import type { ItemQuery, LiveItem } from "@lucent/game";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 
+import { operate } from "../../../host/operations";
 import type { BridgeService } from "../bridge/Bridge";
 import { PositiveWireInt, WireBoolean, WireInt } from "../contract/Coercion";
 import { packetData } from "../contract/Packet";
@@ -14,7 +14,6 @@ import {
   readItems,
   type HostStateService,
 } from "../state/HostState";
-import type { Auth } from "./Auth";
 import type { House } from "./House";
 import type { Inventory } from "./Inventory";
 import type { Wait } from "./Wait";
@@ -55,13 +54,11 @@ const houseCanAccept = (itemId: number, house: House) =>
 export const makeBank = Effect.fnUntraced(function* (
   bridge: BridgeService,
   host: HostStateService,
-  auth: Auth,
   inventory: Inventory,
   house: House,
   wait: Wait,
 ) {
-  const loads = yield* Semaphore.make(1);
-  const opens = yield* Semaphore.make(1);
+  const operationHost = globalThis.__host;
 
   const isOpen = () =>
     bridge
@@ -92,60 +89,16 @@ export const makeBank = Effect.fnUntraced(function* (
       .invoke("bank.getUsedSlots", undefined, WireInt)
       .pipe(Effect.map(Option.getOrElse(() => 0)));
 
-  const isLoaded = () =>
-    bridge
-      .invoke("bank.isLoaded", undefined, Schema.Boolean)
-      .pipe(Effect.map(Option.getOrElse(() => false)));
-
-  const load = (force = false) => {
-    return loads.withPermits(1)(
-      Effect.gen(function* () {
-        if (!(yield* auth.isLoggedIn())) return false;
-
-        const version = yield* host.read({
-          kind: "itemHydration",
-          container: "bank",
-        });
-        if (version > 0 && !force) return true;
-
-        const requested = yield* bridge.invoke(
-          "bank.loadItems",
-          [force || version === 0],
-          Schema.Void,
-        );
-        if (Option.isNone(requested)) return false;
-
-        const loaded = yield* wait.until(isLoaded(), {
-          interval: "100 millis",
-          timeout: "10 seconds",
-        });
-        if (!loaded) return false;
-
-        const refreshed = yield* host.command({
-          kind: "refreshContainer",
-          container: "bank",
-        });
-        return Option.isSome(refreshed);
-      }),
+  const load = (force = false) =>
+    operate({ kind: "loadBank", force }, operationHost).pipe(
+      Effect.map((answer) => answer.kind === "loadBank" && answer.value),
+      Effect.catch(() => Effect.succeed(false)),
     );
-  };
 
   const open = (options: BankOpenOptions = {}) =>
-    opens.withPermits(1)(
-      Effect.gen(function* () {
-        if (!(yield* load(options.force ?? false))) return false;
-        if (yield* isOpen()) return true;
-
-        if (
-          Option.isNone(
-            yield* bridge.invoke("bank.open", undefined, Schema.Void),
-          )
-        ) {
-          return false;
-        }
-
-        return yield* wait.until(isOpen(), { timeout: "3 seconds" });
-      }),
+    operate({ kind: "openBank", force: options.force ?? false }, operationHost).pipe(
+      Effect.map((answer) => answer.kind === "openBank" && answer.value),
+      Effect.catch(() => Effect.succeed(false)),
     );
 
   const contains = (selector: ItemQuery, quantity?: number) =>

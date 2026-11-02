@@ -1,11 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { ItemSnapshot } from "@lucent/game";
 import * as Effect from "effect/Effect";
+import { vi } from "vitest";
 
 import {
   emitExtension,
   item,
   makeFakeApi,
+  makeFakeBankOperations,
   makeFakeHostState,
   moveItem,
 } from "../testing/FakeHost";
@@ -104,6 +106,7 @@ const makeHarness = Effect.fnUntraced(function* (
     "inventory.getMiscSlots": () => miscSlots,
     "house.getSlots": () => 1,
   } as unknown as Window["swf"];
+  vi.stubGlobal("__host", makeFakeBankOperations(target, state));
   const api = yield* makeFakeApi(target, state);
   return {
     api,

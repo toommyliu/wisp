@@ -514,7 +514,274 @@ impl Endpoint {
     }
 }
 
+#[derive(Clone, Copy)]
+enum CallKind {
+    Action,
+    Confirmation,
+}
+
+struct Transaction<'a> {
+    player: &'a Endpoint,
+    operations: &'a Shared,
+    id: u64,
+    binding: super::claims::Binding,
+    issued: bool,
+    last_dispatch: Instant,
+}
+
+impl<'a> Transaction<'a> {
+    fn new(
+        player: &'a Endpoint,
+        operations: &'a Shared,
+        id: u64,
+        binding: super::claims::Binding,
+    ) -> Self {
+        Self {
+            player,
+            operations,
+            id,
+            binding,
+            issued: false,
+            last_dispatch: Instant::now(),
+        }
+    }
+
+    fn check(&self) -> Result<(), Error> {
+        self.player.check()?;
+        self.operations.check(self.id)?;
+        let state = self.player.packets.0.lock();
+        if state.stopped || state.claims.binding() != self.binding {
+            return Err(Error::Stopped);
+        }
+        Ok(())
+    }
+
+    fn read<R>(&self, read: impl FnOnce(&Projection) -> R) -> Result<R, Error> {
+        self.check()?;
+        let answer = self.player.read(self.operations, self.id, read)?;
+        self.check()?;
+        Ok(answer)
+    }
+
+    fn pause_until(&self, deadline: Instant) -> Result<(), Error> {
+        loop {
+            self.check()?;
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(());
+            }
+            let mut queue = self.operations.queue.lock();
+            self.operations
+                .ready
+                .wait_for(&mut queue, remaining.min(STOP_CHECK_INTERVAL));
+        }
+    }
+
+    fn call(&mut self, name: &str, args: Vec<Value>) -> Result<Value, Error> {
+        self.call_until(name, args, Instant::now() + CALL_TIMEOUT, CallKind::Action)
+    }
+
+    fn call_until(
+        &mut self,
+        name: &str,
+        args: Vec<Value>,
+        deadline: Instant,
+        kind: CallKind,
+    ) -> Result<Value, Error> {
+        self.check()?;
+        let dispatch = || {
+            let state = self.player.packets.0.lock();
+            if state.stopped || state.claims.binding() != self.binding {
+                return None;
+            }
+            Some(self.player.inbox.call_loader(name, args))
+        };
+        let pending = if self.issued {
+            match kind {
+                CallKind::Action => self.operations.attached(self.id, dispatch).flatten(),
+                CallKind::Confirmation => dispatch(),
+            }
+        } else {
+            let pending = self.operations.issue(self.id, dispatch).flatten();
+            self.issued = pending.is_some();
+            pending
+        }
+        .ok_or(Error::Stopped)?;
+        self.last_dispatch = Instant::now();
+        let answer = self
+            .player
+            .wait_until(self.operations, self.id, pending, deadline)?;
+        self.check()?;
+        Ok(answer)
+    }
+
+    fn command(&self, command: lucent_protocol::command::Command) -> Result<String, Error> {
+        self.check()?;
+        let (reply, pending) = Pending::channel();
+        {
+            let state = self.player.packets.0.lock();
+            if state.stopped || state.claims.binding() != self.binding {
+                return Err(Error::Stopped);
+            }
+            self.player.inbox.post(Msg::Command(command, reply));
+        }
+        let answer = self.player.wait(self.operations, self.id, pending)?;
+        self.check()?;
+        Ok(answer)
+    }
+
+    fn poll(&mut self, name: &str, timeout: Duration) -> Result<bool, Error> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if matches!(
+                self.call_until(
+                    name,
+                    vec![],
+                    deadline.min(Instant::now() + CALL_TIMEOUT),
+                    CallKind::Confirmation
+                ),
+                Ok(Value::Bool(true))
+            ) {
+                return Ok(true);
+            }
+            self.check()?;
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(false);
+            }
+            self.pause_until((now + Duration::from_millis(100)).min(deadline))?;
+        }
+    }
+
+    fn load_bank(&mut self, force: bool) -> Result<bool, Error> {
+        use lucent_protocol::command::{Command, RefreshContainer};
+        let logged_in = self.command(Command::RefreshLoggedIn {})?;
+        if logged_in != "true" {
+            return Ok(false);
+        }
+        let hydrated =
+            self.read(|projection| projection.items.hydration(ItemContainer::Bank) > 0)?;
+        if hydrated && !force {
+            return Ok(true);
+        }
+        self.call("bank.loadItems", vec![Value::Bool(force || !hydrated)])?;
+        if !self.poll("bank.isLoaded", Duration::from_secs(10))? {
+            return Ok(false);
+        }
+        self.command(Command::RefreshContainer {
+            container: RefreshContainer::Bank,
+        })?;
+        Ok(true)
+    }
+
+    fn bank_is_open(&self) -> Result<bool, Error> {
+        self.check()?;
+        let pending = self
+            .operations
+            .attached(self.id, || {
+                let state = self.player.packets.0.lock();
+                if state.stopped || state.claims.binding() != self.binding {
+                    return None;
+                }
+                Some(self.player.inbox.call_loader("bank.isOpen", vec![]))
+            })
+            .flatten()
+            .ok_or(Error::Stopped)?;
+        let answer = self.player.wait(self.operations, self.id, pending);
+        self.check()?;
+        Ok(matches!(answer, Ok(Value::Bool(true))))
+    }
+
+    fn open_bank(&mut self, force: bool) -> Result<bool, Error> {
+        if !self.load_bank(force)? {
+            return Ok(false);
+        }
+        if self.bank_is_open()? {
+            return Ok(true);
+        }
+        self.call("bank.open", vec![])?;
+        self.poll("bank.isOpen", Duration::from_secs(3))
+    }
+
+    fn load_quests(
+        &mut self,
+        ids: &[f64],
+        silent: bool,
+        next_load: &mut Instant,
+    ) -> Result<Vec<bool>, Error> {
+        let mut unique = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for &id in ids {
+            if id > 0.0
+                && id <= 9_007_199_254_740_991.0
+                && id.fract() == 0.0
+                && seen.insert(id as i64)
+            {
+                unique.push(id);
+            }
+        }
+        for batch in unique.chunks(30) {
+            for _ in 0..2 {
+                self.operations
+                    .attached(self.id, || ())
+                    .ok_or(Error::Stopped)?;
+                let missing = self.read(|projection| {
+                    batch
+                        .iter()
+                        .copied()
+                        .filter(|id| projection.quests.get(*id).is_none())
+                        .collect::<Vec<_>>()
+                })?;
+                if missing.is_empty() {
+                    break;
+                }
+                self.pause_until(*next_load)?;
+                let name = if silent {
+                    "quests.getMultiple"
+                } else {
+                    "quests.loadMultiple"
+                };
+                let args = vec![Value::String(
+                    missing
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )];
+                let requested = self.call(name, args);
+                *next_load = self.last_dispatch + Duration::from_millis(1500);
+                self.check()?;
+                if requested.is_err() {
+                    continue;
+                }
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    if self.read(|projection| {
+                        missing
+                            .iter()
+                            .all(|id| projection.quests.get(*id).is_some())
+                    })? {
+                        break;
+                    }
+                    let now = Instant::now();
+                    if now >= deadline {
+                        break;
+                    }
+                    self.pause_until((now + Duration::from_millis(100)).min(deadline))?;
+                }
+            }
+        }
+        self.read(|projection| {
+            unique
+                .iter()
+                .map(|id| projection.quests.get(*id).is_some())
+                .collect()
+        })
+    }
+}
+
 pub(crate) struct Request {
+    pub(crate) binding: super::claims::Binding,
     pub(crate) id: u64,
     pub(crate) owner: super::claims::Owner,
     pub(crate) recipient: super::AttachmentId,
@@ -570,10 +837,29 @@ struct ClaimPreparation {
     waiting: bool,
 }
 
+#[derive(Clone, Copy)]
+enum Lane {
+    Game,
+    Load,
+}
+
+impl Lane {
+    fn for_operation(operation: &Operation) -> Self {
+        match operation {
+            Operation::LoadQuests { .. }
+            | Operation::LoadBank { .. }
+            | Operation::OpenBank { .. } => Self::Load,
+            Operation::AcceptDrop { .. }
+            | Operation::EquipConsumable { .. }
+            | Operation::PrepareConsumableClaim { .. } => Self::Game,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Queue {
     entries: HashMap<u64, Lifecycle>,
-    fifo: VecDeque<u64>,
+    lanes: [VecDeque<u64>; 2],
     preparations: Vec<ClaimPreparation>,
     stopped: bool,
 }
@@ -650,6 +936,7 @@ impl Shared {
             return Err(Error::Stopped);
         }
         let id = request.id;
+        let lane = Lane::for_operation(&request.operation);
         let request = Arc::new(request);
         *pending = Some(request.clone());
         if let Operation::PrepareConsumableClaim { claim } = &request.operation {
@@ -684,8 +971,8 @@ impl Shared {
                 });
             }
         }
-        queue.fifo.push_back(id);
-        self.ready.notify_one();
+        queue.lanes[lane as usize].push_back(id);
+        self.ready.notify_all();
         Ok(())
     }
 
@@ -695,7 +982,9 @@ impl Shared {
             entry.cancel(owner);
             if matches!(entry, Lifecycle::Settled) {
                 queue.entries.remove(&id);
-                queue.fifo.retain(|queued| *queued != id);
+                for lane in &mut queue.lanes {
+                    lane.retain(|queued| *queued != id);
+                }
                 queue.update_preparations();
             }
         }
@@ -707,18 +996,20 @@ impl Shared {
             entry.cancel(owner);
             !matches!(entry, Lifecycle::Settled)
         });
-        let Queue { entries, fifo, .. } = &mut *queue;
-        fifo.retain(|id| entries.contains_key(id));
+        let Queue { entries, lanes, .. } = &mut *queue;
+        for lane in lanes {
+            lane.retain(|id| entries.contains_key(id));
+        }
         queue.update_preparations();
     }
 
-    fn next(&self) -> Option<Arc<Request>> {
+    fn next(&self, lane: Lane) -> Option<Arc<Request>> {
         let mut queue = self.queue.lock();
         loop {
             if queue.stopped {
                 return None;
             }
-            if let Some(id) = queue.fifo.pop_front() {
+            if let Some(id) = queue.lanes[lane as usize].pop_front() {
                 if let Some(Lifecycle::Queued {
                     request: Some(request),
                     ..
@@ -737,6 +1028,14 @@ impl Shared {
             Ok(())
         } else {
             Err(Error::Stopped)
+        }
+    }
+
+    fn attached<T>(&self, id: u64, dispatch: impl FnOnce() -> T) -> Option<T> {
+        let queue = self.queue.lock();
+        match queue.entries.get(&id)? {
+            Lifecycle::Queued { .. } | Lifecycle::IssuedAttached(_) => Some(dispatch()),
+            Lifecycle::IssuedDetached | Lifecycle::Settled => None,
         }
     }
 
@@ -816,42 +1115,67 @@ impl Shared {
 
 pub(crate) struct Operations {
     pub(crate) sender: Arc<Shared>,
-    thread: Option<thread::JoinHandle<()>>,
+    threads: Vec<thread::JoinHandle<()>>,
 }
 
 impl Operations {
     pub(crate) fn start(id: u64) -> std::io::Result<Self> {
         let sender = Arc::new(Shared::default());
-        let requests = sender.clone();
-        let thread = thread::Builder::new()
-            .name(format!("operations-{id}"))
-            .spawn(move || {
-                while let Some(request) = requests.next() {
-                    request.player.inbox.post(Msg::OperationAnswer(
-                        request.recipient,
-                        ScriptEvent::OperationStarted { id: request.id },
-                    ));
-                    let answer = match &request.operation {
-                        Operation::PrepareConsumableClaim { claim } => request
-                            .player
-                            .prepare_consumable_claim(claim, request.owner, &requests, request.id)
-                            .map(OperationAnswer::EquipConsumable),
-                        Operation::EquipConsumable { selector } => request
-                            .player
-                            .equip_consumable(selector.clone(), &requests, request.id, None)
-                            .map(OperationAnswer::EquipConsumable),
-                        Operation::AcceptDrop { selector } => request
-                            .player
-                            .accept(selector.clone(), &requests, request.id)
-                            .map(OperationAnswer::AcceptDrop),
-                    };
-                    requests.settle(&request, answer);
-                }
-            })?;
-        Ok(Self {
+        let mut operations = Self {
             sender,
-            thread: Some(thread),
-        })
+            threads: Vec::new(),
+        };
+        for (lane, name) in [(Lane::Game, "operations"), (Lane::Load, "loads")] {
+            let requests = operations.sender.clone();
+            let thread = thread::Builder::new()
+                .name(format!("{name}-{id}"))
+                .spawn(move || {
+                    let mut next_quest_load = Instant::now();
+                    while let Some(request) = requests.next(lane) {
+                        request.player.inbox.post(Msg::OperationAnswer(
+                            request.recipient,
+                            ScriptEvent::OperationStarted { id: request.id },
+                        ));
+                        let mut transaction = Transaction::new(
+                            &request.player,
+                            &requests,
+                            request.id,
+                            request.binding,
+                        );
+                        let answer = match &request.operation {
+                            Operation::LoadQuests { ids, silent } => transaction
+                                .load_quests(ids, *silent, &mut next_quest_load)
+                                .map(OperationAnswer::LoadQuests),
+                            Operation::LoadBank { force } => {
+                                transaction.load_bank(*force).map(OperationAnswer::LoadBank)
+                            }
+                            Operation::OpenBank { force } => {
+                                transaction.open_bank(*force).map(OperationAnswer::OpenBank)
+                            }
+                            Operation::PrepareConsumableClaim { claim } => request
+                                .player
+                                .prepare_consumable_claim(
+                                    claim,
+                                    request.owner,
+                                    &requests,
+                                    request.id,
+                                )
+                                .map(OperationAnswer::EquipConsumable),
+                            Operation::EquipConsumable { selector } => request
+                                .player
+                                .equip_consumable(selector.clone(), &requests, request.id, None)
+                                .map(OperationAnswer::EquipConsumable),
+                            Operation::AcceptDrop { selector } => request
+                                .player
+                                .accept(selector.clone(), &requests, request.id)
+                                .map(OperationAnswer::AcceptDrop),
+                        };
+                        requests.settle(&request, answer);
+                    }
+                })?;
+            operations.threads.push(thread);
+        }
+        Ok(operations)
     }
 }
 
@@ -860,12 +1184,14 @@ impl Drop for Operations {
         {
             let mut queue = self.sender.queue.lock();
             queue.stopped = true;
-            queue.fifo.clear();
+            for lane in &mut queue.lanes {
+                lane.clear();
+            }
             queue.entries.clear();
             queue.preparations.clear();
-            self.sender.ready.notify_one();
+            self.sender.ready.notify_all();
         }
-        if let Some(thread) = self.thread.take() {
+        for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
     }

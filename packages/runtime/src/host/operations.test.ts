@@ -155,3 +155,29 @@ it("settles a successful shared equip without issuing another equip", async () =
   expect(host.cancelOperation).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it.each([
+  {
+    operation: { kind: "loadQuests", ids: Array.from({ length: 91 }, (_, index) => index + 1), silent: true },
+    answer: { kind: "loadQuests", value: Array.from({ length: 91 }, () => false) },
+  },
+  {
+    operation: { kind: "openBank", force: true },
+    answer: { kind: "openBank", value: true },
+  },
+] satisfies readonly {
+  operation: import("@lucent/game/protocol").Operation;
+  answer: import("@lucent/game/protocol").OperationAnswer;
+}[])("keeps a bounded $operation.kind transaction alive beyond 35 seconds", async ({ operation, answer }) => {
+  vi.useFakeTimers();
+  const host = { prepareOperation: () => "long-wait", operate: vi.fn(), cancelOperation: vi.fn() };
+  let error: unknown;
+  const finished = Effect.runPromise(operate(operation, host)).catch(cause => { error = cause; });
+  startOperation("long-wait");
+  await vi.advanceTimersByTimeAsync(40_000);
+  expect(error).toBeUndefined();
+  expect(host.cancelOperation).not.toHaveBeenCalled();
+  completeOperation("long-wait", answer, null);
+  expect(await finished).toEqual(answer);
+  expect(vi.getTimerCount()).toBe(0);
+});
