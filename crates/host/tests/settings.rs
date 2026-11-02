@@ -30,6 +30,10 @@ fn become_ready(link: &ScriptLink) {
     )
     .recv_timeout(TIMEOUT)
     .unwrap();
+    load_facts(link);
+}
+
+fn load_facts(link: &ScriptLink) {
     for packet in [
         json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
         json!({"cmd":"moveToArea","areaId":1,"areaName":"battleon-1",
@@ -583,4 +587,54 @@ fn settings_reapplies_share_one_avatar_confirmation() {
     assert_eq!(calls[0], 0);
     assert_eq!(calls[1], 0);
     assert!(calls[2] <= 1, "avatar confirmations: {}", calls[2]);
+}
+
+#[test]
+fn settings_wakes_when_avatar_confirmation_finishes() {
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        common::ready_movie()
+            .responding(
+                "player.isLoaded",
+                [false, false, false, true].map(|loaded| (json!(loaded), vec![])),
+            )
+            .recording("auth.isLoggedIn")
+            .recording("world.isLoaded")
+            .recording("settings.setWalkSpeed"),
+    );
+    observer
+        .call_loader(
+            "probe.emit",
+            vec![
+                Value::String("onConnection".into()),
+                Value::String("OnConnection".into()),
+            ],
+        )
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    observer
+        .call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    let _supervisor = Supervisor::start(&mut session, None).unwrap();
+    load_facts(&observer);
+    let mut confirmations = 0;
+    let mut applied = 0;
+    while applied < 2 {
+        let event = await_call(&observer);
+        if let Some(Value::String(method)) = event.args.first() {
+            match method.as_str() {
+                "auth.isLoggedIn" | "world.isLoaded" => {
+                    panic!("unexpected readiness poll: {method}")
+                }
+                "player.isLoaded" => confirmations += 1,
+                "settings.setWalkSpeed" => {
+                    assert_eq!(confirmations, 4);
+                    applied += 1;
+                }
+                _ => {}
+            }
+        }
+    }
 }
