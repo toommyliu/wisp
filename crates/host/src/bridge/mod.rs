@@ -41,14 +41,20 @@ pub enum Error {
     CommandDecode { callback: String, reason: String },
 }
 
+#[derive(Default)]
+struct ReplyState {
+    ready: bool,
+    waker: Option<Waker>,
+}
+
 pub struct Pending<T> {
     receiver: mpsc::Receiver<Result<T, Error>>,
-    waker: Arc<Mutex<Option<Waker>>>,
+    state: Arc<Mutex<ReplyState>>,
 }
 
 pub(crate) struct Reply<T> {
     sender: Option<mpsc::Sender<Result<T, Error>>>,
-    waker: Arc<Mutex<Option<Waker>>>,
+    state: Arc<Mutex<ReplyState>>,
 }
 
 impl<T> Reply<T> {
@@ -56,13 +62,22 @@ impl<T> Reply<T> {
         mut self,
         result: Result<T, Error>,
     ) -> Result<(), mpsc::SendError<Result<T, Error>>> {
+        let mut state = self.state.lock().unwrap();
         let result = self.sender.take().unwrap().send(result);
-        self.wake();
+        state.ready = true;
+        let waker = state.waker.take();
+        drop(state);
+        if let Some(waker) = waker {
+            waker.wake();
+        }
         result
     }
 
     fn wake(&self) {
-        let waker = self.waker.lock().unwrap().clone();
+        let mut state = self.state.lock().unwrap();
+        state.ready = true;
+        let waker = state.waker.take();
+        drop(state);
         if let Some(waker) = waker {
             waker.wake();
         }
@@ -83,18 +98,24 @@ pub type PendingRead<T> = Pending<T>;
 impl<T> Pending<T> {
     pub(crate) fn channel() -> (Reply<T>, Self) {
         let (sender, receiver) = mpsc::channel();
-        let waker = Arc::new(Mutex::new(None));
+        let state = Arc::new(Mutex::new(ReplyState::default()));
         (
             Reply {
                 sender: Some(sender),
-                waker: waker.clone(),
+                state: state.clone(),
             },
-            Self { receiver, waker },
+            Self { receiver, state },
         )
     }
 
     pub fn set_waker(&self, waker: Waker) {
-        *self.waker.lock().unwrap() = Some(waker);
+        let mut state = self.state.lock().unwrap();
+        if state.ready {
+            drop(state);
+            waker.wake();
+        } else {
+            state.waker = Some(waker);
+        }
     }
 
     pub fn try_recv(&self) -> Option<Result<T, Error>> {

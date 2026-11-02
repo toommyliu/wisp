@@ -132,22 +132,36 @@ fn replies_before_registration_wake_each_drop_rejection_transition() {
     let barrier = session
         .attach(lucent_host::bridge::EventInterests::new(&[]))
         .unwrap();
+    let replies = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let completed = replies.clone();
     policy.set_reply_probe(move || {
         barrier
             .call_loader("probe.echo", vec![])
             .recv_timeout(TIMEOUT)
             .unwrap();
+        completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });
-    for _ in 0..2 {
+    let until = Instant::now() + TIMEOUT;
+    let mut checked = 0;
+    loop {
         while wakes.try_recv().is_ok() {}
-        assert!(policy.advance(Instant::now()).is_some());
-        assert_eq!(
-            wakes.try_recv(),
-            Ok(()),
-            "completed reply did not wake the policy"
-        );
+        let next = policy.advance(Instant::now());
+        let completed = replies.load(std::sync::atomic::Ordering::Relaxed);
+        if completed > checked {
+            assert_eq!(
+                wakes.try_recv(),
+                Ok(()),
+                "completed reply did not wake the policy"
+            );
+            checked = completed;
+        }
+        if next.is_none() {
+            break;
+        }
+        assert!(Instant::now() < until, "drop rejection did not settle");
+        thread::yield_now();
     }
-    assert_eq!(policy.advance(Instant::now()), None);
+    assert!(checked >= 2);
     assert_eq!(drain_rejects(&writer), [Value::Number(69.0)]);
     assert!(remaining(&writer).is_empty());
 }
@@ -596,20 +610,6 @@ fn reject_deadlines_are_100_200_and_400_ms() {
             .unwrap(),
         Waker::from(Arc::new(Unpark(thread::current()))),
     );
-    let settle = |policy: &mut lucent_host::automation::DropPolicy, now: &mut Instant| {
-        let until = Instant::now() + TIMEOUT;
-        loop {
-            assert!(Instant::now() < until, "reject transition did not settle");
-            match policy.advance(*now) {
-                Some(at) if at <= *now => {}
-                Some(at) if at - *now < Duration::from_millis(100) => *now = at,
-                Some(at) if at - *now > Duration::from_millis(400) => {
-                    thread::park_timeout(until.saturating_duration_since(Instant::now()))
-                }
-                answer => break answer,
-            }
-        }
-    };
     let rejects = || {
         let mut count = 0;
         while let Some(event) = writer.try_event().unwrap() {
@@ -624,7 +624,7 @@ fn reject_deadlines_are_100_200_and_400_ms() {
     };
     let mut now = Instant::now();
     for delay in [100, 200, 400] {
-        let at = settle(&mut policy, &mut now).unwrap();
+        let at = settle_policy(&mut policy, &mut now).unwrap();
         assert_eq!(at - now, Duration::from_millis(delay));
         assert_eq!(rejects(), 1);
         now = at - Duration::from_millis(1);
@@ -632,7 +632,7 @@ fn reject_deadlines_are_100_200_and_400_ms() {
         assert_eq!(rejects(), 0);
         now = at;
     }
-    assert_eq!(settle(&mut policy, &mut now), None);
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
     assert_eq!(rejects(), 1);
     logs.wait_for(
         tracing::Level::WARN,
@@ -664,7 +664,8 @@ fn settle_policy(
             Some(at) if at <= *now => {}
             Some(at) if at - *now < Duration::from_millis(100) => *now = at,
             Some(at) if at - *now > Duration::from_millis(400) => {
-                thread::park_timeout(until.saturating_duration_since(Instant::now()));
+                thread::park_timeout(at.min(until).saturating_duration_since(Instant::now()));
+                *now = (*now).max(Instant::now());
             }
             answer => return answer,
         }
