@@ -690,6 +690,88 @@ fn a_run_waiting_across_a_connection_change_starts_on_the_new_connection() {
 }
 
 #[test]
+fn a_connection_the_controller_hears_about_late_still_starts_the_run() {
+    let logs = Logs::default();
+    let (layer, gate) = hold(
+        "session 1: late.js is waiting for login",
+        Some("lucent-supervisor"),
+        true,
+    );
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry()
+            .with(logs.clone())
+            .with(layer),
+    );
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    let (request, _controls) = lucent_host::ScriptRequest::new(loose(&[(
+        "late.js",
+        "export default function* () { console.log('late body'); }",
+    )]));
+    let _supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
+    gate.wait();
+    for _ in 0..64 {
+        emit_connection(&observer, "Unrelated");
+    }
+    log_in(&observer);
+    testing::wait_until_ready(&observer);
+    gate.open();
+    wait_status(&session, |s| s.script_status().last_end.is_some());
+    assert_eq!(
+        session.script_status().last_end.as_deref(),
+        Some("late.js completed")
+    );
+    assert_eq!(
+        logs.messages(INFO)
+            .iter()
+            .filter(|line| *line == "late body")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_reconnect_the_controller_sees_in_one_pass_still_ends_the_run() {
+    let logs = Logs::default();
+    let (layer, gate) = hold(
+        "session 1: hold.js started",
+        Some("lucent-supervisor"),
+        true,
+    );
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry()
+            .with(logs.clone())
+            .with(layer),
+    );
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    session
+        .update_script_options(
+            serde_json::from_value(serde_json::json!({"safeStartStop":false})).unwrap(),
+        )
+        .unwrap();
+    log_in(&observer);
+    testing::wait_until_ready(&observer);
+    let (request, _controls) = lucent_host::ScriptRequest::new(loose(&[(
+        "hold.js",
+        "import * as script from 'lucent/script'; export default function* () { yield* script.sleep('1 hour'); }",
+    )]));
+    let _supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
+    gate.wait();
+    emit_connection(&observer, "OnConnectionLost");
+    log_in(&observer);
+    testing::wait_until_ready(&observer);
+    gate.open();
+    wait_status(&session, |s| s.script_status().last_end.is_some());
+    assert_eq!(
+        session.script_status().last_end.as_deref(),
+        Some("hold.js was stopped: Connection lost")
+    );
+}
+
+#[test]
 fn readiness_times_out_through_the_controller_without_booting_a_worker() {
     let logs = Logs::default();
     let dispatch = logs.dispatch();

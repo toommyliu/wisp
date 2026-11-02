@@ -177,7 +177,8 @@ impl Supervisor {
             watch: None,
             readiness: lc::Readiness::default(),
             binding,
-            connected: None,
+            connects: 0,
+            disconnects: 0,
             username: String::new(),
             credentials: None,
             credentials_retry: 0,
@@ -340,7 +341,8 @@ struct Supervision {
     watch: Option<ScriptLink>,
     readiness: lc::Readiness,
     binding: lc::Binding,
-    connected: Option<bool>,
+    connects: u64,
+    disconnects: u64,
     username: String,
     credentials: Option<bridge::Pending<String>>,
     credentials_retry: u64,
@@ -498,7 +500,8 @@ impl Supervision {
         self.logout = None;
         self.credentials = None;
         self.credentials_retry = 0;
-        self.connected = None;
+        self.connects = 0;
+        self.disconnects = 0;
         self.username.clear();
         self.readiness = lc::Readiness::default();
         if replacing {
@@ -602,23 +605,10 @@ impl Supervision {
         let Some(watch) = &self.watch else {
             return;
         };
-        let mut connections = Vec::new();
         let mut draining = false;
         let mut stopped = false;
         for index in 0..64 {
             match watch.try_event() {
-                Ok(Some(bridge::ScriptEvent::Loader { event, .. }))
-                    if event.name == "onConnection" =>
-                {
-                    if let Some(lucent_protocol::bridge::Value::String(status)) = event.args.first()
-                    {
-                        match status.as_str() {
-                            "OnConnection" => connections.push(true),
-                            "OnConnectionLost" | "OnConnectionFailed" => connections.push(false),
-                            _ => {}
-                        }
-                    }
-                }
                 Ok(Some(_)) | Err(bridge::Error::Overflow) => {}
                 Ok(None) => break,
                 Err(_) => {
@@ -649,9 +639,12 @@ impl Supervision {
                 p.auth.username.clone(),
                 p.auth.credentials_epoch == Some(p.receipts.epoch()),
                 p.connected,
+                p.connects,
+                p.disconnects,
             )
         });
-        let Ok((record, username, account_read, connected)) = snapshot else {
+        let Ok((record, username, account_read, connected, connects, disconnects)) = snapshot
+        else {
             self.schedule(Instant::now() + Duration::from_millis(1));
             return;
         };
@@ -666,17 +659,19 @@ impl Supervision {
             }
             self.username = name;
         }
-        if connections.is_empty() && connected != self.connected {
-            connections.extend(connected);
+        let restored = connects != self.connects;
+        let lost = disconnects != self.disconnects;
+        self.connects = connects;
+        self.disconnects = disconnects;
+        if lost && connected == Some(true) {
+            self.advance(lc::Event::ConnectionLost(self.binding));
         }
-        for connected in connections {
-            self.connected = Some(connected);
-            if connected {
-                self.binding.connection.0 += 1;
-                self.advance(lc::Event::ConnectionRestored(self.binding));
-            } else {
-                self.advance(lc::Event::ConnectionLost(self.binding));
-            }
+        if restored {
+            self.binding.connection.0 += 1;
+            self.advance(lc::Event::ConnectionRestored(self.binding));
+        }
+        if lost && connected != Some(true) {
+            self.advance(lc::Event::ConnectionLost(self.binding));
         }
         self.advance(lc::Event::ProjectionChanged);
         let status = self.machine.status();
