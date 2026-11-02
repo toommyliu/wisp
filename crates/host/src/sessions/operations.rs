@@ -296,7 +296,9 @@ impl Endpoint {
                     .get(container, drop.item_id)
                     .map_or(0.0, |item| item.data().quantity)
             });
-            let response = self.packets.subscribe(drop.item_id);
+            let response = operations
+                .prepare_accept(id, drop.item_id)
+                .and_then(|()| self.packets.subscribe(drop.item_id));
             Some((drop, quantities, response))
         })?;
         let Some((drop, quantities, response)) = prepared else {
@@ -795,39 +797,69 @@ pub(crate) struct Request {
 enum Lifecycle {
     Queued {
         owner: super::AttachmentId,
+        accepting: Option<i64>,
         request: Option<Arc<Request>>,
     },
-    IssuedAttached(super::AttachmentId),
-    IssuedDetached,
+    Issued {
+        owner: Option<super::AttachmentId>,
+        accepting: Option<i64>,
+    },
     Settled,
 }
 
 impl Lifecycle {
     fn issue(&mut self) -> bool {
         match self {
-            Self::Queued { owner, .. } => {
-                *self = Self::IssuedAttached(*owner);
+            Self::Queued {
+                owner, accepting, ..
+            } => {
+                *self = Self::Issued {
+                    owner: Some(*owner),
+                    accepting: *accepting,
+                };
                 true
             }
-            Self::IssuedAttached(_) | Self::IssuedDetached | Self::Settled => false,
+            Self::Issued { .. } | Self::Settled => false,
         }
     }
 
     fn cancel(&mut self, caller: super::AttachmentId) {
-        match *self {
-            Self::Queued { owner, .. } if owner == caller => *self = Self::Settled,
-            Self::IssuedAttached(owner) if owner == caller => *self = Self::IssuedDetached,
-            Self::Queued { .. }
-            | Self::IssuedAttached(_)
-            | Self::IssuedDetached
-            | Self::Settled => {}
+        match self {
+            Self::Queued { owner, .. } if *owner == caller => *self = Self::Settled,
+            Self::Issued { owner, .. } if *owner == Some(caller) => *owner = None,
+            Self::Queued { .. } | Self::Issued { .. } | Self::Settled => {}
         }
     }
 
     fn settle(&mut self) -> Option<super::AttachmentId> {
         match std::mem::replace(self, Self::Settled) {
-            Self::Queued { owner, .. } | Self::IssuedAttached(owner) => Some(owner),
-            Self::IssuedDetached | Self::Settled => None,
+            Self::Queued { owner, .. } => Some(owner),
+            Self::Issued { owner, .. } => owner,
+            Self::Settled => None,
+        }
+    }
+
+    fn accepts(&self, item: i64, projection: &Projection) -> bool {
+        match self {
+            Self::Queued {
+                accepting: Some(id),
+                ..
+            } => *id == item,
+            Self::Queued {
+                request: Some(request),
+                ..
+            } => {
+                if let Operation::AcceptDrop { selector } = &request.operation {
+                    projection
+                        .items
+                        .resolve(ItemContainer::Drop, selector)
+                        .is_some_and(|drop| drop.data().item_id == item)
+                } else {
+                    false
+                }
+            }
+            Self::Issued { accepting, .. } => *accepting == Some(item),
+            _ => false,
         }
     }
 }
@@ -864,9 +896,16 @@ struct Queue {
     lanes: [VecDeque<u64>; 2],
     preparations: Vec<ClaimPreparation>,
     stopped: bool,
+    accept_waiter: Option<std::task::Waker>,
 }
 
 impl Queue {
+    fn wake_accept_waiter(&mut self) {
+        if let Some(waker) = self.accept_waiter.take() {
+            waker.wake();
+        }
+    }
+
     fn update_preparations(&mut self) {
         self.preparations
             .retain(|entry| self.entries.contains_key(&entry.request.id));
@@ -930,6 +969,7 @@ impl Shared {
             id,
             Lifecycle::Queued {
                 owner,
+                accepting: None,
                 request: None,
             },
         );
@@ -945,6 +985,7 @@ impl Shared {
         let Lifecycle::Queued {
             owner,
             request: pending,
+            ..
         } = entry
         else {
             return Err(Error::Stopped);
@@ -993,6 +1034,37 @@ impl Shared {
         Ok(())
     }
 
+    fn prepare_accept(&self, id: u64, item: i64) -> Result<(), Error> {
+        let mut queue = self.queue.lock();
+        let Some(Lifecycle::Queued { accepting, .. }) = queue.entries.get_mut(&id) else {
+            return Err(Error::Stopped);
+        };
+        *accepting = Some(item);
+        Ok(())
+    }
+
+    pub(crate) fn reject_unless_accepting<T>(
+        &self,
+        item: i64,
+        projection: &Projection,
+        waker: &std::task::Waker,
+        dispatch: impl FnOnce() -> T,
+    ) -> Result<Option<T>, Error> {
+        let mut queue = self.queue.try_lock().ok_or(Error::Timeout)?;
+        if queue.stopped {
+            return Err(Error::Stopped);
+        }
+        if queue
+            .entries
+            .values()
+            .any(|entry| entry.accepts(item, projection))
+        {
+            queue.accept_waiter = Some(waker.clone());
+            return Ok(None);
+        }
+        Ok(Some(dispatch()))
+    }
+
     pub(crate) fn cancel(&self, owner: super::AttachmentId, id: u64) {
         #[cfg(feature = "testing")]
         probe_lock(&self.cancel_probe);
@@ -1005,6 +1077,7 @@ impl Shared {
                     lane.retain(|queued| *queued != id);
                 }
                 queue.update_preparations();
+                queue.wake_accept_waiter();
             }
         }
     }
@@ -1020,6 +1093,7 @@ impl Shared {
             lane.retain(|id| entries.contains_key(id));
         }
         queue.update_preparations();
+        queue.wake_accept_waiter();
     }
 
     fn next(&self, lane: Lane) -> Option<Arc<Request>> {
@@ -1053,8 +1127,8 @@ impl Shared {
     fn attached<T>(&self, id: u64, dispatch: impl FnOnce() -> T) -> Option<T> {
         let queue = self.queue.lock();
         match queue.entries.get(&id)? {
-            Lifecycle::Queued { .. } | Lifecycle::IssuedAttached(_) => Some(dispatch()),
-            Lifecycle::IssuedDetached | Lifecycle::Settled => None,
+            Lifecycle::Queued { .. } | Lifecycle::Issued { owner: Some(_), .. } => Some(dispatch()),
+            Lifecycle::Issued { owner: None, .. } | Lifecycle::Settled => None,
         }
     }
 
@@ -1105,6 +1179,7 @@ impl Shared {
             ));
         }
         queue.update_preparations();
+        queue.wake_accept_waiter();
     }
 
     #[cfg(feature = "testing")]
@@ -1127,6 +1202,7 @@ impl Shared {
             request.id,
             Lifecycle::Queued {
                 owner: request.owner.attachment,
+                accepting: None,
                 request: None,
             },
         );
@@ -1228,6 +1304,7 @@ mod tests {
         let owner = AttachmentId(1);
         let mut state = Lifecycle::Queued {
             owner,
+            accepting: None,
             request: None,
         };
         state.cancel(owner);
@@ -1243,14 +1320,15 @@ mod tests {
         let owner = AttachmentId(1);
         let mut state = Lifecycle::Queued {
             owner,
+            accepting: None,
             request: None,
         };
         assert!(state.issue());
         assert!(!state.issue());
         state.cancel(owner);
-        assert!(matches!(state, Lifecycle::IssuedDetached));
+        assert!(matches!(state, Lifecycle::Issued { owner: None, .. }));
         state.cancel(owner);
-        assert!(matches!(state, Lifecycle::IssuedDetached));
+        assert!(matches!(state, Lifecycle::Issued { owner: None, .. }));
         assert_eq!(state.settle(), None);
         assert!(matches!(state, Lifecycle::Settled));
     }
@@ -1261,6 +1339,7 @@ mod tests {
             let owner = AttachmentId(1);
             let mut state = Lifecycle::Queued {
                 owner,
+                accepting: None,
                 request: None,
             };
             if issued {

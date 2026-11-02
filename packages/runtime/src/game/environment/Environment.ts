@@ -22,16 +22,13 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import { selectDesktopBridge } from "../../shared/desktopBridge";
 import { EnvironmentRpcs } from "../../shared/gameRendererRpc";
 import { logFailure } from "../../shared/logFailure";
-import { playBeep } from "../audio/beep";
 import { makeFailureTransitions } from "../failureTransitions";
 import { Api } from "../flash/api/Api";
 import {
   runEnvironmentCycleWhenLoggedIn,
   selectEnvironmentBoost,
-  shouldReconcileEnvironmentDrops,
 } from "./automation";
 import { discoverEnvironmentBoosts, withdrawEnvironmentBoosts } from "./boosts";
-import { makeEnvironmentDropAutomation } from "./dropAutomation";
 import {
   canRunQuestAction,
   clearQuestActionFailure,
@@ -140,19 +137,6 @@ const shouldReconcileQuestTargets = (
   previous.questIds.length !== next.questIds.length ||
   previous.questIds.some((questId, index) => questId !== next.questIds[index]);
 
-const reportDropAutomationFailure = (
-  cause: Cause.Cause<unknown>,
-  itemId?: number,
-) =>
-  Cause.hasInterruptsOnly(cause)
-    ? Effect.failCause(cause)
-    : Effect.logError("Environment drop reconciliation failed", cause).pipe(
-        Effect.annotateLogs({
-          component: "environment",
-          data: itemId === undefined ? {} : { itemId },
-        }),
-      );
-
 export class EnvironmentBridgeError extends Schema.TaggedError<EnvironmentBridgeError>()(
   "EnvironmentBridgeError",
   {
@@ -202,23 +186,9 @@ const makeEnvironment = Effect.gen(function* () {
   });
 
   const getState = () => Ref.get(stateRef);
-  const dropAutomation = yield* makeEnvironmentDropAutomation({
-    accept: api.drops.accept,
-    contains: api.drops.contains,
-    getAll: api.drops.getAll,
-    getState,
-    reject: api.drops.reject,
-    reportFailure: reportDropAutomationFailure,
-  });
-
-  const reconcilePendingDrops = (): void => {
-    runFork(dropAutomation.requestReconciliation);
-  };
-
   const registerQuestDropTargets = (
     state: EnvironmentState,
     quest: Quest,
-    options: { readonly reconcileDrops?: boolean } = {},
   ) =>
     Effect.gen(function* () {
       if (
@@ -227,8 +197,6 @@ const makeEnvironment = Effect.gen(function* () {
       ) {
         return;
       }
-
-      const previous = yield* getState();
 
       for (const itemName of getQuestDropTargetNames(
         quest,
@@ -265,14 +233,6 @@ const makeEnvironment = Effect.gen(function* () {
           ),
         );
       }
-
-      const next = yield* getState();
-      if (
-        (options.reconcileDrops ?? true) &&
-        shouldReconcileEnvironmentDrops(previous, next)
-      ) {
-        reconcilePendingDrops();
-      }
     });
 
   const registerAllLoadedQuestDropTargets = (state: EnvironmentState) =>
@@ -289,9 +249,7 @@ const makeEnvironment = Effect.gen(function* () {
         state.questIds,
       );
       for (const quest of quests) {
-        yield* registerQuestDropTargets(state, quest, {
-          reconcileDrops: false,
-        }).pipe(
+        yield* registerQuestDropTargets(state, quest).pipe(
           Effect.tap(() =>
             automationLogs.recovered(
               `environment/quests/${quest.id}/drop-targets`,
@@ -309,10 +267,7 @@ const makeEnvironment = Effect.gen(function* () {
       }
     });
 
-  const applyState = (
-    incoming: EnvironmentState,
-    options: { readonly reconcileDrops?: boolean } = {},
-  ) =>
+  const applyState = (incoming: EnvironmentState) =>
     Effect.gen(function* () {
       const previous = yield* Ref.get(stateRef);
       const state = normalizeEnvironmentState(incoming);
@@ -326,15 +281,7 @@ const makeEnvironment = Effect.gen(function* () {
       if (shouldReconcileQuestTargets(previous, state)) {
         yield* registerAllLoadedQuestDropTargets(state);
       }
-      const appliedState = yield* getState();
-      if (
-        (options.reconcileDrops ?? false) ||
-        previous.automation.drops !== appliedState.automation.drops ||
-        shouldReconcileEnvironmentDrops(previous, appliedState)
-      ) {
-        reconcilePendingDrops();
-      }
-      return appliedState;
+      return yield* getState();
     });
 
   const invokeState = (
@@ -848,34 +795,7 @@ const makeEnvironment = Effect.gen(function* () {
       ),
     );
   });
-  const removeDropListener = yield* api.events.on(
-    { type: "item-drop" },
-    (event) =>
-      Effect.gen(function* () {
-        const state = yield* getState();
-        if (
-          state.automation.drops &&
-          hasEnvironmentItemName(
-            { itemNames: state.itemNotificationNames },
-            event.item.name,
-          )
-        ) {
-          yield* Effect.sync(() => playBeep(1));
-        }
-
-        yield* dropAutomation.requestReconciliation;
-      }).pipe(
-        Effect.catchCause((cause) =>
-          reportDropAutomationFailure(cause, event.item.itemId),
-        ),
-      ),
-  );
-  yield* Effect.addFinalizer(() =>
-    Effect.sync(() => {
-      removeStateListener();
-      removeDropListener();
-    }),
-  );
+  yield* Effect.addFinalizer(() => Effect.sync(removeStateListener));
 
   const initialState = yield* fromDesktop(
     "Failed to load Environment state.",
@@ -888,7 +808,7 @@ const makeEnvironment = Effect.gen(function* () {
       ),
     ),
   );
-  yield* applyState(initialState, { reconcileDrops: true });
+  yield* applyState(initialState);
 
   return Environment.of({
     addBoost,

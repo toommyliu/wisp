@@ -242,6 +242,18 @@ impl ScriptLink {
             .release_claim(super::claims::Owner::script(self.attachment), id);
     }
 
+    pub(crate) fn drop_command_unless_accepting(
+        &self,
+        item: i64,
+        waker: &Waker,
+        command: lucent_protocol::command::Command,
+    ) -> Result<Option<Pending<String>>, bridge::Error> {
+        self.read_for(Duration::ZERO, |projection| {
+            self.operations
+                .reject_unless_accepting(item, projection, waker, || self.command(command))
+        })?
+    }
+
     pub fn cancel_operation(&self, id: u64) {
         self.operations.cancel(self.attachment, id);
     }
