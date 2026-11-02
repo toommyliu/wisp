@@ -868,6 +868,13 @@ fn cancelling_a_queued_accept_wakes_the_policy_to_reconsider_rejection() {
     common::log_in(&link);
     reject_else(&link);
     drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);
+    let (release, resumed) = std::sync::mpsc::channel::<()>();
+    let resumed = std::sync::Mutex::new(resumed);
+    link.set_operation_probe(move |_, issued| {
+        if issued {
+            let _ = resumed.lock().unwrap().recv();
+        }
+    });
     link.operate(Operation::AcceptDrop {
         selector: ItemSelector::Id(70.0),
     })
@@ -902,6 +909,7 @@ fn cancelling_a_queued_accept_wakes_the_policy_to_reconsider_rejection() {
     );
     assert_eq!(reconsidered, [Value::Number(69.0)]);
     assert_eq!(left, [70]);
+    drop(release);
 }
 
 #[test]
