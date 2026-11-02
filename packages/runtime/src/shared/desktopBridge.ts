@@ -9,13 +9,6 @@ import type {
   AppearancePatch,
   PreferencesPatch,
 } from "@lucent/schemas/settings";
-import type {
-  EnvironmentAutomationCapability,
-  EnvironmentItemRules,
-  EnvironmentQuestAutoRegisterOptions,
-  EnvironmentQuestRegistration,
-  EnvironmentState,
-} from "@lucent/schemas/environment";
 import type { HotkeysPatch } from "@lucent/schemas/hotkeys";
 import type {
   CombatProfile,
@@ -52,7 +45,6 @@ import type {
   ScriptOpenFileResult,
   ScriptSelectFileResult,
 } from "./ipc/scripting";
-import type { EnvironmentBoostDiscovery } from "./environmentBoosts";
 import type { DesktopHttpBridge } from "./http";
 import type { FollowerPlayers } from "./ipc/follower";
 import type {
@@ -399,54 +391,6 @@ export interface DesktopGameFollowerBridge {
   readonly publishState: (state: FollowerState) => Promise<void>;
 }
 
-export interface DesktopEnvironmentBridge {
-  readonly addBoost: (name: string) => Promise<EnvironmentState>;
-  readonly addBoosts: (names: readonly string[]) => Promise<EnvironmentState>;
-  readonly addItem: (name: string) => Promise<EnvironmentState>;
-  readonly addItems: (names: readonly string[]) => Promise<EnvironmentState>;
-  readonly addQuest: (
-    questId: number,
-    rewardItemId?: number,
-  ) => Promise<EnvironmentState>;
-  readonly addQuests: (
-    quests: readonly EnvironmentQuestRegistration[],
-  ) => Promise<EnvironmentState>;
-  readonly clear: () => Promise<EnvironmentState>;
-  readonly clearBoosts: () => Promise<EnvironmentState>;
-  readonly clearItems: () => Promise<EnvironmentState>;
-  readonly clearQuestReward: (questId: number) => Promise<EnvironmentState>;
-  readonly clearQuests: () => Promise<EnvironmentState>;
-  readonly fetchBoosts: () => Promise<EnvironmentBoostDiscovery>;
-  readonly getState: () => Promise<EnvironmentState>;
-  readonly onChanged: (
-    listener: (state: EnvironmentState) => void,
-  ) => () => void;
-  readonly removeBoost: (name: string) => Promise<EnvironmentState>;
-  readonly removeItem: (name: string) => Promise<EnvironmentState>;
-  readonly removeQuest: (questId: number) => Promise<EnvironmentState>;
-  readonly setAutomationEnabled: (
-    capability: EnvironmentAutomationCapability,
-    enabled: boolean,
-  ) => Promise<EnvironmentState>;
-  readonly setItemNotification: (
-    name: string,
-    enabled: boolean,
-  ) => Promise<EnvironmentState>;
-  readonly setItemRules: (
-    rules: EnvironmentItemRules,
-  ) => Promise<EnvironmentState>;
-  readonly setQuestAutoRegister: (
-    options: EnvironmentQuestAutoRegisterOptions,
-  ) => Promise<EnvironmentState>;
-  readonly setQuestReward: (
-    questId: number,
-    rewardItemId: number,
-  ) => Promise<EnvironmentState>;
-  readonly syncToAll: () => Promise<EnvironmentState>;
-  readonly withdrawBoosts: (
-    itemIds: readonly number[],
-  ) => Promise<readonly number[]>;
-}
 
 export interface DesktopArmyBridge {
   readonly fail: (payload: ArmyFailPayload) => Promise<void>;
@@ -521,12 +465,7 @@ interface DesktopBridgeViewCapabilities {
     };
   };
   readonly "combat-profiles": Pick<DesktopBridgeCapabilities, "combatProfiles">;
-  readonly environment: {
-    readonly environment: Omit<
-      DesktopEnvironmentBridge,
-      "addBoost" | "addItem" | "addQuest"
-    >;
-  };
+  readonly environment: Record<string, never>;
   readonly follower: Pick<DesktopBridgeCapabilities, "follower" | "windows"> & {
     readonly combatProfiles: Pick<
       DesktopCombatProfilesBridge,
@@ -549,10 +488,6 @@ interface DesktopBridgeViewCapabilities {
     readonly combatProfiles: Pick<
       DesktopCombatProfilesBridge,
       "getState" | "onChanged"
-    >;
-    readonly environment: Omit<
-      DesktopEnvironmentBridge,
-      "addBoosts" | "addItems" | "addQuests" | "fetchBoosts" | "withdrawBoosts"
     >;
     readonly packets: DesktopGamePacketsBridge;
   } & Partial<Pick<DesktopBridgeCapabilities, "gameConsoleObservability">>;

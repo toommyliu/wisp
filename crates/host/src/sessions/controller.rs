@@ -5,7 +5,7 @@ use super::{
 use crate::scripting::{Kill, RuntimeError, ScriptRun};
 use crate::{
     HostError, ScriptLink, Session, Surface,
-    automation::{AutoZonePolicy, DropPolicy, ReloginPolicy, SettingsPolicy},
+    automation::{AutoZonePolicy, DropPolicy, EnvironmentPolicy, ReloginPolicy, SettingsPolicy},
     bridge,
 };
 use lucent_protocol::script::{Script, ScriptOutcome, ScriptPhase, ScriptStatus};
@@ -113,6 +113,7 @@ struct Player {
     auto_zone: ScriptLink,
     drops: ScriptLink,
     jobs: ScriptLink,
+    environment: ScriptLink,
 }
 impl Supervisor {
     pub(super) fn controls(&self) -> Option<ScriptControls> {
@@ -189,6 +190,7 @@ impl Supervisor {
             auto_zone: None,
             drops: None,
             jobs: None,
+            environment: None,
             deadline: None,
         };
         session
@@ -279,6 +281,7 @@ fn attach(session: &mut Session) -> Option<Player> {
         auto_zone: session.attach(AutoZonePolicy::INTERESTS)?,
         drops: session.attach(DropPolicy::INTERESTS)?,
         jobs: session.attach(crate::game::jobs::ProfileJobs::INTERESTS)?,
+        environment: session.attach(EnvironmentPolicy::INTERESTS)?,
     })
 }
 struct Notify {
@@ -343,6 +346,7 @@ struct Supervision {
     auto_zone: Option<AutoZonePolicy>,
     drops: Option<DropPolicy>,
     jobs: Option<crate::game::jobs::ProfileJobs>,
+    environment: Option<EnvironmentPolicy>,
     deadline: Option<Instant>,
 }
 struct RunNotify {
@@ -502,6 +506,7 @@ impl Supervision {
             auto_zone,
             drops,
             jobs,
+            environment,
         } = player;
         watch.set_waker(Waker::from(self.notify.clone()));
         self.watch = Some(watch);
@@ -513,6 +518,10 @@ impl Supervision {
         ));
         self.settings = Some(SettingsPolicy::new(
             &relogin,
+            Waker::from(self.notify.clone()),
+        ));
+        self.environment = Some(EnvironmentPolicy::new(
+            environment,
             Waker::from(self.notify.clone()),
         ));
         self.auto_zone = Some(AutoZonePolicy::new(
@@ -538,6 +547,9 @@ impl Supervision {
                 .as_mut()
                 .and_then(|p| p.advance(Instant::now())),
             self.jobs.as_mut().and_then(|p| p.advance(Instant::now())),
+            self.environment
+                .as_mut()
+                .and_then(|p| p.advance(Instant::now())),
             self.drops.as_mut().and_then(|p| p.advance(Instant::now())),
         ]
         .into_iter()

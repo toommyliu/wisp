@@ -30,6 +30,8 @@ pub(crate) struct Binding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaimResource {
     ConsumableSlot5 { item: Option<i64> },
+    Quest { id: i64 },
+    InventoryUse { item: i64 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,19 +84,25 @@ impl Claims {
         owner: Owner,
         resource: ClaimResource,
     ) -> Result<Option<ClaimGrant>, Error> {
-        if self
-            .holders
-            .values()
-            .next()
-            .is_some_and(|held| held.resource != resource)
-        {
+        let conflicts = |held: &HeldClaim| match (held.resource, resource) {
+            (ClaimResource::Quest { id: a }, ClaimResource::Quest { id: b }) => a == b,
+            (ClaimResource::InventoryUse { item: a }, ClaimResource::InventoryUse { item: b }) => {
+                a == b
+            }
+            (
+                ClaimResource::ConsumableSlot5 { item: a },
+                ClaimResource::ConsumableSlot5 { item: b },
+            ) => a != b,
+            _ => false,
+        };
+        if self.holders.values().any(conflicts) {
             return Ok(None);
         }
         if self.holders.len() >= EVENT_CAPACITY {
             return Err(Error::Overflow);
         }
-        let first = self.holders.is_empty();
-        if first {
+        let first = !self.holders.values().any(|held| held.resource == resource);
+        if first && matches!(resource, ClaimResource::ConsumableSlot5 { .. }) {
             self.preparation = Preparation::Unchecked;
         }
         self.next = self.next.checked_add(1).ok_or(Error::Overflow)?;
@@ -110,6 +118,26 @@ impl Claims {
             id: self.next,
             first,
         }))
+    }
+
+    pub(crate) fn resource(&self, owner: Owner, id: u64) -> Option<ClaimResource> {
+        self.holders
+            .get(&id)
+            .filter(|held| held.owner == owner && held.binding == self.binding)
+            .map(|held| held.resource)
+    }
+    pub(crate) fn owning(&self, owner: Owner, resource: ClaimResource) -> Option<u64> {
+        self.holders
+            .iter()
+            .find(|(_, held)| {
+                held.owner == owner && held.binding == self.binding && held.resource == resource
+            })
+            .map(|(id, _)| *id)
+    }
+    pub(crate) fn held_by_other(&self, owner: Owner, resource: ClaimResource) -> bool {
+        self.holders.values().any(|held| {
+            held.owner != owner && held.binding == self.binding && held.resource == resource
+        })
     }
 
     pub(crate) fn preparation(&self, owner: Owner, id: u64) -> Option<(i64, Binding, Preparation)> {
@@ -170,6 +198,59 @@ impl Claims {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quests_exclude_other_callers_without_disturbing_consumable_preparation() {
+        let mut claims = Claims::default();
+        let a = Owner::script(super::super::AttachmentId(1));
+        let b = Owner::script(super::super::AttachmentId(2));
+        let item = claims
+            .acquire(a, ClaimResource::ConsumableSlot5 { item: Some(100) })
+            .unwrap()
+            .unwrap();
+        assert!(claims.set_preparation(claims.binding(), 100, Preparation::Ready));
+        let quest = claims
+            .acquire(a, ClaimResource::Quest { id: 802 })
+            .unwrap()
+            .unwrap();
+        assert!(
+            claims
+                .acquire(b, ClaimResource::Quest { id: 802 })
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            claims
+                .acquire(b, ClaimResource::Quest { id: 803 })
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            claims.preparation(a, item.id).unwrap().2,
+            Preparation::Ready
+        );
+        claims.release(b, quest.id);
+        assert!(
+            claims
+                .acquire(b, ClaimResource::Quest { id: 802 })
+                .unwrap()
+                .is_none()
+        );
+        claims.release_owner(a);
+        assert!(
+            claims
+                .acquire(b, ClaimResource::Quest { id: 802 })
+                .unwrap()
+                .is_some()
+        );
+        claims.clear();
+        assert!(
+            claims
+                .acquire(a, ClaimResource::Quest { id: 803 })
+                .unwrap()
+                .is_some()
+        );
+    }
 
     #[test]
     fn shared_preparation_survives_owner_release_and_rejects_stale_or_foreign_holders() {

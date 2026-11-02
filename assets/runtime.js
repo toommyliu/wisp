@@ -14521,17 +14521,32 @@ ${prefix}}`;
       if (item === null || !isDirectInventoryUseItem(item.category, item.link)) {
         return false;
       }
-      if (!(yield* canUseMemberItem(item.memberOnly))) return false;
-      const startingQuantity = item.quantity;
-      const sent = yield* bridge.invoke("inventory.use", [{ itemId: item.itemId }], Boolean3).pipe(map5(getOrElse(() => false)));
-      if (!sent) return false;
-      return yield* wait.until(
-        get5(item.itemId).pipe(
-          map5(
-            (current) => current === null || current.quantity < startingQuantity
-          )
-        ),
-        { timeout: "5 seconds" }
+      return yield* acquireUseRelease2(
+        sync2(() => JSON.parse(
+          operationHost.acquireInventoryUseClaim(JSON.stringify(item.itemId))
+        )),
+        (claim) => {
+          if (claim === null) return succeed7(false);
+          return gen2(function* () {
+            if (!(yield* canUseMemberItem(item.memberOnly))) return false;
+            const startingQuantity = item.quantity;
+            const sent = yield* bridge.invoke("inventory.use", [{ itemId: item.itemId }], Boolean3).pipe(map5(getOrElse(() => false)));
+            if (!sent) return false;
+            const used = yield* wait.until(
+              get5(item.itemId).pipe(
+                map5(
+                  (current) => current === null || current.quantity < startingQuantity
+                )
+              ),
+              { timeout: "5 seconds" }
+            );
+            if (used) operationHost.settleClaim(claim);
+            return used;
+          });
+        },
+        (claim) => sync2(() => {
+          if (claim !== null) operationHost.releaseClaim(claim);
+        })
       );
     });
     const equipByEnhancementEffect = fn2("Inventory.equipByEnhancement")(
@@ -15286,26 +15301,42 @@ ${prefix}}`;
       if (!isQuestId(questId)) return succeed7(false);
       return bridge.invoke("quests.canComplete", [questId], Boolean3).pipe(map5(getOrElse(() => false)));
     }, "canComplete");
+    const withQuestClaim = /* @__PURE__ */ __name((id, action) => acquireUseRelease2(
+      sync2(() => JSON.parse(
+        operationHost.acquireQuestClaim(JSON.stringify(id))
+      )),
+      (claim) => claim === null ? succeed7(false) : action.pipe(
+        tap2((success) => sync2(() => {
+          if (success) operationHost.settleClaim(claim);
+        }))
+      ),
+      (claim) => sync2(() => {
+        if (claim !== null) operationHost.releaseClaim(claim);
+      })
+    ), "withQuestClaim");
     const accept = /* @__PURE__ */ __name((questId, silent = false) => {
       if (!isQuestId(questId)) return succeed7(false);
-      return gen2(function* () {
-        let actionAvailable = false;
-        if (!(yield* isLoaded(questId))) {
-          actionAvailable = yield* wait.forGameAction("acceptQuest");
-          if (!actionAvailable || !(yield* load(questId, silent))) return false;
-        }
-        if (yield* isInProgress(questId)) return true;
-        if (!actionAvailable && !(yield* wait.forGameAction("acceptQuest")))
-          return false;
-        const accepted = yield* bridge.invoke("quests.accept", [questId, silent], Boolean3).pipe(map5(getOrElse(() => false)));
-        return accepted ? yield* wait.until(isInProgress(questId), {
-          timeout: "5 seconds"
-        }) : false;
-      });
+      return withQuestClaim(
+        questId,
+        gen2(function* () {
+          let actionAvailable = false;
+          if (!(yield* isLoaded(questId))) {
+            actionAvailable = yield* wait.forGameAction("acceptQuest");
+            if (!actionAvailable || !(yield* load(questId, silent))) return false;
+          }
+          if (yield* isInProgress(questId)) return true;
+          if (!actionAvailable && !(yield* wait.forGameAction("acceptQuest")))
+            return false;
+          const accepted = yield* bridge.invoke("quests.accept", [questId, silent], Boolean3).pipe(map5(getOrElse(() => false)));
+          return accepted ? yield* wait.until(isInProgress(questId), {
+            timeout: "5 seconds"
+          }) : false;
+        })
+      );
     }, "accept");
     const abandon = /* @__PURE__ */ __name((questId) => {
       if (!isQuestId(questId)) return succeed7(false);
-      return gen2(function* () {
+      return withQuestClaim(questId, gen2(function* () {
         if (!(yield* isInProgress(questId))) return false;
         if (isNone2(
           yield* bridge.invoke("quests.abandon", [questId], Void2)
@@ -15316,7 +15347,7 @@ ${prefix}}`;
           isInProgress(questId).pipe(map5((active) => !active)),
           { timeout: "5 seconds" }
         );
-      });
+      }));
     }, "abandon");
     const acceptBatch = /* @__PURE__ */ __name((questIds, silent = false) => forEach2(questIds, (questId) => accept(questId, silent), {
       concurrency: 1
@@ -15337,28 +15368,31 @@ ${prefix}}`;
       if (options?.turnIns !== void 0 && !Number.isFinite(options.turnIns)) {
         return succeed7(false);
       }
-      return gen2(function* () {
-        if (!(yield* isInProgress(questId))) return false;
-        if (!(yield* canComplete(questId))) return false;
-        if (!(yield* wait.forGameAction("tryQuestComplete", {
-          timeout: "5 seconds"
-        }))) {
-          return false;
-        }
-        const turnIns = options?.turnIns === void 0 ? yield* getMaxTurnIns(questId) : Math.max(1, Math.trunc(options.turnIns));
-        const event = yield* wait.forEvent(
-          { questId, type: "quest-complete" },
-          {
-            timeout: "5 seconds",
-            trigger: bridge.invoke(
-              "quests.complete",
-              [questId, turnIns, options?.rewardItemId ?? -1, false],
-              Void2
-            ).pipe(map5(isSome2))
+      return withQuestClaim(
+        questId,
+        gen2(function* () {
+          if (!(yield* isInProgress(questId))) return false;
+          if (!(yield* canComplete(questId))) return false;
+          if (!(yield* wait.forGameAction("tryQuestComplete", {
+            timeout: "5 seconds"
+          }))) {
+            return false;
           }
-        );
-        return event !== null;
-      });
+          const turnIns = options?.turnIns === void 0 ? yield* getMaxTurnIns(questId) : Math.max(1, Math.trunc(options.turnIns));
+          const event = yield* wait.forEvent(
+            { questId, type: "quest-complete" },
+            {
+              timeout: "5 seconds",
+              trigger: bridge.invoke(
+                "quests.complete",
+                [questId, turnIns, options?.rewardItemId ?? -1, false],
+                Void2
+              ).pipe(map5(isSome2))
+            }
+          );
+          return event !== null;
+        })
+      );
     }, "complete");
     const get5 = /* @__PURE__ */ __name((questId) => {
       if (!isQuestId(questId)) return succeed7(null);

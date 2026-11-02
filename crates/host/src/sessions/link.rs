@@ -163,7 +163,27 @@ impl ScriptLink {
     }
 
     pub fn call_loader(&self, name: impl Into<String>, args: Vec<Value>) -> PendingCall {
-        self.inbox.call_loader(name, args)
+        let name = name.into();
+        if super::actions::Action::parse(&name, &args).is_some() {
+            self.call_loader_scoped(name, args)
+        } else {
+            self.inbox.call_loader(name, args)
+        }
+    }
+    pub(crate) fn call_loader_scoped(
+        &self,
+        name: impl Into<String>,
+        args: Vec<Value>,
+    ) -> PendingCall {
+        let name = name.into();
+        let guard = super::operations::Guard::new(
+            self.packets.clone(),
+            super::claims::Owner::script(self.attachment),
+            self.detached.clone(),
+            &name,
+            &args,
+        );
+        self.inbox.call_loader_guarded(name, args, Box::new(guard))
     }
 
     pub fn operate(
@@ -233,12 +253,95 @@ impl ScriptLink {
         Ok(id)
     }
 
+    pub fn acquire_inventory_use_claim(
+        &self,
+        id: i64,
+    ) -> Result<Option<super::ClaimGrant>, bridge::Error> {
+        self.packets.acquire_inventory_use_claim(
+            super::claims::Owner::script(self.attachment),
+            id,
+            &self.detached,
+        )
+    }
+
+    pub(crate) fn inventory_use_lease(
+        &self,
+        id: i64,
+    ) -> Result<Option<crate::automation::environment::Lease>, bridge::Error> {
+        let owner = super::claims::Owner::script(self.attachment);
+        let packets = self.packets.clone();
+        let settlement = packets.clone();
+        Ok(self.acquire_inventory_use_claim(id)?.map(|grant| {
+            crate::automation::environment::Lease::with_settlement(
+                move || packets.release_claim(owner, grant.id),
+                move || settlement.settle_claim(owner, grant.id),
+            )
+        }))
+    }
+
+    pub fn acquire_quest_claim(&self, id: i64) -> Result<Option<super::ClaimGrant>, bridge::Error> {
+        self.packets.acquire_quest_claim(
+            super::claims::Owner::script(self.attachment),
+            id,
+            &self.detached,
+        )
+    }
+
+    pub(crate) fn quest_lease(
+        &self,
+        id: i64,
+    ) -> Result<Option<crate::automation::environment::Lease>, bridge::Error> {
+        let owner = super::claims::Owner::script(self.attachment);
+        let packets = self.packets.clone();
+        let settlement = packets.clone();
+        Ok(self.acquire_quest_claim(id)?.map(|grant| {
+            crate::automation::environment::Lease::with_settlement(
+                move || packets.release_claim(owner, grant.id),
+                move || settlement.settle_claim(owner, grant.id),
+            )
+        }))
+    }
+
+    pub(crate) fn environment_snapshot(
+        &self,
+        register: bool,
+    ) -> Pending<crate::automation::environment::Snapshot> {
+        let records = self.records.clone();
+        self.inbox.read_projection(move |projection| {
+            if register {
+                super::environment::write(&records, |state| {
+                    super::environment::register_loaded(state, projection)
+                });
+            }
+            crate::automation::environment::Snapshot {
+                logged_in: projection.auth.logged_in,
+                quests: projection
+                    .quests
+                    .all()
+                    .iter()
+                    .map(|q| q.data().id)
+                    .collect(),
+                items: projection
+                    .items
+                    .all(lucent_protocol::item::ItemContainer::Inventory)
+                    .iter()
+                    .map(|i| i.data().clone())
+                    .collect(),
+            }
+        })
+    }
+
     pub fn acquire_consumable_claim(
         &self,
         item: Option<i64>,
     ) -> Result<Option<super::ClaimGrant>, bridge::Error> {
         self.packets
             .acquire_claim(super::claims::Owner::script(self.attachment), item)
+    }
+
+    pub fn settle_claim(&self, id: u64) {
+        self.packets
+            .settle_claim(super::claims::Owner::script(self.attachment), id);
     }
 
     pub fn release_claim(&self, id: u64) {
@@ -470,21 +573,15 @@ pub(super) fn route_command(
             );
         }
         Command::UpdateEnvironment { edit } => {
-            let environment = records.environment.clone();
-            let changes = records.changes.clone();
+            let records = records.clone();
             return inbox.read_projection(move |projection| {
-                let mut state = environment.write();
-                let before = state.clone();
-                super::environment::apply(&mut state, edit, projection);
-                let changed = *state != before;
-                let result = serde_json::to_string(&*state).unwrap();
-                drop(state);
-                if changed {
-                    changes.notify();
-                }
-                result
+                let state = super::environment::write(&records, |state| {
+                    super::environment::apply(state, edit, projection)
+                });
+                serde_json::to_string(&*state).unwrap()
             });
         }
+
         Command::SetAutoReloginEnabled { enabled } => return submit(Edit::Enabled(enabled)),
         Command::SetAutoReloginDelay { delay_ms } => return submit(Edit::Delay(delay_ms)),
         Command::SetAutoReloginServer { server } => return submit(Edit::Server(server)),
@@ -516,6 +613,131 @@ mod tests {
     use super::*;
     use crate::testing;
     use std::{sync::mpsc, thread};
+
+    #[test]
+    fn queued_scoped_calls_cannot_dispatch_after_their_reply_scope_or_caller_ends() {
+        struct Resume(Option<mpsc::Sender<()>>);
+        impl Drop for Resume {
+            fn drop(&mut self) {
+                if let Some(release) = self.0.take() {
+                    let _ = release.send(());
+                }
+            }
+        }
+        for ending in ["reply", "scope", "caller"] {
+            let host = testing::headless_host();
+            let (mut session, owner) = testing::start_probe(
+                &host,
+                testing::ProbeMovie::new()
+                    .responding("quests.complete", [(serde_json::json!(null), vec![])]),
+            );
+            let observer = session.attach(crate::bridge::EventInterests::ALL).unwrap();
+            let grant = owner.acquire_quest_claim(802).unwrap().unwrap();
+            let (blocked, entered) = mpsc::channel();
+            let (release, resume) = mpsc::channel();
+            let release = Resume(Some(release));
+            let held = session.read_projection(move |_| {
+                blocked.send(()).unwrap();
+                resume.recv_timeout(Duration::from_secs(5)).unwrap();
+            });
+            entered.recv_timeout(Duration::from_secs(5)).unwrap();
+            let reply = owner.call_loader_scoped(
+                "quests.complete",
+                vec![
+                    Value::Number(802.),
+                    Value::Number(1.),
+                    Value::Number(-1.),
+                    Value::Bool(false),
+                ],
+            );
+            let reply = match ending {
+                "reply" => {
+                    drop(reply);
+                    owner.release_claim(grant.id);
+                    None
+                }
+                "scope" => {
+                    owner.release_claim(grant.id);
+                    Some(reply)
+                }
+                _ => {
+                    owner.revoker()();
+                    Some(reply)
+                }
+            };
+            let next = observer
+                .acquire_quest_claim(802)
+                .unwrap()
+                .expect("unissued work retained the quest");
+            drop(release);
+            held.recv_timeout(Duration::from_secs(5)).unwrap();
+            if let Some(reply) = reply {
+                assert_eq!(
+                    reply.recv_timeout(Duration::from_secs(5)),
+                    Err(bridge::Error::Stopped)
+                );
+            }
+            observer
+                .call_loader("probe.echo", vec![])
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            while let Some(event) = observer.try_event().unwrap() {
+                if let ScriptEvent::Loader { event, .. } = event
+                    && event.name == "onProbeCall"
+                {
+                    assert_ne!(
+                        event.args.first(),
+                        Some(&Value::String("quests.complete".into())),
+                        "{ending} issued a game action"
+                    );
+                }
+            }
+            assert!(observer.acquire_quest_claim(802).unwrap().is_none());
+            observer.release_claim(next.id);
+        }
+    }
+
+    #[test]
+    fn applied_environment_configuration_schedules_without_a_player_reply_or_record_lock() {
+        let host = testing::headless_host();
+        let (mut session, writer) = testing::start_probe(&host, testing::ProbeMovie::new());
+        writer
+            .command(lucent_protocol::command::Command::UpdateEnvironment {
+                edit: lucent_protocol::environment::EnvironmentEdit::AddQuest {
+                    quest_id: 802.,
+                    reward_item_id: None,
+                },
+            })
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        let link = session
+            .attach(crate::automation::EnvironmentPolicy::INTERESTS)
+            .unwrap();
+        let projection = link.projection.clone();
+        let mut policy = crate::automation::EnvironmentPolicy::new(link, Waker::noop().clone());
+        let _projection = projection.write();
+        let _record = writer.records.environment.write();
+        let now = Instant::now();
+        assert_eq!(policy.advance(now), Some(now + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn revoked_callers_cannot_acquire_quest_or_inventory_use_claims() {
+        let host = testing::headless_host();
+        let (mut session, dead) = testing::start_probe(&host, testing::ProbeMovie::new());
+        let alive = session.attach(crate::bridge::EventInterests::ALL).unwrap();
+        dead.revoker()();
+        assert!(matches!(
+            dead.acquire_quest_claim(802),
+            Err(bridge::Error::Stopped)
+        ));
+        assert!(matches!(
+            dead.acquire_inventory_use_claim(1),
+            Err(bridge::Error::Stopped)
+        ));
+        assert!(alive.acquire_quest_claim(802).unwrap().is_some());
+        assert!(alive.acquire_inventory_use_claim(1).unwrap().is_some());
+    }
 
     #[test]
     fn auto_zone_invalidation_rereads_the_host_record_without_a_config_event() {

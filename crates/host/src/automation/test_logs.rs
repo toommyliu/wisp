@@ -59,6 +59,15 @@ impl Logs {
             .unwrap_or_default()
     }
 
+    pub(crate) fn count_at(&self, level: tracing::Level, text: &str) -> usize {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(actual, message)| *actual == level && message.contains(text))
+            .count()
+    }
+
     pub(crate) fn count(&self, text: &str) -> usize {
         self.0
             .lock()

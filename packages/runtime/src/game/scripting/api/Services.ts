@@ -1,6 +1,6 @@
 import type { ArmyApiRuntimeShape } from "../../army/Army";
 import type { ApiService } from "../../flash/api/Api";
-import type { EnvironmentShape } from "../../environment/Environment";
+import type { EnvironmentShape } from "../../../host/environment";
 
 export interface ScriptRuntimeServices {
   readonly army: ArmyApiRuntimeShape;

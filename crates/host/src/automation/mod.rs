@@ -12,3 +12,6 @@ pub use relogin::ReloginPolicy;
 
 #[cfg(test)]
 pub(crate) mod test_logs;
+
+pub(crate) mod environment;
+pub use environment::EnvironmentPolicy;

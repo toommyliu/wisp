@@ -6,7 +6,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { EnvironmentShape } from "../../environment/Environment";
+import type { EnvironmentShape } from "../../../host/environment";
 import type {
   EnvironmentError,
   EnvironmentSnapshot,
