@@ -5,7 +5,7 @@ use super::{
 use crate::scripting::{Kill, RuntimeError, ScriptRun};
 use crate::{
     HostError, ScriptLink, Session, Surface,
-    automation::{AutoZonePolicy, ReloginPolicy, SettingsPolicy},
+    automation::{AutoZonePolicy, DropPolicy, ReloginPolicy, SettingsPolicy},
     bridge,
 };
 use lucent_protocol::script::{Script, ScriptOutcome, ScriptPhase, ScriptStatus};
@@ -111,6 +111,7 @@ struct Player {
     watch: ScriptLink,
     relogin: ScriptLink,
     auto_zone: ScriptLink,
+    drops: ScriptLink,
     jobs: ScriptLink,
 }
 impl Supervisor {
@@ -186,6 +187,7 @@ impl Supervisor {
             settings: None,
             relogin: None,
             auto_zone: None,
+            drops: None,
             jobs: None,
             deadline: None,
         };
@@ -275,6 +277,7 @@ fn attach(session: &mut Session) -> Option<Player> {
         ]))?,
         relogin: session.attach(ReloginPolicy::INTERESTS)?,
         auto_zone: session.attach(AutoZonePolicy::INTERESTS)?,
+        drops: session.attach(DropPolicy::INTERESTS)?,
         jobs: session.attach(crate::game::jobs::ProfileJobs::INTERESTS)?,
     })
 }
@@ -338,6 +341,7 @@ struct Supervision {
     settings: Option<SettingsPolicy>,
     relogin: Option<ReloginPolicy>,
     auto_zone: Option<AutoZonePolicy>,
+    drops: Option<DropPolicy>,
     jobs: Option<crate::game::jobs::ProfileJobs>,
     deadline: Option<Instant>,
 }
@@ -496,6 +500,7 @@ impl Supervision {
             watch,
             relogin,
             auto_zone,
+            drops,
             jobs,
         } = player;
         watch.set_waker(Waker::from(self.notify.clone()));
@@ -514,6 +519,7 @@ impl Supervision {
             auto_zone,
             Waker::from(self.notify.clone()),
         ));
+        self.drops = Some(DropPolicy::new(drops, Waker::from(self.notify.clone())));
         self.relogin = Some(ReloginPolicy::new(
             relogin,
             Waker::from(self.notify.clone()),
@@ -532,6 +538,7 @@ impl Supervision {
                 .as_mut()
                 .and_then(|p| p.advance(Instant::now())),
             self.jobs.as_mut().and_then(|p| p.advance(Instant::now())),
+            self.drops.as_mut().and_then(|p| p.advance(Instant::now())),
         ]
         .into_iter()
         .flatten()
