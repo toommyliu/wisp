@@ -1,5 +1,6 @@
 mod auto_zone;
 mod drops;
+pub(crate) mod follower;
 mod settings;
 
 pub use settings::SettingsPolicy;
