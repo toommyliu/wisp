@@ -57,7 +57,7 @@ fn update(link: &ScriptLink, patch: serde_json::Value) {
     link.command(command).recv_timeout(TIMEOUT).unwrap();
 }
 
-fn await_call(link: &ScriptLink) -> lucent_host::bridge::Event {
+fn await_call(link: &ScriptLink, deadline: Instant) -> Option<lucent_host::bridge::Event> {
     use std::{
         sync::Arc,
         task::{Wake, Waker},
@@ -70,18 +70,19 @@ fn await_call(link: &ScriptLink) -> lucent_host::bridge::Event {
         }
     }
     link.set_waker(Waker::from(Arc::new(Unpark(thread::current()))));
-    let deadline = Instant::now() + TIMEOUT;
     loop {
         match link.try_event().unwrap() {
             Some(lucent_host::bridge::ScriptEvent::Loader { event, .. })
                 if event.name == "onProbeCall" =>
             {
-                return event;
+                return Some(event);
             }
             Some(_) => {}
             None => {
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                assert!(!remaining.is_zero(), "did not receive a settings call");
+                if remaining.is_zero() {
+                    return None;
+                }
                 thread::park_timeout(remaining);
             }
         }
@@ -91,8 +92,8 @@ fn await_call(link: &ScriptLink) -> lucent_host::bridge::Event {
 fn next_call(link: &ScriptLink, method: &str) -> Vec<Value> {
     let deadline = Instant::now() + TIMEOUT;
     loop {
-        assert!(Instant::now() < deadline, "did not receive {method}");
-        let event = await_call(link);
+        let event =
+            await_call(link, deadline).unwrap_or_else(|| panic!("did not receive {method}"));
         if event.args.first() == Some(&Value::String(method.into())) {
             return event.args;
         }
@@ -130,10 +131,12 @@ fn the_settings_policy_reapplies_through_the_host() {
         })
         .collect();
     assert!(applied.contains(&walk_speed(45.0)));
-    let began = Instant::now();
+    let deadline = Instant::now() + Duration::from_millis(1500);
     let (mut reapplied, mut magnet) = (false, false);
     while !(reapplied && magnet) {
-        let args = await_call(&observer).args;
+        let args = await_call(&observer, deadline)
+            .unwrap_or_else(|| panic!("reapplied walk speed {reapplied}, magnet {magnet}"))
+            .args;
         match &args[0] {
             Value::String(method) if method == "settings.setWalkSpeed" => {
                 assert_eq!(args, walk_speed(45.0));
@@ -143,12 +146,13 @@ fn the_settings_policy_reapplies_through_the_host() {
             _ => {}
         }
     }
-    assert!(began.elapsed() < Duration::from_millis(1500));
+    assert!(Instant::now() < deadline);
     update(&observer, json!({"enemyMagnetEnabled":false}));
     drain(&observer);
     let until = Instant::now() + Duration::from_millis(1200);
+    let deadline = Instant::now() + TIMEOUT;
     while Instant::now() < until {
-        let event = await_call(&observer);
+        let event = await_call(&observer, deadline).expect("did not receive a settings call");
         assert_ne!(
             event.args.first(),
             Some(&Value::String("settings.enemyMagnet".into()))
@@ -585,8 +589,9 @@ fn settings_reapplies_share_one_avatar_confirmation() {
     let _supervisor = Supervisor::start(&mut session, None).unwrap();
     let mut calls = [0; 3];
     let mut reapplies = 0;
+    let deadline = Instant::now() + TIMEOUT;
     while reapplies < 4 {
-        let event = await_call(&observer);
+        let event = await_call(&observer, deadline).expect("did not receive a settings call");
         if let Some(Value::String(method)) = event.args.first() {
             match method.as_str() {
                 "auth.isLoggedIn" => calls[0] += 1,
@@ -638,8 +643,9 @@ fn settings_wakes_when_avatar_confirmation_finishes() {
     load_facts(&observer);
     let mut confirmations = 0;
     let mut applied = 0;
+    let deadline = Instant::now() + TIMEOUT;
     while applied < 2 {
-        let event = await_call(&observer);
+        let event = await_call(&observer, deadline).expect("did not receive a settings call");
         if let Some(Value::String(method)) = event.args.first() {
             match method.as_str() {
                 "auth.isLoggedIn" | "world.isLoaded" => {
