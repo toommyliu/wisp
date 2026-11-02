@@ -25,7 +25,7 @@ impl Running {
     pub(super) fn observe_safe_move(
         &mut self,
         reads: Reads,
-        own_house: bool,
+        own_house: crate::game::safe_move::HouseRead,
         guard: &crate::game::jobs::safe_move::Guard,
         deadline: Instant,
     ) -> Result<crate::game::safe_move::Snapshot, Error> {
@@ -46,7 +46,12 @@ impl Running {
                 let item = item.data();
                 item.category == "House" && item.equipped
             });
-        let own_house = if own_house && equipped_house {
+        let read_house = match own_house {
+            crate::game::safe_move::HouseRead::None => false,
+            crate::game::safe_move::HouseRead::IfEquipped => equipped_house,
+            crate::game::safe_move::HouseRead::Always => true,
+        };
+        let own_house = if read_house {
             let value = self.safe_move_call(
                 guard,
                 deadline,

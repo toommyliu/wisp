@@ -477,3 +477,80 @@ fn a_failed_logout_is_reported_once_and_finishes_the_run() {
         1
     );
 }
+
+#[test]
+fn changing_the_equipped_house_during_transfer_does_not_hide_arrival() {
+    let logs = common::logs::Logs::default();
+    let dispatch = logs.dispatch();
+    let _dispatch = tracing::dispatcher::set_default(&dispatch);
+    let packet = json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[],"hitems":[]}})
+        .to_string();
+    let (mut session, observer, mut supervisor) = setup_with(false, |movie| {
+        movie
+            .responding(
+                "flash.callGameFunction0",
+                std::iter::once((json!("false"), vec![]))
+                    .chain(std::iter::repeat_n((json!("true"), vec![]), 128)),
+            )
+            .responding(
+                "flash.callGameFunction",
+                [(json!(null), vec![("onExtensionResponse".into(), packet)])],
+            )
+    });
+    options(&session, true);
+    supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('arrived'); }")])).unwrap();
+    wait_for(&session, || session.script_dialog().is_some());
+    assert_eq!(session.script_dialog().unwrap().message, "arrived");
+    assert!(
+        !logs
+            .messages(tracing::Level::WARN)
+            .iter()
+            .any(|message| message.contains("safe move failed:")),
+        "{:?}",
+        logs.messages(tracing::Level::WARN)
+    );
+    options(&session, false);
+    session.respond_dialog(
+        session.script_dialog().unwrap().id,
+        lucent_protocol::script::ScriptDialogResponse::Dismissed,
+    );
+    wait_for(&session, || {
+        session.script_status().phase == ScriptPhase::Idle
+    });
+    assert!(
+        observer
+            .read(|p| p
+                .items
+                .all(lucent_protocol::item::ItemContainer::House)
+                .is_empty())
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_safe_move_loader_error_is_reported_once_and_does_not_block_boot() {
+    let logs = common::logs::Logs::default();
+    let dispatch = logs.dispatch();
+    let _dispatch = tracing::dispatcher::set_default(&dispatch);
+    let (mut session, _observer, mut supervisor) = setup_with(true, |movie| {
+        movie.throwing("flash.callGameFunction0", "house unavailable")
+    });
+    options(&session, true);
+    supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
+    wait_for(&session, || session.script_dialog().is_some());
+    assert_eq!(
+        logs.messages(tracing::Level::WARN)
+            .iter()
+            .filter(|message| message.contains("safe move failed:"))
+            .count(),
+        1
+    );
+    options(&session, false);
+    session.respond_dialog(
+        session.script_dialog().unwrap().id,
+        lucent_protocol::script::ScriptDialogResponse::Dismissed,
+    );
+    wait_for(&session, || {
+        session.script_status().phase == ScriptPhase::Idle
+    });
+}

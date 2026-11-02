@@ -117,8 +117,14 @@ impl SafeMove {
             _ => travel::Reads::default(),
         }
     }
-    pub(crate) fn reads_house(&self) -> bool {
-        matches!(self.phase, Phase::New | Phase::Ready(_))
+    pub(crate) fn reads_house(&self) -> HouseRead {
+        match self.phase {
+            Phase::New => HouseRead::IfEquipped,
+            Phase::Ready(_) if matches!(self.destination, Some(Destination::House(_))) => {
+                HouseRead::Always
+            }
+            _ => HouseRead::None,
+        }
     }
     pub(crate) fn observation_deadline(&self) -> Option<u64> {
         match &self.phase {

@@ -177,7 +177,7 @@ pub(crate) enum Msg {
     },
     ObserveSafeMove {
         reads: crate::game::travel::Reads,
-        own_house: bool,
+        own_house: crate::game::safe_move::HouseRead,
         guard: Arc<crate::game::jobs::safe_move::Guard>,
         deadline: Instant,
         reply: crate::bridge::Reply<crate::game::safe_move::Snapshot>,

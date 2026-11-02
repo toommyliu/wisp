@@ -9,6 +9,12 @@ pub enum RoomPolicy {
     Specific { room: u32 },
     RandomPrivate { room: u32 },
 }
+#[derive(Clone, Copy)]
+pub(crate) enum HouseRead {
+    None,
+    IfEquipped,
+    Always,
+}
 #[derive(Clone, Debug, Deserialize)]
 pub struct Snapshot {
     pub logged_in: bool,
