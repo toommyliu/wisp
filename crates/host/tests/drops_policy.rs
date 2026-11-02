@@ -1068,7 +1068,7 @@ fn protecting_accept_cancellation_and_settlement_wake_the_policy_once() {
         assert_eq!(settle_policy(&mut policy, &mut now), None);
         counter.0.store(0, Ordering::SeqCst);
         for _ in 0..100 {
-            assert_eq!(policy.advance(now), None);
+            assert_eq!(settle_policy(&mut policy, &mut now), None);
         }
         assert_eq!(counter.0.load(Ordering::SeqCst), 0);
         assert!(drain_rejects(&link).is_empty());
