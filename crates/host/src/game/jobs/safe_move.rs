@@ -216,25 +216,28 @@ impl Drop for SafeMoveJob {
     }
 }
 fn decode(action: &sm::Action, result: Result<Value, Error>) -> sm::Reply {
-    match result {
-        Err(Error::Stopped | Error::NotReady) => sm::Reply::Unavailable,
-        Err(error) => sm::Reply::Error(error.to_string()),
-        Ok(value) => match action {
-            sm::Action::Travel(travel::Action::CellReady(_)) => {
-                sm::Reply::Travel(travel::Reply::CellReady(value == Value::Bool(true)))
-            }
-            sm::Action::Travel(_) => sm::Reply::Travel(travel::Reply::Accepted),
-            sm::Action::GetReturnInfo => match value {
-                Value::String(json) => serde_json::from_str(&json)
-                    .map(sm::Reply::Value)
-                    .unwrap_or(sm::Reply::Unavailable),
-                _ => sm::Reply::Unavailable,
-            },
-            sm::Action::IsReturnInfoNull => lucent_protocol::bridge::to_json(value)
-                .map(sm::Reply::Value)
-                .unwrap_or(sm::Reply::Unavailable),
-            sm::Action::SetReturnInfo(_) | sm::Action::House(_) => sm::Reply::Accepted,
-        },
+    match (action, result) {
+        (sm::Action::Travel(action), result) => {
+            sm::Reply::Travel(if matches!(action, travel::Action::CellReady(_)) {
+                travel::Reply::CellReady(result == Ok(Value::Bool(true)))
+            } else if result.is_ok() {
+                travel::Reply::Accepted
+            } else {
+                travel::Reply::Unavailable
+            })
+        }
+        (_, Err(Error::Stopped | Error::NotReady | Error::Unavailable(_))) => {
+            sm::Reply::Unavailable
+        }
+        (_, Err(error)) => sm::Reply::Error(error.to_string()),
+        (sm::Action::GetReturnInfo, Ok(Value::String(json))) => serde_json::from_str(&json)
+            .map(sm::Reply::Value)
+            .unwrap_or(sm::Reply::Unavailable),
+        (sm::Action::GetReturnInfo, Ok(_)) => sm::Reply::Unavailable,
+        (sm::Action::IsReturnInfoNull, Ok(value)) => lucent_protocol::bridge::to_json(value)
+            .map(sm::Reply::Value)
+            .unwrap_or(sm::Reply::Unavailable),
+        (sm::Action::SetReturnInfo(_) | sm::Action::House(_), Ok(_)) => sm::Reply::Accepted,
     }
 }
 
@@ -242,6 +245,18 @@ fn decode(action: &sm::Action, result: Result<Value, Error>) -> sm::Reply {
 mod tests {
     use super::*;
     use crate::testing;
+    #[test]
+    fn travel_failures_keep_the_travel_reply_contract() {
+        for error in [Error::Timeout, Error::Unavailable("player.joinMap".into())] {
+            assert!(matches!(
+                decode(
+                    &sm::Action::Travel(travel::Action::Join(vec!["buyhouse".into()])),
+                    Err(error)
+                ),
+                sm::Reply::Travel(travel::Reply::Unavailable)
+            ));
+        }
+    }
     #[test]
     fn an_unanswered_observation_closes_its_gate_at_five_seconds() {
         let host = testing::headless_host();

@@ -554,3 +554,46 @@ fn a_safe_move_loader_error_is_reported_once_and_does_not_block_boot() {
         session.script_status().phase == ScriptPhase::Idle
     });
 }
+
+#[test]
+fn failed_native_joins_retry_before_safe_start_finishes() {
+    let (mut session, observer, mut supervisor) = setup_with(true, |movie| {
+        movie
+            .constant("world.isActionAvailable", json!(true))
+            .throwing("player.joinMap", "join rejected")
+            .recording("player.joinMap")
+    });
+    observer.call_loader("probe.emit", vec![Value::String("onExtensionResponse".into()), Value::String(json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[],"hitems":[]}}).to_string())]).recv_timeout(TIMEOUT).unwrap();
+    session
+        .update_script_options(
+            serde_json::from_value(
+                json!({"safeStartStop":true,"roomPolicy":{"kind":"specific","roomNumber":42}}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
+    wait_for(&session, || session.script_dialog().is_some());
+    options(&session, false);
+    session.respond_dialog(
+        session.script_dialog().unwrap().id,
+        lucent_protocol::script::ScriptDialogResponse::Dismissed,
+    );
+    wait_for(&session, || {
+        session.script_status().phase == ScriptPhase::Idle
+    });
+    observer
+        .call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    let mut joins = 0;
+    while let Some(event) = observer.try_event().unwrap() {
+        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event {
+            joins += usize::from(
+                event.name == "onProbeCall"
+                    && event.args.first() == Some(&Value::String("player.joinMap".into())),
+            );
+        }
+    }
+    assert_eq!(joins, 3);
+}
