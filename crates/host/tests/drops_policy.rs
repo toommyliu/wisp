@@ -110,6 +110,63 @@ fn remaining(link: &ScriptLink) -> Vec<i64> {
 }
 
 #[test]
+fn replies_before_registration_wake_each_drop_rejection_transition() {
+    struct Notify(std::sync::mpsc::Sender<()>);
+    impl Wake for Notify {
+        fn wake(self: Arc<Self>) {
+            let _ = self.0.send(());
+        }
+    }
+    let host = testing::headless_host();
+    let (mut session, writer) = testing::start_probe(&host, movie(true));
+    common::log_in(&writer);
+    reject_else(&writer);
+    drops(&writer, &[(69, "Unwanted")]);
+    let (sender, wakes) = std::sync::mpsc::channel();
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Notify(sender))),
+    );
+    let barrier = session
+        .attach(lucent_host::bridge::EventInterests::new(&[]))
+        .unwrap();
+    let replies = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let completed = replies.clone();
+    policy.set_reply_probe(move || {
+        barrier
+            .call_loader("probe.echo", vec![])
+            .recv_timeout(TIMEOUT)
+            .unwrap();
+        completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    let until = Instant::now() + TIMEOUT;
+    let mut checked = 0;
+    loop {
+        while wakes.try_recv().is_ok() {}
+        let next = policy.advance(Instant::now());
+        let completed = replies.load(std::sync::atomic::Ordering::Relaxed);
+        if completed > checked {
+            assert_eq!(
+                wakes.try_recv(),
+                Ok(()),
+                "completed reply did not wake the policy"
+            );
+            checked = completed;
+        }
+        if next.is_none() {
+            break;
+        }
+        assert!(Instant::now() < until, "drop rejection did not settle");
+        thread::yield_now();
+    }
+    assert!(checked >= 2);
+    assert_eq!(drain_rejects(&writer), [Value::Number(69.0)]);
+    assert!(remaining(&writer).is_empty());
+}
+
+#[test]
 fn one_wake_reconciles_the_whole_pending_list() {
     let logs = Logs::default();
     let _guard = tracing::dispatcher::set_default(&logs.dispatch());
@@ -553,20 +610,6 @@ fn reject_deadlines_are_100_200_and_400_ms() {
             .unwrap(),
         Waker::from(Arc::new(Unpark(thread::current()))),
     );
-    let settle = |policy: &mut lucent_host::automation::DropPolicy, now: &mut Instant| {
-        let until = Instant::now() + TIMEOUT;
-        loop {
-            assert!(Instant::now() < until, "reject transition did not settle");
-            match policy.advance(*now) {
-                Some(at) if at <= *now => {}
-                Some(at) if at - *now < Duration::from_millis(100) => *now = at,
-                Some(at) if at - *now > Duration::from_millis(400) => {
-                    thread::park_timeout(until.saturating_duration_since(Instant::now()))
-                }
-                answer => break answer,
-            }
-        }
-    };
     let rejects = || {
         let mut count = 0;
         while let Some(event) = writer.try_event().unwrap() {
@@ -581,7 +624,7 @@ fn reject_deadlines_are_100_200_and_400_ms() {
     };
     let mut now = Instant::now();
     for delay in [100, 200, 400] {
-        let at = settle(&mut policy, &mut now).unwrap();
+        let at = settle_policy(&mut policy, &mut now).unwrap();
         assert_eq!(at - now, Duration::from_millis(delay));
         assert_eq!(rejects(), 1);
         now = at - Duration::from_millis(1);
@@ -589,7 +632,7 @@ fn reject_deadlines_are_100_200_and_400_ms() {
         assert_eq!(rejects(), 0);
         now = at;
     }
-    assert_eq!(settle(&mut policy, &mut now), None);
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
     assert_eq!(rejects(), 1);
     logs.wait_for(
         tracing::Level::WARN,
@@ -621,7 +664,8 @@ fn settle_policy(
             Some(at) if at <= *now => {}
             Some(at) if at - *now < Duration::from_millis(100) => *now = at,
             Some(at) if at - *now > Duration::from_millis(400) => {
-                thread::park_timeout(until.saturating_duration_since(Instant::now()));
+                thread::park_timeout(at.min(until).saturating_duration_since(Instant::now()));
+                *now = (*now).max(Instant::now());
             }
             answer => return answer,
         }
@@ -868,6 +912,13 @@ fn cancelling_a_queued_accept_wakes_the_policy_to_reconsider_rejection() {
     common::log_in(&link);
     reject_else(&link);
     drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);
+    let (release, resumed) = std::sync::mpsc::channel::<()>();
+    let resumed = std::sync::Mutex::new(resumed);
+    link.set_operation_probe(move |_, issued| {
+        if issued {
+            let _ = resumed.lock().unwrap().recv();
+        }
+    });
     link.operate(Operation::AcceptDrop {
         selector: ItemSelector::Id(70.0),
     })
@@ -902,6 +953,7 @@ fn cancelling_a_queued_accept_wakes_the_policy_to_reconsider_rejection() {
     );
     assert_eq!(reconsidered, [Value::Number(69.0)]);
     assert_eq!(left, [70]);
+    drop(release);
 }
 
 #[test]

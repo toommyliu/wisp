@@ -41,8 +41,14 @@ pub enum Error {
     CommandDecode { callback: String, reason: String },
 }
 
+#[derive(Default)]
+struct ReplyState {
+    ready: bool,
+    waker: Option<Waker>,
+}
+
 struct PendingState {
-    waker: Mutex<Option<Waker>>,
+    reply: Mutex<ReplyState>,
     alive: AtomicBool,
 }
 
@@ -61,13 +67,22 @@ impl<T> Reply<T> {
         mut self,
         result: Result<T, Error>,
     ) -> Result<(), mpsc::SendError<Result<T, Error>>> {
+        let mut state = self.state.reply.lock().unwrap();
         let result = self.sender.take().unwrap().send(result);
-        self.wake();
+        state.ready = true;
+        let waker = state.waker.take();
+        drop(state);
+        if let Some(waker) = waker {
+            waker.wake();
+        }
         result
     }
 
     fn wake(&self) {
-        let waker = self.state.waker.lock().unwrap().clone();
+        let mut state = self.state.reply.lock().unwrap();
+        state.ready = true;
+        let waker = state.waker.take();
+        drop(state);
         if let Some(waker) = waker {
             waker.wake();
         }
@@ -89,7 +104,7 @@ impl<T> Pending<T> {
     pub(crate) fn channel() -> (Reply<T>, Self) {
         let (sender, receiver) = mpsc::channel();
         let state = Arc::new(PendingState {
-            waker: Mutex::new(None),
+            reply: Mutex::new(ReplyState::default()),
             alive: AtomicBool::new(true),
         });
         (
@@ -102,7 +117,13 @@ impl<T> Pending<T> {
     }
 
     pub fn set_waker(&self, waker: Waker) {
-        *self.state.waker.lock().unwrap() = Some(waker);
+        let mut state = self.state.reply.lock().unwrap();
+        if state.ready {
+            drop(state);
+            waker.wake();
+        } else {
+            state.waker = Some(waker);
+        }
     }
 
     pub fn try_recv(&self) -> Option<Result<T, Error>> {
@@ -535,7 +556,7 @@ mod tests {
             let pending = self.pending.upgrade().unwrap();
             let pending = pending.lock().unwrap();
             self.seen.send(pending.try_recv()).unwrap();
-            pending.set_waker(Waker::from(self.clone()));
+            pending.set_waker(Waker::noop().clone());
         }
     }
 
@@ -669,11 +690,32 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_received_before_waker_registration_is_still_available() {
-        let (reply, pending) = Pending::channel();
-        reply.send(Ok(7)).unwrap();
-        pending.set_waker(Waker::noop().clone());
-        assert_eq!(pending.try_recv(), Some(Ok(7)));
+    fn replies_and_disconnections_before_registration_wake_the_caller() {
+        struct Notify(mpsc::Sender<()>);
+        impl Wake for Notify {
+            fn wake(self: Arc<Self>) {
+                self.0.send(()).unwrap();
+            }
+        }
+        for disconnected in [false, true] {
+            let (reply, pending) = Pending::channel();
+            if disconnected {
+                drop(reply);
+            } else {
+                reply.send(Ok(7)).unwrap();
+            }
+            let (sender, wakes) = mpsc::channel();
+            pending.set_waker(Waker::from(Arc::new(Notify(sender))));
+            assert_eq!(wakes.try_recv(), Ok(()));
+            assert_eq!(
+                pending.try_recv(),
+                Some(if disconnected {
+                    Err(Error::Stopped)
+                } else {
+                    Ok(7)
+                })
+            );
+        }
     }
 
     #[test]
