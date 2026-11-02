@@ -177,8 +177,7 @@ impl Supervisor {
             watch: None,
             readiness: lc::Readiness::default(),
             binding,
-            connects: 0,
-            disconnects: 0,
+            connections: None,
             username: String::new(),
             credentials: None,
             credentials_retry: 0,
@@ -341,8 +340,7 @@ struct Supervision {
     watch: Option<ScriptLink>,
     readiness: lc::Readiness,
     binding: lc::Binding,
-    connects: u64,
-    disconnects: u64,
+    connections: Option<(u64, u64)>,
     username: String,
     credentials: Option<bridge::Pending<String>>,
     credentials_retry: u64,
@@ -497,18 +495,6 @@ impl Supervision {
     }
     fn player(&mut self, player: Player) {
         let replacing = self.watch.is_some();
-        self.logout = None;
-        self.credentials = None;
-        self.credentials_retry = 0;
-        self.connects = 0;
-        self.disconnects = 0;
-        self.username.clear();
-        self.readiness = lc::Readiness::default();
-        if replacing {
-            self.binding.player.0 += 1;
-            self.binding.connection.0 = 0;
-            self.advance(lc::Event::PlayerReplaced(self.binding));
-        }
         let Player {
             watch,
             relogin,
@@ -517,6 +503,19 @@ impl Supervision {
             jobs,
             environment,
         } = player;
+        self.connections = watch
+            .read_for(Duration::ZERO, |p| (p.connects, p.disconnects))
+            .ok();
+        self.logout = None;
+        self.credentials = None;
+        self.credentials_retry = 0;
+        self.username.clear();
+        self.readiness = lc::Readiness::default();
+        if replacing {
+            self.binding.player.0 += 1;
+            self.binding.connection.0 = 0;
+            self.advance(lc::Event::PlayerReplaced(self.binding));
+        }
         watch.set_waker(Waker::from(self.notify.clone()));
         self.watch = Some(watch);
         info!("session {}: supervisor started", self.session);
@@ -639,12 +638,10 @@ impl Supervision {
                 p.auth.username.clone(),
                 p.auth.credentials_epoch == Some(p.receipts.epoch()),
                 p.connected,
-                p.connects,
-                p.disconnects,
+                (p.connects, p.disconnects),
             )
         });
-        let Ok((record, username, account_read, connected, connects, disconnects)) = snapshot
-        else {
+        let Ok((record, username, account_read, connected, connections)) = snapshot else {
             self.schedule(Instant::now() + Duration::from_millis(1));
             return;
         };
@@ -659,10 +656,11 @@ impl Supervision {
             }
             self.username = name;
         }
-        let restored = connects != self.connects;
-        let lost = disconnects != self.disconnects;
-        self.connects = connects;
-        self.disconnects = disconnects;
+        let (connects, disconnects) = connections;
+        let (seen_connects, seen_disconnects) =
+            self.connections.replace(connections).unwrap_or(connections);
+        let restored = connects != seen_connects;
+        let lost = disconnects != seen_disconnects;
         if lost && connected == Some(true) {
             self.advance(lc::Event::ConnectionLost(self.binding));
         }

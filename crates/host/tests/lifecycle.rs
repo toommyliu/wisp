@@ -772,6 +772,67 @@ fn a_reconnect_the_controller_sees_in_one_pass_still_ends_the_run() {
 }
 
 #[test]
+fn a_supervisor_attached_after_a_reconnect_starts_its_first_run() {
+    let logs = Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    restart_option(&session, false);
+    log_in_ready(&observer);
+    emit_connection(&observer, "OnConnectionLost");
+    log_in_ready(&observer);
+    let (request, _controls) = lucent_host::ScriptRequest::new(loose(&[(
+        "history.js",
+        "export default function* () { console.log('history body'); }",
+    )]));
+    let _supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
+    wait_status(&session, |s| s.script_status().last_end.is_some());
+    assert_eq!(
+        session.script_status().last_end.as_deref(),
+        Some("history.js completed")
+    );
+    assert_eq!(
+        logs.messages(INFO)
+            .iter()
+            .filter(|line| *line == "history body")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_supervisor_attached_after_a_disconnect_waits_for_login_to_start_its_first_run() {
+    let logs = Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    restart_option(&session, false);
+    log_in_ready(&observer);
+    emit_connection(&observer, "OnConnectionLost");
+    let (request, _controls) = lucent_host::ScriptRequest::new(loose(&[(
+        "offline.js",
+        "export default function* () { console.log('offline body'); }",
+    )]));
+    let _supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
+    logs.wait_for(INFO, "session 1: offline.js is waiting for login");
+    log_in_ready(&observer);
+    wait_status(&session, |s| s.script_status().last_end.is_some());
+    assert_eq!(
+        session.script_status().last_end.as_deref(),
+        Some("offline.js completed")
+    );
+    assert_eq!(
+        logs.messages(INFO)
+            .iter()
+            .filter(|line| *line == "offline body")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn readiness_times_out_through_the_controller_without_booting_a_worker() {
     let logs = Logs::default();
     let dispatch = logs.dispatch();
