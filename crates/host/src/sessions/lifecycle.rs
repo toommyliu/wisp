@@ -580,10 +580,10 @@ impl Lifecycle {
         if worker == Worker::Reaping {
             effects.push(Effect::Reap { run: run.id });
         }
-        let cleanup = if matches!(self.state, State::SafeBefore(_)) {
-            Cleanup::BeforeCanceled
-        } else {
-            Self::cleanup(&run, &outcome, options, effects)
+        let cleanup = match self.state {
+            State::Waiting { .. } => Cleanup::Done,
+            State::SafeBefore(_) => Cleanup::BeforeCanceled,
+            _ => Self::cleanup(&run, &outcome, options, effects),
         };
         let source = run.source;
         self.state = State::Finishing {
