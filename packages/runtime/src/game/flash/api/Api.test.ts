@@ -1,12 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import { EntityState, type ItemSnapshot } from "@lucent/game";
 import * as Effect from "effect/Effect";
+import { vi } from "vitest";
 
 import {
   editItem,
   emitExtension,
   item,
   makeFakeApi,
+  makeFakeBankOperations,
   makeFakeHostState,
   monster,
   moveItem,
@@ -258,6 +260,7 @@ const makeApiHarness = () =>
   Effect.gen(function* () {
     const state = makeFakeHostState();
     const harness = makeTarget(state);
+    vi.stubGlobal("__host", makeFakeBankOperations(harness.target, state));
     const api = yield* makeFakeApi(harness.target, state);
     return { ...harness, api, state };
   });
