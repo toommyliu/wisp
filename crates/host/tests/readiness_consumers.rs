@@ -784,3 +784,230 @@ fn a_reconnect_restart_waits_for_the_new_connections_account() {
         1
     );
 }
+
+fn safe_move_movie() -> testing::ProbeMovie {
+    ready_movie()
+        .recording("auth.isLoggedIn")
+        .constant("flash.isNull", json!(true))
+        .constant("combat.cancelAutoAttack", json!(null))
+        .constant("combat.cancelTarget", json!(null))
+        .raising("flash.callGameFunction", "onDebug", "safe destination")
+        .responding(
+            "flash.callGameFunction0",
+            std::iter::once((json!("false"), vec![]))
+                .chain(std::iter::repeat_n((json!("true"), vec![]), 128)),
+        )
+}
+
+fn safe_moves(session: &lucent_host::Session, room_policy: serde_json::Value) {
+    session
+        .update_script_options(
+            serde_json::from_value(json!({"safeStartStop": true, "roomPolicy": room_policy}))
+                .unwrap(),
+        )
+        .unwrap();
+}
+
+fn order(link: &ScriptLink) -> Vec<String> {
+    barrier(link);
+    let mut order = Vec::new();
+    while let Some(event) = link.try_event().unwrap() {
+        if let ScriptEvent::Loader { event, .. } = event
+            && let Some(Value::String(first)) = event.args.first()
+        {
+            match event.name.as_str() {
+                "onProbeCall" => order.push(first.clone()),
+                "onDebug" => order.push(format!("debug:{first}")),
+                _ => {}
+            }
+        }
+    }
+    order
+}
+
+fn wait_idle_after_run(session: &lucent_host::Session) {
+    wait_session(session, || {
+        let status = session.script_status();
+        status.last_end.is_some() && status.phase == lucent_protocol::script::ScriptPhase::Idle
+    });
+}
+
+#[test]
+fn safe_start_moves_after_a_packet_only_login() {
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, safe_move_movie());
+    connect(&observer);
+    safe_moves(&session, json!({"kind":"public"}));
+    session.supervise(None).unwrap();
+    session
+        .start_script(loose(&[(
+            "first.js",
+            r#"
+        import * as api from "lucent/api";
+        export default function* () { yield* api.packet.sendToClient("first"); }
+    "#,
+        )]))
+        .unwrap();
+    wait_idle_after_run(&session);
+    let order = order(&observer);
+    let moved = order
+        .iter()
+        .position(|event| event == "debug:safe destination");
+    let first = order.iter().position(|event| event == "debug:started");
+    assert!(
+        moved.is_some() && moved < first,
+        "safe start did not move before the first line: {order:?}"
+    );
+    assert!(
+        !order.iter().any(|event| event == "auth.isLoggedIn"),
+        "{order:?}"
+    );
+}
+
+#[test]
+fn safe_stop_moves_after_a_packet_only_login() {
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, safe_move_movie());
+    connect(&observer);
+    session
+        .update_script_options(serde_json::from_value(json!({"safeStartStop": false})).unwrap())
+        .unwrap();
+    session.supervise(None).unwrap();
+    session
+        .start_script(loose(&[(
+            "alert.js",
+            r#"
+        import * as script from "lucent/script";
+        export default function* () { yield* script.alert("running"); }
+    "#,
+        )]))
+        .unwrap();
+    wait_session(&session, || session.script_dialog().is_some());
+    safe_moves(&session, json!({"kind":"public"}));
+    order(&observer);
+    session.respond_dialog(
+        session.script_dialog().unwrap().id,
+        lucent_protocol::script::ScriptDialogResponse::Dismissed,
+    );
+    wait_idle_after_run(&session);
+    let order = order(&observer);
+    assert!(
+        order.iter().any(|event| event == "debug:safe destination"),
+        "safe stop did not move: {order:?}"
+    );
+    assert!(
+        !order.iter().any(|event| event == "auth.isLoggedIn"),
+        "{order:?}"
+    );
+}
+
+#[test]
+fn safe_move_travel_joins_after_a_packet_only_login() {
+    let host = testing::headless_host();
+    let arrival =
+        json!({"type":"json","dataObj":{"cmd":"moveToArea","areaId":2,"areaName":"buyhouse-42",
+        "uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100}]}})
+        .to_string();
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        safe_move_movie()
+            .constant("world.isActionAvailable", json!(true))
+            .responding(
+                "player.joinMap",
+                [(json!(null), vec![("onExtensionResponse".into(), arrival)])],
+            ),
+    );
+    connect(&observer);
+    emit(
+        &observer,
+        "onExtensionResponse",
+        json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[],"hitems":[]}})
+            .to_string(),
+    );
+    safe_moves(&session, json!({"kind":"specific","roomNumber":42}));
+    session.supervise(None).unwrap();
+    session
+        .start_script(loose(&[(
+            "first.js",
+            r#"
+        import * as api from "lucent/api";
+        export default function* () { yield* api.packet.sendToClient("first"); }
+    "#,
+        )]))
+        .unwrap();
+    wait_idle_after_run(&session);
+    let order = order(&observer);
+    let joined = order.iter().position(|event| event == "player.joinMap");
+    let first = order.iter().position(|event| event == "debug:started");
+    assert!(
+        joined.is_some() && joined < first,
+        "safe start did not travel before the first line: {order:?}"
+    );
+    assert_eq!(observer.read(|p| p.world.map.room_number).unwrap(), 42.0);
+}
+
+fn next_call(link: &ScriptLink, method: &str) -> Vec<Value> {
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    loop {
+        if let ScriptEvent::Loader { event, .. } = next(link, deadline)
+            && event.name == "onProbeCall"
+            && event.args.first() == Some(&Value::String(method.into()))
+        {
+            return event.args;
+        }
+    }
+}
+
+fn environment(link: &ScriptLink, edit: serde_json::Value) {
+    link.command(serde_json::from_value(json!({"kind":"updateEnvironment","edit":edit})).unwrap())
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+}
+
+#[test]
+fn quest_automation_accepts_after_a_packet_only_login() {
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        ready_movie()
+            .constant("quests.isInProgress", json!(false))
+            .constant("quests.isAvailable", json!(true))
+            .constant("world.isActionAvailable", json!(true))
+            .responding("quests.accept", [(json!(true), vec![])]),
+    );
+    connect(&observer);
+    environment(
+        &observer,
+        json!({"kind":"addQuest","questId":802,"rewardItemId":5586}),
+    );
+    session.supervise(None).unwrap();
+    next_call(&observer, "quests.accept");
+}
+
+#[test]
+fn boost_automation_uses_a_boost_after_a_packet_only_login() {
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        ready_movie()
+            .constant("player.hasActiveBoost", json!(false))
+            .responding("inventory.use", [(json!(true), vec![])]),
+    );
+    connect(&observer);
+    emit(
+        &observer,
+        "onExtensionResponse",
+        json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[
+            {"ItemID":1,"sName":"XP Boost","sType":"ServerUse","sLink":"xpboost::1","iQty":2}
+        ],"hitems":[]}})
+        .to_string(),
+    );
+    environment(&observer, json!({"kind":"addBoost","name":"XP Boost"}));
+    session.supervise(None).unwrap();
+    assert_eq!(
+        next_call(&observer, "inventory.use")[1],
+        Value::List(vec![lucent_protocol::bridge::from_json(
+            json!({"itemId":1})
+        )])
+    );
+}

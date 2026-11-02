@@ -1028,11 +1028,7 @@ fn login_is_refreshed_after_a_blocking_accept_settles() {
             .accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"})))
             .responding(
                 "auth.isLoggedIn",
-                [
-                    (json!(true), vec![]),
-                    (json!(true), vec![]),
-                    (json!(false), vec![]),
-                ],
+                [(json!(true), vec![]), (json!(false), vec![])],
             ),
     );
     common::log_in_ready(&link);

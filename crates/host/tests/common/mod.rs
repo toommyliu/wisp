@@ -118,6 +118,13 @@ pub fn ready(runtime: &Runtime) {
 }
 
 pub fn log_in(link: &lucent_host::ScriptLink) {
+    connect(link);
+    link.command(lucent_protocol::command::Command::RefreshCredentials {})
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+}
+
+pub fn connect(link: &lucent_host::ScriptLink) {
     link.call_loader(
         "probe.emit",
         vec![
@@ -144,12 +151,6 @@ pub fn log_in(link: &lucent_host::ScriptLink) {
         )
         .recv_timeout(TIMEOUT)
         .unwrap();
-    }
-    for command in [
-        lucent_protocol::command::Command::RefreshCredentials {},
-        lucent_protocol::command::Command::RefreshLoggedIn {},
-    ] {
-        link.command(command).recv_timeout(TIMEOUT).unwrap();
     }
 }
 

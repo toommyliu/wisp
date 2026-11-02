@@ -37,7 +37,7 @@ impl Running {
         }
         {
             let state = self.projection.read();
-            if !state.auth.logged_in || state.connected == Some(false) {
+            if !state.readiness.connected {
                 return Ok(crate::game::safe_move::Snapshot {
                     logged_in: false,
                     username: state.auth.username.clone(),
@@ -76,7 +76,7 @@ impl Running {
         };
         let state = self.projection.read();
         Ok(crate::game::safe_move::Snapshot {
-            logged_in: state.auth.logged_in,
+            logged_in: state.readiness.connected,
             username: state.auth.username.clone(),
             equipped_house,
             own_house,

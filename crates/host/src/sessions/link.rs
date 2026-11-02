@@ -152,11 +152,6 @@ impl ScriptLink {
             })
     }
 
-    pub fn cached_logged_in(&self) -> Pending<bool> {
-        self.inbox
-            .read_projection(|projection| projection.auth.logged_in)
-    }
-
     pub fn readiness(&self) -> Pending<bool> {
         self.inbox
             .read_projection(|projection| projection.current_readiness().missing.is_empty())
@@ -314,7 +309,7 @@ impl ScriptLink {
                 });
             }
             crate::automation::environment::Snapshot {
-                logged_in: projection.auth.logged_in,
+                logged_in: projection.readiness.connected,
                 quests: projection
                     .quests
                     .all()
