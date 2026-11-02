@@ -64,6 +64,7 @@ pub enum Reply {
 #[derive(Debug)]
 pub enum Event {
     Tick,
+    Cancel,
     Completed { id: u64, reply: Reply },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]

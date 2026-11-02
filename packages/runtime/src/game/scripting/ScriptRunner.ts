@@ -32,10 +32,6 @@ import { ScriptDialogs } from "./ScriptDialogs";
 import { ScriptServices } from "./ScriptServices";
 import { makeScriptRuntimeServices } from "./api/Services";
 import {
-  makeMoveToSafeDestination,
-  runWithSafeStartStop as withSafeStartStop,
-} from "./safeStartStop";
-import {
   getScriptExitRequest,
   ScriptLoadError,
   ScriptStopSignal,
@@ -326,7 +322,6 @@ export const layer = Layer.effect(
       fileSystem: fileSystemBridge,
       http: makeHttpApi,
     } = yield* ScriptServices;
-    const { auth, combat, house, map, packet, player, wait } = api;
     const services = makeScriptRuntimeServices(api, army, environment);
 
     const activeRef = yield* Ref.make<ActiveScript | null>(null);
@@ -598,38 +593,15 @@ export const layer = Layer.effect(
       },
     );
 
-    const moveToSafeMap = makeMoveToSafeDestination({
-      auth,
-      bridge,
-      combat,
-      house,
-      map,
-      packet,
-      player,
-      roomPolicy: scriptOptions
-        .get()
-        .pipe(Effect.map((options) => snapshotRoomPolicy(options.roomPolicy))),
-      wait,
-    });
-
-    const runWithSafeStartStop = (main: ScriptMain) =>
-      withSafeStartStop(
-        Effect.gen(function* () {
-          const iterator = main() as Generator<
-            Effect.Effect<any, any, never>,
-            unknown,
-            any
-          >;
-          return yield* iterator;
-        }).pipe(Effect.asVoid),
-        scriptOptions
-          .get()
-          .pipe(Effect.map((options) => options.safeStartStop)),
-        moveToSafeMap,
-      );
-
     const runScript = (id: number, source: ScriptSource, main: ScriptMain) =>
-      runWithSafeStartStop(main).pipe(
+      Effect.gen(function* () {
+        const iterator = main() as Generator<
+          Effect.Effect<any, any, never>,
+          unknown,
+          any
+        >;
+        return yield* iterator;
+      }).pipe(
         Effect.matchCauseEffect({
           onFailure: (cause) => {
             const termination = classifyScriptTermination(cause);

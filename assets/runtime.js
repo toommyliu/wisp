@@ -756,7 +756,6 @@
   }
   __name(isObjectKeyword, "isObjectKeyword");
   var hasProperty = /* @__PURE__ */ dual(2, (self, property) => isObjectKeyword(self) && property in self);
-  var isTagged = /* @__PURE__ */ dual(2, (self, tag2) => hasProperty(self, "_tag") && self["_tag"] === tag2);
   function isError(input) {
     return input instanceof Error;
   }
@@ -2470,23 +2469,11 @@ ${ind(d)}}`;
       return options.onNanos(self.value.nanos, toNanosUnsafe(that));
     }
   });
-  var Order = /* @__PURE__ */ make((self, that) => matchPair(self, that, {
-    onMillis: /* @__PURE__ */ __name((self2, that2) => self2 < that2 ? -1 : self2 > that2 ? 1 : 0, "onMillis"),
-    onNanos: /* @__PURE__ */ __name((self2, that2) => self2 < that2 ? -1 : self2 > that2 ? 1 : 0, "onNanos"),
-    onInfinity: /* @__PURE__ */ __name((self2, that2) => {
-      if (self2.value._tag === that2.value._tag) return 0;
-      if (self2.value._tag === "Infinity") return 1;
-      if (self2.value._tag === "NegativeInfinity") return -1;
-      if (that2.value._tag === "Infinity") return -1;
-      return 1;
-    }, "onInfinity")
-  }));
   var Equivalence = /* @__PURE__ */ __name((self, that) => matchPair(self, that, {
     onMillis: /* @__PURE__ */ __name((self2, that2) => self2 === that2, "onMillis"),
     onNanos: /* @__PURE__ */ __name((self2, that2) => self2 === that2, "onNanos"),
     onInfinity: /* @__PURE__ */ __name((self2, that2) => self2.value._tag === that2.value._tag, "onInfinity")
   }), "Equivalence");
-  var isLessThanOrEqualTo2 = /* @__PURE__ */ isLessThanOrEqualTo(Order);
   var equals2 = /* @__PURE__ */ dual(2, (self, that) => Equivalence(self, that));
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/internal/array.js
@@ -2965,7 +2952,6 @@ ${ind(d)}}`;
     }
     return fail2(self);
   }, "findError");
-  var hasDies = /* @__PURE__ */ __name((self) => self.reasons.some(isDieReason), "hasDies");
   var hasInterrupts = /* @__PURE__ */ __name((self) => self.reasons.some(isInterruptReason), "hasInterrupts");
   var causeFilterInterruptors = /* @__PURE__ */ __name((self) => {
     let interruptors;
@@ -3907,18 +3893,6 @@ ${prefix}}`;
     return isFailure2(eb) ? failCause(eb.failure) : f(eb.success, cause);
   }));
   var catch_ = /* @__PURE__ */ dual(2, (self, f) => catchCauseFilter(self, findError, (e) => f(e)));
-  var catchIf = /* @__PURE__ */ dual((args2) => isEffect(args2[0]), (self, predicate, f, orElse) => catchCause(self, (cause) => {
-    const error = findError(cause);
-    if (isFailure2(error)) return failCause(error.failure);
-    if (!predicate(error.success)) {
-      return orElse ? orElse(error.success) : failCause(cause);
-    }
-    return f(error.success);
-  }));
-  var catchTag = /* @__PURE__ */ dual((args2) => isEffect(args2[0]), (self, k, f, orElse) => {
-    const pred = Array.isArray(k) ? (e) => hasProperty(e, "_tag") && k.includes(e._tag) : isTagged(k);
-    return catchIf(self, pred, f, orElse);
-  });
   var mapError = /* @__PURE__ */ dual(2, (self, f) => catch_(self, (error) => failSync(() => f(error))));
   var orDie = /* @__PURE__ */ __name((self) => catch_(self, die), "orDie");
   var result = /* @__PURE__ */ __name((self) => matchEager(self, {
@@ -5225,7 +5199,6 @@ ${prefix}}`;
   var hasInterruptsOnly2 = hasInterruptsOnly;
   var map4 = causeMap;
   var squash = causeSquash;
-  var hasDies2 = hasDies;
   var pretty = causePretty;
   var isDone3 = isDone;
   var done3 = done;
@@ -5379,13 +5352,6 @@ ${prefix}}`;
     });
   })), "toStepWithMetadata");
   var toStepWithSleep = /* @__PURE__ */ __name((schedule4) => map3(toStepWithMetadata(schedule4), (step) => (input) => map3(step(input), (meta) => meta.output)), "toStepWithSleep");
-  var exponential = /* @__PURE__ */ __name((base, factor = 2) => {
-    const baseMillis = toMillis(fromInputUnsafe(base));
-    return fromStepWithMetadata(succeed3((meta) => {
-      const duration = millis(baseMillis * Math.pow(factor, meta.attempt - 1));
-      return succeed3([duration, duration]);
-    }));
-  }, "exponential");
   var modifyDelay = /* @__PURE__ */ dual(2, (self, f) => fromStep(map3(toStep(self), (step) => {
     const meta = metadataFn();
     return (now, input) => flatMap2(step(now, input), ([output, duration]) => map3(f({
@@ -5409,13 +5375,6 @@ ${prefix}}`;
     const decoded = fromInputUnsafe(duration);
     return fromStepWithMetadata(succeed3((meta) => succeed3([meta.attempt - 1, decoded])));
   }, "spaced");
-  var upTo = /* @__PURE__ */ dual(2, (self, options) => {
-    const duration = options.duration === void 0 ? void 0 : fromInputUnsafe(options.duration);
-    return while_(self, ({
-      attempt,
-      elapsed
-    }) => succeed3((options.times === void 0 || attempt <= options.times) && (duration === void 0 || isLessThanOrEqualTo2(millis(elapsed), duration))));
-  });
   var while_ = /* @__PURE__ */ dual(2, (self, predicate) => fromStep(map3(toStep(self), (step) => {
     const meta = metadataFn();
     return (now, input) => flatMap2(step(now, input), (result2) => {
@@ -5440,25 +5399,9 @@ ${prefix}}`;
       disableYield: true
     }), (out) => succeed3(out)), findErrorOnly, (error) => orElse(error, meta.attempt === 0 ? none2() : some2(meta)));
   }));
-  var retryOrElse = /* @__PURE__ */ dual(3, (self, policy, orElse) => flatMap2(toStepWithMetadata(policy), (step) => {
-    let meta = CurrentMetadata.defaultValue();
-    let lastError;
-    const loop = catchCauseFilter(suspend(() => provideService(self, CurrentMetadata, meta)), findErrorOnly, (error) => {
-      lastError = error;
-      return flatMap2(step(error), (meta_) => {
-        meta = meta_;
-        return loop;
-      });
-    });
-    return catchDone(loop, (out) => internalCall(() => orElse(lastError, out)));
-  }));
   var repeat = /* @__PURE__ */ dual(2, (self, options) => {
     const schedule4 = typeof options === "function" ? options(identity) : isSchedule(options) ? options : buildFromOptions(options);
     return repeatOrElse(self, schedule4, fail3);
-  });
-  var retry = /* @__PURE__ */ dual(2, (self, options) => {
-    const schedule4 = typeof options === "function" ? options(identity) : isSchedule(options) ? options : buildFromOptions(options);
-    return retryOrElse(self, schedule4, fail3);
   });
   var passthroughForever = /* @__PURE__ */ passthrough(forever2);
   var buildFromOptions = /* @__PURE__ */ __name((options) => {
@@ -5518,11 +5461,9 @@ ${prefix}}`;
   var asVoid2 = asVoid;
   var zipWith2 = zipWith;
   var catch_2 = catch_;
-  var catchTag2 = catchTag;
   var catchCause2 = catchCause;
   var mapError2 = mapError;
   var orDie2 = orDie;
-  var retry2 = retry;
   var timeoutOption2 = timeoutOption;
   var sleep2 = sleep;
   var raceFirst2 = raceFirst;
@@ -5565,8 +5506,6 @@ ${prefix}}`;
   var fnUntraced2 = fnUntraced;
   var fn2 = fn;
   var logWarning = /* @__PURE__ */ logWithLevel("Warn");
-  var logError = /* @__PURE__ */ logWithLevel("Error");
-  var logDebug = /* @__PURE__ */ logWithLevel("Debug");
   var annotateLogs = /* @__PURE__ */ dual((args2) => isEffect2(args2[0]), (effect2, ...args2) => updateService(effect2, CurrentLogAnnotations2, (annotations) => {
     const newAnnotations = args2.length === 1 ? {
       ...annotations,
@@ -9263,7 +9202,7 @@ ${prefix}}`;
       }), "toCode")
     }), "annotate")
   });
-  var isBetween2 = /* @__PURE__ */ makeIsBetween({
+  var isBetween = /* @__PURE__ */ makeIsBetween({
     order: Number2,
     annotate: /* @__PURE__ */ __name((options) => {
       const exclusiveMinimum = options.exclusiveMinimum ? true : void 0;
@@ -10586,10 +10525,10 @@ ${prefix}}`;
     return true;
   }, "shutdownUnsafe");
   var takeAll3 = /* @__PURE__ */ __name((self) => takeBetween(self, 1, Number.POSITIVE_INFINITY), "takeAll");
-  var takeBetween = /* @__PURE__ */ dual(3, (self, min3, max3) => {
-    min3 = normalize(min3);
-    max3 = normalize(max3);
-    return suspendTake(() => takeBetweenUnsafe(self, min3, max3) ?? andThen(awaitTake(self, () => canTake(self, min3)), takeBetween(self, min3, max3)));
+  var takeBetween = /* @__PURE__ */ dual(3, (self, min2, max2) => {
+    min2 = normalize(min2);
+    max2 = normalize(max2);
+    return suspendTake(() => takeBetweenUnsafe(self, min2, max2) ?? andThen(awaitTake(self, () => canTake(self, min2)), takeBetween(self, min2, max2)));
   });
   var take3 = /* @__PURE__ */ __name((self) => suspendTake(() => takeUnsafe(self) ?? andThen(awaitTake(self, () => canTake(self, 1)), take3(self))), "take");
   var takeUnsafe = /* @__PURE__ */ __name((self) => {
@@ -10635,15 +10574,15 @@ ${prefix}}`;
       releaseTakers(self);
     }, 0);
   }, "scheduleReleaseTaker");
-  var takeBetweenUnsafe = /* @__PURE__ */ __name((self, min3, max3) => {
+  var takeBetweenUnsafe = /* @__PURE__ */ __name((self, min2, max2) => {
     if (self.state._tag === "Done") {
       return self.state.exit;
-    } else if (max3 <= 0 || min3 <= 0) {
+    } else if (max2 <= 0 || min2 <= 0) {
       return exitSucceed([]);
-    } else if (!canTake(self, min3)) {
+    } else if (!canTake(self, min2)) {
       return void 0;
     }
-    const messages = self.messages.length > 0 ? takeN(self.messages, max3) : [takeOfferUnsafe(self.state.offers)];
+    const messages = self.messages.length > 0 ? takeN(self.messages, max2) : [takeOfferUnsafe(self.state.offers)];
     releaseCapacity(self);
     return exitSucceed(messages);
   }, "takeBetweenUnsafe");
@@ -10654,7 +10593,7 @@ ${prefix}}`;
       return isExit(effect2) ? effect2[evaluate](fiber2) : effect2;
     }
   });
-  var canTake = /* @__PURE__ */ __name((self, min3) => self.messages.length >= (self.state._tag === "Closing" ? 1 : Math.min(min3, self.capacity || 1)) || self.capacity <= 0 && self.state._tag !== "Done" && self.state.offers.size > 0, "canTake");
+  var canTake = /* @__PURE__ */ __name((self, min2) => self.messages.length >= (self.state._tag === "Closing" ? 1 : Math.min(min2, self.capacity || 1)) || self.capacity <= 0 && self.state._tag !== "Done" && self.state.offers.size > 0, "canTake");
   var awaitTake = /* @__PURE__ */ __name((self, ready) => callback((resume) => {
     if (self.state._tag === "Done") return resume(self.state.exit);
     if (ready()) return resume(exitVoid);
@@ -12786,7 +12725,7 @@ ${prefix}}`;
 
   // packages/runtime/src/game/flash/api/internal/CombatControl.ts
   var EntityStatePayload = WireInt.check(
-    isBetween2({
+    isBetween({
       minimum: EntityState.Dead,
       maximum: EntityState.InCombat
     })
@@ -13808,7 +13747,7 @@ ${prefix}}`;
     isGreaterThanOrEqualTo2(0)
   );
   var PositiveInt = Int.check(isGreaterThanOrEqualTo2(1));
-  var boundedInt = /* @__PURE__ */ __name((minimum, maximum) => Int.check(isBetween2({ minimum, maximum })), "boundedInt");
+  var boundedInt = /* @__PURE__ */ __name((minimum, maximum) => Int.check(isBetween({ minimum, maximum })), "boundedInt");
 
   // packages/schemas/src/scriptPath.ts
   var windowsReservedPathSegment = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
@@ -14256,7 +14195,7 @@ ${prefix}}`;
   var MINIMUM_RANDOM_PRIVATE_ROOM = 1e4;
   var MAXIMUM_ROOM_NUMBER = 99999;
   var RoomNumberSchema = Int.check(
-    isBetween2({
+    isBetween({
       minimum: MINIMUM_ROOM_NUMBER,
       maximum: MAXIMUM_ROOM_NUMBER
     })
@@ -14990,11 +14929,11 @@ ${prefix}}`;
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Random.js
   var Random2 = Random;
   var randomWith = /* @__PURE__ */ __name((f) => withFiber2((fiber2) => succeed7(f(fiber2.getRef(Random2)))), "randomWith");
-  var nextIntBetween = /* @__PURE__ */ __name((min3, max3, options) => {
+  var nextIntBetween = /* @__PURE__ */ __name((min2, max2, options) => {
     const extra = options?.halfOpen === true ? 0 : 1;
     return randomWith((r) => {
-      const minInt = Math.ceil(min3);
-      const maxInt = Math.floor(max3);
+      const minInt = Math.ceil(min2);
+      const maxInt = Math.floor(max2);
       return Math.floor(r.nextDoubleUnsafe() * (maxInt - minInt + extra)) + minInt;
     });
   }, "nextIntBetween");
@@ -19001,188 +18940,6 @@ ${prefix}}`;
   // packages/runtime/src/game/scripting/api/Services.ts
   var makeScriptRuntimeServices = /* @__PURE__ */ __name((api2, army, environment) => ({ ...api2, army, environment }), "makeScriptRuntimeServices");
 
-  // packages/runtime/src/shared/logFailure.ts
-  var logFailure = /* @__PURE__ */ __name((message2, cause, options) => {
-    if (hasInterruptsOnly2(cause)) return void_3;
-    if (hasDies2(cause)) return logError(message2, cause);
-    switch (options?.failure ?? "debug") {
-      case "error":
-        return logError(message2, cause);
-      case "warning":
-        return logWarning(message2, cause);
-      case "debug":
-        return logDebug(message2, cause);
-    }
-  }, "logFailure");
-
-  // packages/runtime/src/game/scripting/safeStartStop.ts
-  var maximumSafeMoveAttempts = 3;
-  var respawnTimeout = "15 seconds";
-  var returnInfoPath = "world.returnInfo";
-  var SafeMoveTimeout = class extends TaggedError2("SafeMoveTimeout") {
-    static {
-      __name(this, "SafeMoveTimeout");
-    }
-  };
-  var safeMoveRetrySchedule = exponential("1 second").pipe(
-    upTo({ times: maximumSafeMoveAttempts - 1 })
-  );
-  var logMoveFailure = /* @__PURE__ */ __name((phase) => catchCause2(
-    (cause) => logFailure("Safe start/stop move failed", cause).pipe(
-      annotateLogs({ component: "scripting", data: { phase } })
-    )
-  ), "logMoveFailure");
-  var retrySafeMove = /* @__PURE__ */ __name((attempt) => attempt.pipe(
-    flatMap3(
-      (result2) => result2 === "retry" ? fail5(new SafeMoveTimeout()) : succeed7(result2)
-    ),
-    retry2(safeMoveRetrySchedule),
-    catchTag2(
-      "SafeMoveTimeout",
-      () => succeed7("timed-out")
-    )
-  ), "retrySafeMove");
-  var runWithSafeStartStop = /* @__PURE__ */ __name((main, isEnabled, moveToSafeDestination) => {
-    const moveIfEnabled = /* @__PURE__ */ __name((phase) => isEnabled.pipe(
-      flatMap3(
-        (enabled) => enabled ? moveToSafeDestination(phase) : void_3
-      )
-    ), "moveIfEnabled");
-    return gen2(function* () {
-      yield* moveIfEnabled("before");
-      return yield* main;
-    }).pipe(ensuring2(moveIfEnabled("after")));
-  }, "runWithSafeStartStop");
-  var makeMoveToSafeDestination = /* @__PURE__ */ __name((services) => {
-    const { auth, bridge, combat, house, map: map8, packet, player, roomPolicy, wait } = services;
-    const isInOwnHouse = bridge.invokeJson("flash.callGameFunction0", ["world.isMyHouse"], Boolean3).pipe(map5(getOrElse(() => false)));
-    const setReturnInfo = /* @__PURE__ */ __name((value) => bridge.invoke("flash.setGameObject", [returnInfoPath, value], Void2).pipe(map5(isSome2)), "setReturnInfo");
-    const moveToSafeDestination = fn2("ScriptRunner.moveToSafeDestination")(
-      function* () {
-        if (!(yield* auth.isLoggedIn())) {
-          return;
-        }
-        const username = (yield* auth.getUsername()).trim();
-        if (username === "") {
-          return;
-        }
-        const hasEquippedHouse = (yield* house.getAll()).some(
-          (item) => item.category === "House" && item.equipped
-        );
-        let destination;
-        if (hasEquippedHouse) {
-          const inOwnHouse = yield* isInOwnHouse;
-          if (!(yield* auth.isLoggedIn())) {
-            return;
-          }
-          if (inOwnHouse) return;
-          destination = { kind: "house" };
-        } else {
-          const policy = yield* roomPolicy;
-          const [mapName, currentRoomNumber] = yield* all2([
-            map8.getName(),
-            map8.getRoomNumber()
-          ]);
-          const inBuyhouse = mapName.localeCompare("buyhouse", void 0, {
-            sensitivity: "accent"
-          }) === 0;
-          if (inBuyhouse && roomPolicyAcceptsRoom(policy, currentRoomNumber)) {
-            return;
-          }
-          destination = {
-            kind: "buyhouse",
-            target: yield* applyRoomPolicy("buyhouse", policy)
-          };
-        }
-        const alive = yield* player.isAlive();
-        if (!(yield* auth.isLoggedIn())) {
-          return;
-        }
-        if (!alive) {
-          const respawn = yield* wait.untilSome(
-            all2([auth.isLoggedIn(), player.isAlive()]).pipe(
-              map5(
-                ([loggedIn, alive2]) => !loggedIn ? some2("aborted") : alive2 ? some2("ready") : none2()
-              )
-            ),
-            { timeout: respawnTimeout }
-          );
-          if (respawn === "aborted") {
-            return;
-          }
-          if (respawn !== "ready") {
-            return;
-          }
-        }
-        const exitedCombat = yield* combat.exit();
-        if (!(yield* auth.isLoggedIn())) {
-          return;
-        }
-        if (!exitedCombat) {
-          return;
-        }
-        yield* sleep2("1 second");
-        if (!(yield* auth.isLoggedIn())) {
-          return;
-        }
-        const move = retrySafeMove(
-          destination.kind === "house" ? gen2(function* () {
-            if (!(yield* auth.isLoggedIn())) return "aborted";
-            if (!(yield* packet.sendToServer(`%xt%zm%house%1%${username}%`))) {
-              return "retry";
-            }
-            const outcome2 = yield* wait.untilSome(
-              all2([
-                auth.isLoggedIn(),
-                isInOwnHouse,
-                player.isReady()
-              ]).pipe(
-                map5(
-                  ([loggedIn, ownHouse, ready]) => !loggedIn ? some2("aborted") : ownHouse && ready ? some2("moved") : none2()
-                )
-              ),
-              { timeout: "5 seconds" }
-            );
-            return outcome2 ?? "retry";
-          }) : gen2(function* () {
-            if (!(yield* auth.isLoggedIn())) return "aborted";
-            const joined = yield* player.joinMap(destination.target);
-            if (!(yield* auth.isLoggedIn())) return "aborted";
-            if (!joined) return "retry";
-            const outcome2 = yield* wait.untilSome(
-              all2([auth.isLoggedIn(), player.isReady()]).pipe(
-                map5(
-                  ([loggedIn, ready]) => !loggedIn ? some2("aborted") : ready ? some2("moved") : none2()
-                )
-              ),
-              { timeout: "5 seconds" }
-            );
-            return outcome2 ?? "retry";
-          })
-        );
-        const returnInfoIsNull = yield* bridge.invoke(
-          "flash.isNull",
-          [returnInfoPath],
-          Boolean3
-        );
-        if (getOrElse(returnInfoIsNull, () => false))
-          return yield* asVoid2(move);
-        const returnInfo = yield* bridge.invokeJson(
-          "flash.getGameObject",
-          [returnInfoPath],
-          Unknown2
-        );
-        if (isNone2(returnInfo) || !(yield* setReturnInfo(null))) {
-          return;
-        }
-        yield* move.pipe(
-          ensuring2(setReturnInfo(returnInfo.value).pipe(asVoid2))
-        );
-      }
-    );
-    return (phase) => moveToSafeDestination().pipe(logMoveFailure(phase));
-  }, "makeMoveToSafeDestination");
-
   // packages/runtime/src/game/scripting/ScriptRunner.ts
   var terminalFinalization = /* @__PURE__ */ __name((outcome2) => ({ outcome: outcome2, status: outcome2.status }), "terminalFinalization");
   var ScriptRunner = class extends Service()("lucent/game/scripting/ScriptRunner") {
@@ -19275,7 +19032,6 @@ ${prefix}}`;
         fileSystem: fileSystemBridge,
         http: makeHttpApi
       } = yield* ScriptServices;
-      const { auth, combat, house, map: map8, packet, player, wait } = api2;
       const services = makeScriptRuntimeServices(api2, army, environment);
       const activeRef = yield* make16(null);
       const lifecycleGate = yield* make15(1);
@@ -19474,26 +19230,10 @@ ${prefix}}`;
           }
         }
       );
-      const moveToSafeMap = makeMoveToSafeDestination({
-        auth,
-        bridge,
-        combat,
-        house,
-        map: map8,
-        packet,
-        player,
-        roomPolicy: scriptOptions.get().pipe(map5((options) => snapshotRoomPolicy(options.roomPolicy))),
-        wait
-      });
-      const runWithSafeStartStop2 = /* @__PURE__ */ __name((main) => runWithSafeStartStop(
-        gen2(function* () {
-          const iterator = main();
-          return yield* iterator;
-        }).pipe(asVoid2),
-        scriptOptions.get().pipe(map5((options) => options.safeStartStop)),
-        moveToSafeMap
-      ), "runWithSafeStartStop");
-      const runScript = /* @__PURE__ */ __name((id, source, main) => runWithSafeStartStop2(main).pipe(
+      const runScript = /* @__PURE__ */ __name((id, source, main) => gen2(function* () {
+        const iterator = main();
+        return yield* iterator;
+      }).pipe(
         matchCauseEffect2({
           onFailure: /* @__PURE__ */ __name((cause) => {
             const termination = classifyScriptTermination(cause);

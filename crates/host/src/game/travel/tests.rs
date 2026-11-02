@@ -300,3 +300,40 @@ fn public_rooms_are_reused_and_private_or_invalid_rooms_join_exactly() {
         );
     }
 }
+
+#[test]
+fn a_jump_poll_is_clamped_to_its_deadline() {
+    let mut job = TravelJob::new(Request::Jump {
+        cell: "Safe".into(),
+        pad: None,
+    })
+    .unwrap();
+    let snapshot = Snapshot {
+        live_cell: "Safe".into(),
+        live_pad: "Spawn".into(),
+        ..Default::default()
+    };
+    let jump = job.advance(&snapshot, Event::Tick, 0).command.unwrap();
+    job.advance(
+        &snapshot,
+        Event::Completed {
+            id: jump.id,
+            reply: Reply::Accepted,
+        },
+        0,
+    );
+    let poll = job.advance(&snapshot, Event::Tick, 0).command.unwrap();
+    let effects = job.advance(
+        &snapshot,
+        Event::Completed {
+            id: poll.id,
+            reply: Reply::CellReady(false),
+        },
+        2999,
+    );
+    assert_eq!(effects.next_deadline, Some(3000));
+    assert_eq!(
+        job.advance(&snapshot, Event::Tick, 3000).outcome,
+        Some(Outcome::Returned(false))
+    );
+}
