@@ -35,24 +35,23 @@ fn wait_idle(session: &Session) {
     wait_status(session, |s| s.script_status().phase == ScriptPhase::Idle);
 }
 #[test]
-fn a_nonreturning_finalizer_is_forced_after_the_stop_grace() {
+fn a_blocked_stop_is_forced_after_the_grace() {
     let logs = Logs::default();
-    let dispatch = logs.dispatch();
+    let (layer, gate) = common::hold::hold("finalizer entered", Some("lucent-js-"), true);
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry()
+            .with(logs.clone())
+            .with(layer),
+    );
     let _guard = tracing::dispatcher::set_default(&dispatch);
     let host = testing::headless_host();
-    let (mut session, observer) = testing::start_probe(
-        &host,
-        ready_movie().recording("settings.setWalkSpeed").responding(
-            "flash.callGameFunction0",
-            [
-                (serde_json::json!("true"), vec![]),
-                (
-                    serde_json::json!("false"),
-                    vec![("onDebug".into(), "finalizer entered".into())],
-                ),
-            ],
-        ),
-    );
+    let (mut session, observer) =
+        testing::start_probe(&host, ready_movie().recording("settings.setWalkSpeed"));
+    session
+        .update_script_options(
+            serde_json::from_value(serde_json::json!({"safeStartStop":false})).unwrap(),
+        )
+        .unwrap();
     session.supervise(None).unwrap();
     log_in(&observer);
     session
@@ -61,6 +60,11 @@ fn a_nonreturning_finalizer_is_forced_after_the_stop_grace() {
             r#"
         import * as script from "lucent/script";
         export default function* () {
+            const abort = AbortController.prototype.abort;
+            AbortController.prototype.abort = function(...args) {
+                console.log("finalizer entered");
+                return abort.apply(this, args);
+            };
             console.log("body entered");
             yield* script.sleep("1 hour");
         }
@@ -68,28 +72,15 @@ fn a_nonreturning_finalizer_is_forced_after_the_stop_grace() {
         )]))
         .unwrap();
     logs.wait_for(tracing::Level::INFO, "body entered");
-    observer.call_loader("probe.emit", vec![
-        lucent_protocol::bridge::Value::String("onExtensionResponse".into()),
-        lucent_protocol::bridge::Value::String(serde_json::json!({"type":"json","dataObj":{"cmd":"cb","p":{"player-a":{"intHP":0,"intState":0}}}}).to_string()),
-    ]).recv_timeout(TIMEOUT).unwrap();
-    let player = observer
-        .read(|p| p.world.get_me().unwrap().snapshot())
-        .unwrap();
-    assert_eq!(player["alive"], serde_json::json!(false), "{player}");
     let began = Instant::now();
     session.stop_script();
-    assert_eq!(
-        await_event(&observer, "onDebug", None).args,
-        vec![lucent_protocol::bridge::Value::String(
-            "finalizer entered".into()
-        )]
-    );
+    gate.wait();
     let (tx, changes) = mpsc::channel();
     let waker = Waker::from(Arc::new(Changed(tx)));
     session.watch(waker.clone());
     observer.set_waker(waker);
     let mut settings = Vec::new();
-    while session.script_status().phase != ScriptPhase::Idle {
+    while session.script_status().last_end.is_none() {
         while let Some(event) = observer.try_event().unwrap() {
             if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event
                 && event.name == "onProbeCall"
@@ -105,6 +96,8 @@ fn a_nonreturning_finalizer_is_forced_after_the_stop_grace() {
             .recv_timeout((began + TIMEOUT).saturating_duration_since(Instant::now()))
             .unwrap();
     }
+    gate.open();
+    wait_status(&session, |s| s.script_status().phase == ScriptPhase::Idle);
     assert!(began.elapsed() <= Duration::from_millis(5250));
     assert!(settings.len() >= 4, "{settings:?}");
     assert!(

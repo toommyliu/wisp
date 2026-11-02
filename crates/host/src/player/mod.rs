@@ -170,6 +170,28 @@ impl Read {
 }
 
 pub(crate) enum Msg {
+    LifecycleLogout {
+        guard: Arc<crate::game::jobs::safe_move::Guard>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<String>,
+    },
+    ObserveSafeMove {
+        reads: crate::game::travel::Reads,
+        own_house: crate::game::safe_move::HouseRead,
+        guard: Arc<crate::game::jobs::safe_move::Guard>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<crate::game::safe_move::Snapshot>,
+        #[cfg(feature = "testing")]
+        probe: Option<crate::game::jobs::SafeMoveProbe>,
+    },
+    DispatchSafeMove {
+        action: crate::game::safe_move::Action,
+        guard: Arc<crate::game::jobs::safe_move::Guard>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<Value>,
+        #[cfg(feature = "testing")]
+        probe: Option<crate::game::jobs::SafeMoveProbe>,
+    },
     ObserveTravel {
         reads: crate::game::travel::Reads,
         gate: Arc<crate::game::jobs::JobGate>,
@@ -227,6 +249,21 @@ impl Inbox {
     pub(crate) fn call_loader(&self, name: impl Into<String>, args: Vec<Value>) -> PendingCall {
         let (call, pending) = Call::new(name.into(), args);
         if let Err(error) = self.0.send(Msg::Call(call))
+            && let Msg::Call(call) = error.0
+        {
+            call.reject(BridgeError::Stopped);
+        }
+        pending
+    }
+
+    pub(crate) fn call_loader_guarded(
+        &self,
+        name: String,
+        args: Vec<Value>,
+        guard: Box<dyn crate::bridge::CallGuard>,
+    ) -> PendingCall {
+        let (call, pending) = Call::new(name, args);
+        if let Err(error) = self.0.send(Msg::Call(call.guarded(guard)))
             && let Msg::Call(call) = error.0
         {
             call.reject(BridgeError::Stopped);
@@ -377,6 +414,15 @@ fn first_viewport(
             #[cfg(feature = "testing")]
             Msg::LinkCount(reply) => {
                 let _ = reply.send(Ok(script_events.len()));
+            }
+            Msg::LifecycleLogout { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
+            Msg::ObserveSafeMove { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
+            Msg::DispatchSafeMove { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
             }
             Msg::ObserveTravel { reply, .. } => {
                 let _ = reply.send(Ok(Default::default()));
@@ -538,6 +584,70 @@ impl Running {
                 deliver_operation_answer(&self.script_events, attachment, answer);
             }
             Msg::Read(read) => (read.0)(Ok(&self.projection.read())),
+            Msg::LifecycleLogout {
+                guard,
+                deadline,
+                reply,
+            } => {
+                let result = if Instant::now() >= deadline {
+                    Err(BridgeError::Timeout)
+                } else if !guard.allows(
+                    self.operation_packets.binding(),
+                    &self.projection.read().auth.username,
+                ) {
+                    Err(BridgeError::Stopped)
+                } else {
+                    self.command(Command::Logout {})
+                };
+                let _ = reply.send(result);
+            }
+            Msg::ObserveSafeMove {
+                reads,
+                own_house,
+                guard,
+                deadline,
+                reply,
+                #[cfg(feature = "testing")]
+                probe,
+            } => {
+                #[cfg(feature = "testing")]
+                if probe.is_some() {
+                    self.travel_calls = Some(Vec::new());
+                }
+                let result = self.observe_safe_move(reads, own_house, &guard, deadline);
+                #[cfg(feature = "testing")]
+                if let Some(probe) = probe {
+                    probe(self.travel_calls.take().unwrap());
+                }
+                let _ = reply.send(result);
+            }
+            Msg::DispatchSafeMove {
+                action,
+                guard,
+                deadline,
+                reply,
+                #[cfg(feature = "testing")]
+                probe,
+            } => {
+                #[cfg(feature = "testing")]
+                if probe.is_some() {
+                    self.travel_calls = Some(Vec::new());
+                }
+                let (method, args) = action.loader_call();
+                let result = self.safe_move_call(
+                    &guard,
+                    deadline,
+                    method,
+                    args.into_iter()
+                        .map(lucent_protocol::bridge::from_json)
+                        .collect(),
+                );
+                #[cfg(feature = "testing")]
+                if let Some(probe) = probe {
+                    probe(self.travel_calls.take().unwrap());
+                }
+                let _ = reply.send(result);
+            }
             Msg::ObserveTravel {
                 reads,
                 gate,
