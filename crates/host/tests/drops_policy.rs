@@ -110,6 +110,49 @@ fn remaining(link: &ScriptLink) -> Vec<i64> {
 }
 
 #[test]
+fn replies_before_registration_wake_each_drop_rejection_transition() {
+    struct Notify(std::sync::mpsc::Sender<()>);
+    impl Wake for Notify {
+        fn wake(self: Arc<Self>) {
+            let _ = self.0.send(());
+        }
+    }
+    let host = testing::headless_host();
+    let (mut session, writer) = testing::start_probe(&host, movie(true));
+    common::log_in(&writer);
+    reject_else(&writer);
+    drops(&writer, &[(69, "Unwanted")]);
+    let (sender, wakes) = std::sync::mpsc::channel();
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Notify(sender))),
+    );
+    let barrier = session
+        .attach(lucent_host::bridge::EventInterests::new(&[]))
+        .unwrap();
+    policy.set_reply_probe(move || {
+        barrier
+            .call_loader("probe.echo", vec![])
+            .recv_timeout(TIMEOUT)
+            .unwrap();
+    });
+    for _ in 0..2 {
+        while wakes.try_recv().is_ok() {}
+        assert!(policy.advance(Instant::now()).is_some());
+        assert_eq!(
+            wakes.try_recv(),
+            Ok(()),
+            "completed reply did not wake the policy"
+        );
+    }
+    assert_eq!(policy.advance(Instant::now()), None);
+    assert_eq!(drain_rejects(&writer), [Value::Number(69.0)]);
+    assert!(remaining(&writer).is_empty());
+}
+
+#[test]
 fn one_wake_reconciles_the_whole_pending_list() {
     let logs = Logs::default();
     let _guard = tracing::dispatcher::set_default(&logs.dispatch());

@@ -69,6 +69,8 @@ pub struct DropPolicy {
     config: Option<Config>,
     rescan: bool,
     pass: Option<Pass>,
+    #[cfg(feature = "testing")]
+    before_reply_waker: Option<Box<dyn Fn() + Send>>,
 }
 impl DropPolicy {
     pub const INTERESTS: EventInterests = EventInterests::new(&[
@@ -85,7 +87,14 @@ impl DropPolicy {
             config: None,
             rescan: false,
             pass: None,
+            #[cfg(feature = "testing")]
+            before_reply_waker: None,
         }
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn set_reply_probe(&mut self, probe: impl Fn() + Send + 'static) {
+        self.before_reply_waker = Some(Box::new(probe));
     }
 
     pub fn advance(&mut self, now: Instant) -> Option<Instant> {
@@ -233,6 +242,10 @@ impl DropPolicy {
                 },
                 Action::Reject => {
                     let pending = self.link.command(Command::RefreshLoggedIn {});
+                    #[cfg(feature = "testing")]
+                    if let Some(probe) = &self.before_reply_waker {
+                        probe();
+                    }
                     pending.set_waker(self.waker.clone());
                     Mutation::Login(pending)
                 }
@@ -324,6 +337,10 @@ impl DropPolicy {
                             let deadline = pending.as_ref().map(|_| now + REPLY_TIMEOUT);
                             let state = match pending {
                                 Some(pending) => {
+                                    #[cfg(feature = "testing")]
+                                    if let Some(probe) = &self.before_reply_waker {
+                                        probe();
+                                    }
                                     pending.set_waker(self.waker.clone());
                                     if waiting_for_accept {
                                         Mutation::Login(pending)

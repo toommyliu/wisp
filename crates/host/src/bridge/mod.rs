@@ -495,7 +495,7 @@ mod tests {
             let pending = self.pending.upgrade().unwrap();
             let pending = pending.lock().unwrap();
             self.seen.send(pending.try_recv()).unwrap();
-            pending.set_waker(Waker::from(self.clone()));
+            pending.set_waker(Waker::noop().clone());
         }
     }
 
@@ -629,11 +629,32 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_received_before_waker_registration_is_still_available() {
-        let (reply, pending) = Pending::channel();
-        reply.send(Ok(7)).unwrap();
-        pending.set_waker(Waker::noop().clone());
-        assert_eq!(pending.try_recv(), Some(Ok(7)));
+    fn replies_and_disconnections_before_registration_wake_the_caller() {
+        struct Notify(mpsc::Sender<()>);
+        impl Wake for Notify {
+            fn wake(self: Arc<Self>) {
+                self.0.send(()).unwrap();
+            }
+        }
+        for disconnected in [false, true] {
+            let (reply, pending) = Pending::channel();
+            if disconnected {
+                drop(reply);
+            } else {
+                reply.send(Ok(7)).unwrap();
+            }
+            let (sender, wakes) = mpsc::channel();
+            pending.set_waker(Waker::from(Arc::new(Notify(sender))));
+            assert_eq!(wakes.try_recv(), Ok(()));
+            assert_eq!(
+                pending.try_recv(),
+                Some(if disconnected {
+                    Err(Error::Stopped)
+                } else {
+                    Ok(7)
+                })
+            );
+        }
     }
 
     #[test]
