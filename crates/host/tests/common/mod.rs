@@ -169,6 +169,15 @@ pub fn await_event(
     name: &str,
     run: Option<&ScriptRun>,
 ) -> lucent_protocol::bridge::Event {
+    await_event_for(link, name, run, TIMEOUT)
+}
+
+pub fn await_event_for(
+    link: &lucent_host::ScriptLink,
+    name: &str,
+    run: Option<&ScriptRun>,
+    timeout: Duration,
+) -> lucent_protocol::bridge::Event {
     use std::sync::Arc;
     use std::task::{Wake, Waker};
     use std::time::Instant;
@@ -179,7 +188,7 @@ pub fn await_event(
         }
     }
     link.set_waker(Waker::from(Arc::new(Unpark(std::thread::current()))));
-    let deadline = Instant::now() + TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let mut outcome = None;
     loop {
         outcome = outcome.or_else(|| {
@@ -189,7 +198,17 @@ pub fn await_event(
             })
         });
         let remaining = deadline.saturating_duration_since(Instant::now());
-        assert!(!remaining.is_zero(), "did not receive {name}");
+        if remaining.is_zero() {
+            panic!(
+                "did not receive {name} within {timeout:?}; run: {}; {}",
+                if run.is_some() {
+                    "still active"
+                } else {
+                    "see logs"
+                },
+                session_state(link)
+            );
+        }
         match link.try_event().unwrap() {
             Some(lucent_host::bridge::ScriptEvent::Loader { event, .. }) if event.name == name => {
                 return event;
@@ -207,6 +226,18 @@ pub fn await_event(
             }
         }
     }
+}
+
+fn session_state(link: &lucent_host::ScriptLink) -> String {
+    let wait = Duration::from_secs(1);
+    format!(
+        "player echo: {:?}; readiness: {:?}; logs: {:#?}",
+        link.call_loader("probe.echo", vec![])
+            .recv_timeout(wait)
+            .map(|_| ()),
+        link.read_for(wait, |projection| projection.readiness),
+        logs::Logs::current().map(|logs| logs.lines())
+    )
 }
 
 pub fn started_run(session: &mut Session, source: &str) -> ScriptRun {
