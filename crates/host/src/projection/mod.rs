@@ -72,6 +72,7 @@ impl Projection {
             "OnConnection" => self.connected = Some(true),
             _ => return ProjectionOutput::default(),
         }
+        self.readiness.logged_out = false;
         let logout = self.session_logged_in;
         self.session_logged_in = false;
         self.reset();
@@ -119,7 +120,7 @@ impl Projection {
 
     pub(crate) fn refresh_readiness(&mut self, joined: bool) {
         let epoch = self.receipts.epoch();
-        let connected = self.connected == Some(true);
+        let connected = self.connected == Some(true) && !self.readiness.logged_out;
         let avatar = if joined || epoch != self.readiness.epoch || !connected {
             Avatar::Unknown
         } else {
@@ -128,6 +129,7 @@ impl Projection {
         self.readiness = PlayerReadiness {
             epoch,
             connected,
+            logged_out: self.readiness.logged_out,
             facts: self.current_readiness().missing.is_empty(),
             avatar,
         };

@@ -315,8 +315,9 @@ fn a_failed_logout_stays_unready_until_the_next_connection() {
     assert!(!ready(&link));
     connect(&link);
     facts(&link);
+    let deadline = Instant::now() + TIMEOUT;
     while !ready(&link) {
-        next_event(&link, Instant::now() + TIMEOUT);
+        next_event(&link, deadline);
     }
 }
 

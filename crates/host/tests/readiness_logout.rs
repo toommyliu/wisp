@@ -47,8 +47,14 @@ fn logout_keeps_a_script_running_without_marking_the_avatar_ready() {
     loop {
         if let Some(dialog) = session.script_dialog() {
             assert!(!link.read(|p| p.readiness.can_act()).unwrap());
-            controls.status();
-            logs.wait_for(tracing::Level::INFO, "session 1: logout.js is running");
+            for count in 1..=2 {
+                controls.status();
+                logs.wait_for_count(
+                    tracing::Level::INFO,
+                    "session 1: logout.js is running",
+                    count,
+                );
+            }
             assert_eq!(session.script_status().phase, ScriptPhase::Running);
             session.respond_dialog(dialog.id, ScriptDialogResponse::Confirmed(true));
             break;

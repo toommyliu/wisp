@@ -41,6 +41,9 @@ impl Running {
             if invalidated || joined {
                 self.profile_area += 1;
             }
+            if joined {
+                self.last_confirmation = None;
+            }
             if let Some(ScriptEvent::Loader { projected, .. }) = &event {
                 for event in projected {
                     if let ProjectionEvent::MonsterDeath { monster_map_id } = event
@@ -156,7 +159,7 @@ impl Running {
             .read()
             .readiness
             .needs_confirmation()
-            .then_some(now + INTERVAL)
+            .then(|| self.last_confirmation.map_or(now, |last| last + INTERVAL))
     }
 
     fn stop_attacking_countered(&mut self, monster_map_id: i64) {
@@ -1248,6 +1251,16 @@ mod tests {
         assert_eq!(
             running.confirm_readiness(joined_at),
             Some(joined_at + Duration::from_millis(100))
+        );
+        area(&mut running, &bridge);
+        let confirming_at = joined_at + Duration::from_millis(100);
+        assert_eq!(
+            running.confirm_readiness(confirming_at),
+            Some(confirming_at)
+        );
+        assert_eq!(
+            running.confirm_readiness(confirming_at),
+            Some(confirming_at + Duration::from_millis(100))
         );
     }
     #[test]

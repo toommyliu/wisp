@@ -12,6 +12,7 @@ pub enum Avatar {
 pub struct PlayerReadiness {
     pub epoch: u64,
     pub connected: bool,
+    pub(crate) logged_out: bool,
     pub facts: bool,
     pub avatar: Avatar,
 }
