@@ -99,6 +99,134 @@ fn terminals(result: &Transition) -> Vec<Outcome> {
         })
         .collect()
 }
+fn runs_game_work(result: &Transition) -> bool {
+    result.effects.iter().any(|effect| {
+        matches!(
+            effect,
+            Effect::SafeMove { .. } | Effect::Logout { .. } | Effect::Spawn { .. }
+        )
+    })
+}
+
+#[test]
+fn a_run_that_never_started_ends_without_safe_stop() {
+    let opts = Options {
+        safe_start_stop: true,
+        ..options()
+    };
+    let endings = [
+        (
+            Event::Command(Command::Stop {
+                run: RunId(1),
+                reason: "user".into(),
+            }),
+            1,
+            Outcome::Stopped(StopReason::Requested("user".into())),
+        ),
+        (
+            Event::Command(Command::Kill { run: RunId(1) }),
+            1,
+            Outcome::Killed(KillReason::Requested),
+        ),
+        (
+            Event::Deadline,
+            10_000,
+            Outcome::Failed("Script readiness timed out after 10 s".into()),
+        ),
+        (
+            Event::ConnectionLost(binding()),
+            1,
+            Outcome::Stopped(StopReason::ConnectionLost),
+        ),
+        (
+            Event::AccountChanged,
+            1,
+            Outcome::Stopped(StopReason::AccountChanged),
+        ),
+        (
+            Event::PlayerReplaced(Binding {
+                player: PlayerId(2),
+                ..binding()
+            }),
+            1,
+            Outcome::Stopped(StopReason::PlayerReplaced),
+        ),
+    ];
+    for ready in [Readiness::default(), readiness()] {
+        for (event, now, outcome) in endings.clone() {
+            let mut machine = Lifecycle::new(binding());
+            machine.advance(Event::Command(Command::Start(request())), &ready, &opts, 0);
+            assert_eq!(machine.status().active.unwrap().run, RunId(1));
+            let ended = machine.advance(event, &ready, &opts, now);
+            assert_eq!(terminals(&ended), vec![outcome]);
+            assert!(!runs_game_work(&ended), "{:?}", ended.effects);
+            assert!(machine.status().active.is_none());
+            assert!(ended.effects.contains(&Effect::Publish(machine.status())));
+        }
+    }
+}
+
+#[test]
+fn a_waiting_restart_attempt_ends_without_safe_stop() {
+    for disable in [false, true] {
+        let mut machine = Lifecycle::new(binding());
+        let run = start(&mut machine);
+        let opts = Options {
+            safe_start_stop: true,
+            restart_after_reconnect: true,
+            ..options()
+        };
+        machine.advance(Event::ConnectionLost(binding()), &readiness(), &opts, 10);
+        machine.advance(Event::Reaped(run), &readiness(), &opts, 11);
+        machine.advance(
+            Event::SafeMoveDone {
+                run,
+                phase: SafePhase::After,
+            },
+            &readiness(),
+            &opts,
+            12,
+        );
+        machine.advance(
+            Event::ConnectionRestored(Binding {
+                connection: ConnectionEpoch(2),
+                ..binding()
+            }),
+            &readiness(),
+            &opts,
+            13,
+        );
+        let retry = machine.status().active.unwrap().run;
+        assert_ne!(retry, run);
+        let (event, opts, outcome) = if disable {
+            (
+                Event::OptionsChanged,
+                Options {
+                    restart_after_reconnect: false,
+                    ..opts
+                },
+                "Restart after reconnect disabled",
+            )
+        } else {
+            (
+                Event::Command(Command::Stop {
+                    run: retry,
+                    reason: "user".into(),
+                }),
+                opts,
+                "user",
+            )
+        };
+        let ended = machine.advance(event, &readiness(), &opts, 14);
+        assert_eq!(
+            terminals(&ended),
+            vec![Outcome::Stopped(StopReason::Requested(outcome.into()))]
+        );
+        assert!(!runs_game_work(&ended), "{:?}", ended.effects);
+        assert!(machine.status().active.is_none());
+        assert!(!machine.status().waiting_to_restart);
+    }
+}
 
 #[test]
 fn every_ending_is_published_once_and_reaped() {
