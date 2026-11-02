@@ -15,11 +15,6 @@ import type {
   CombatProfileLibrary,
 } from "@lucent/schemas/combatProfiles";
 import type {
-  FollowerConfig,
-  FollowerStartPayload,
-  FollowerState,
-} from "@lucent/schemas/follower";
-import type {
   FileSystemEntry,
   FileSystemFailure,
 } from "@lucent/schemas/filesystem";
@@ -46,7 +41,6 @@ import type {
   ScriptSelectFileResult,
 } from "./ipc/scripting";
 import type { DesktopHttpBridge } from "./http";
-import type { FollowerPlayers } from "./ipc/follower";
 import type {
   ScriptInputsDefinition,
   ScriptInputValues,
@@ -372,25 +366,6 @@ export interface DesktopGamePacketsBridge {
   readonly publishStatus: (payload: PacketsStatusPayload) => Promise<void>;
 }
 
-export interface DesktopFollowerBridge {
-  readonly configure: (payload: FollowerStartPayload) => Promise<FollowerState>;
-  readonly getConfig: () => Promise<FollowerConfig | null>;
-  readonly getPlayers: () => Promise<FollowerPlayers>;
-  readonly getState: () => Promise<FollowerState>;
-  readonly me: () => Promise<string>;
-  readonly onChanged: (listener: (state: FollowerState) => void) => () => void;
-  readonly onPlayersChanged: (
-    listener: (players: FollowerPlayers) => void,
-  ) => () => void;
-  readonly start: (payload: FollowerStartPayload) => Promise<FollowerState>;
-  readonly stop: () => Promise<FollowerState>;
-}
-
-export interface DesktopGameFollowerBridge {
-  readonly publishPlayers: (players: FollowerPlayers) => Promise<void>;
-  readonly publishState: (state: FollowerState) => Promise<void>;
-}
-
 
 export interface DesktopArmyBridge {
   readonly fail: (payload: ArmyFailPayload) => Promise<void>;
@@ -443,11 +418,9 @@ interface DesktopBridgeCapabilities {
   readonly accounts: DesktopAccountsBridge;
   readonly army: DesktopArmyBridge;
   readonly combatProfiles: DesktopCombatProfilesBridge;
-  readonly follower: DesktopFollowerBridge;
   readonly fileSystem: DesktopFileSystemBridge;
   readonly gameAccounts: DesktopGameAccountsBridge;
   readonly gameConsoleObservability: DesktopGameConsoleObservabilityBridge;
-  readonly gameFollower: DesktopGameFollowerBridge;
   readonly gameRenderer: DesktopGameRendererBridge;
   readonly gameView: DesktopGameViewBridge;
   readonly scripting: DesktopScriptingBridge;
@@ -466,7 +439,7 @@ interface DesktopBridgeViewCapabilities {
   };
   readonly "combat-profiles": Pick<DesktopBridgeCapabilities, "combatProfiles">;
   readonly environment: Record<string, never>;
-  readonly follower: Pick<DesktopBridgeCapabilities, "follower" | "windows"> & {
+  readonly follower: Pick<DesktopBridgeCapabilities, "windows"> & {
     readonly combatProfiles: Pick<
       DesktopCombatProfilesBridge,
       "getState" | "onChanged"
@@ -479,7 +452,6 @@ interface DesktopBridgeViewCapabilities {
     | "fileSystem"
     | "http"
     | "gameAccounts"
-    | "gameFollower"
     | "gameRenderer"
     | "gameView"
     | "scripting"

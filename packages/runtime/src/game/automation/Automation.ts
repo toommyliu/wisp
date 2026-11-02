@@ -5,12 +5,9 @@ import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
-import { FollowerRpcs } from "../../shared/gameRendererRpc";
 import { Api } from "../flash/api/Api";
 import { makeAutoAttack } from "./AutoAttack";
 import type { AutoAttackState } from "./AutoAttack";
-import { makeDesktopFollowerPort, makeFollower } from "./Follower";
-import type { FollowerState } from "@lucent/schemas/follower";
 
 export const makeAutomation = Effect.gen(function* () {
   const api = yield* Api;
@@ -18,7 +15,6 @@ export const makeAutomation = Effect.gen(function* () {
   const fibers = yield* FiberMap.make<string>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const autoAttack = yield* makeAutoAttack(api, fibers);
-  const follower = yield* makeFollower(api, fibers, makeDesktopFollowerPort());
 
   const observe = <S>(
     changes: Stream.Stream<S>,
@@ -35,24 +31,13 @@ export const makeAutomation = Effect.gen(function* () {
   const observeAutoAttack = (listener: (state: AutoAttackState) => void) =>
     observe(autoAttack.changes, listener);
 
-
-  const observeFollower = (listener: (state: FollowerState) => void) =>
-    observe(follower.changes, listener);
-
   const autoAttackApi = {
     ...autoAttack,
     onState: observeAutoAttack,
   };
 
-
-  const followerApi = {
-    ...follower,
-    onState: observeFollower,
-  };
-
   return {
     autoAttack: autoAttackApi,
-    follower: followerApi,
   };
 });
 
@@ -64,16 +49,3 @@ export class Automation extends Context.Service<
 >()("lucent/renderer/automation/Automation") {}
 
 export const layer = Layer.effect(Automation, makeAutomation);
-
-export const followerRpcHandlers = FollowerRpcs.toLayer(
-  Effect.gen(function* () {
-    const { follower } = yield* Automation;
-    return FollowerRpcs.of({
-      FollowerConfigure: (config) => follower.configure(config),
-      FollowerGetState: () => follower.getState(),
-      FollowerMe: () => follower.me(),
-      FollowerStart: (config) => follower.startWithSavedProfiles(config),
-      FollowerStop: () => follower.stop(),
-    });
-  }),
-);
