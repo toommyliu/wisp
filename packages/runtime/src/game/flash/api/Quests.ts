@@ -1,11 +1,10 @@
 import { toLiveQuest } from "@lucent/game";
 import * as Array from "effect/Array";
-import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 
+import { operate } from "../../../host/operations";
 import type { BridgeService } from "../bridge/Bridge";
 import { WireInt } from "../contract/Coercion";
 import type { HostStateService } from "../state/HostState";
@@ -26,8 +25,7 @@ export const makeQuests = (
   host: HostStateService,
   wait: Wait,
 ) => {
-  const loads = Semaphore.makeUnsafe(1);
-  let nextLoadAt = 0;
+  const operationHost = globalThis.__host;
   const read = (questId: number) =>
     host
       .read({ kind: "quest", id: questId })
@@ -39,52 +37,13 @@ export const makeQuests = (
       .read({ kind: "quest", id: questId })
       .pipe(Effect.map((quest) => quest !== null));
 
-  // Call under `loads` so single and batch requests share the same cooldown.
-  const waitForLoadSlot = Effect.gen(function* () {
-    const delay = nextLoadAt - (yield* Clock.currentTimeMillis);
-    if (delay > 0) yield* Effect.sleep(delay);
-    nextLoadAt = (yield* Clock.currentTimeMillis) + 1_500;
-  });
-
-  const requestBatch = Effect.fn("Quests.requestBatch")(
-    function* (questIds: readonly number[], silent: boolean) {
-      const missing = yield* Effect.filter(questIds, (id) =>
-        isLoaded(id).pipe(Effect.map((loaded) => !loaded)),
-      );
-      if (missing.length === 0) return true;
-      yield* waitForLoadSlot;
-      yield* bridge
-        .invoke(
-          silent ? "quests.getMultiple" : "quests.loadMultiple",
-          [missing.join(",")],
-          Schema.Void,
-        )
-        .pipe(Effect.flatMap(Effect.fromOption));
-      return yield* wait.until(
-        Effect.forEach(missing, isLoaded).pipe(
-          Effect.map((results) => results.every(Boolean)),
-        ),
-        { timeout: "5 seconds" },
-      );
-    },
-    Effect.catch(() => Effect.succeed(false)),
-    Effect.repeat({ times: 1, until: Boolean }),
-  );
-
-  const loadBatch = Effect.fn("Quests.loadBatch")(function* (
-    questIds: readonly number[],
-    silent = false,
-  ) {
+  const loadBatch = (questIds: readonly number[], silent = false) => {
     const ids = Array.dedupe(questIds.filter(isQuestId));
-    const initial = yield* Effect.forEach(ids, isLoaded);
-    if (initial.every(Boolean)) return initial;
-    yield* Effect.forEach(
-      Array.chunksOf(ids, 30),
-      (batch) => requestBatch(batch, silent),
-      { concurrency: 1, discard: true },
-    ).pipe(loads.withPermit);
-    return yield* Effect.forEach(ids, isLoaded);
-  });
+    return operate({ kind: "loadQuests", ids, silent }, operationHost).pipe(
+      Effect.map((answer) => answer.kind === "loadQuests" ? answer.value : []),
+      Effect.catch(() => Effect.forEach(ids, isLoaded)),
+    );
+  };
 
   const load = (questId: number, silent = false) =>
     loadBatch([questId], silent).pipe(

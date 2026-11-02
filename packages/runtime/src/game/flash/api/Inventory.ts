@@ -208,7 +208,7 @@ export const makeInventory = (
         operationHost,
         deadline,
       ).pipe(
-        Effect.map((answer) => answer.value),
+        Effect.map((answer) => answer.kind === "equipConsumable" && answer.value),
         Effect.catch(() => Effect.succeed(false)),
       );
     }));

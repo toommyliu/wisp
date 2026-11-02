@@ -1995,7 +1995,6 @@ ${ind(d)}}`;
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Option.js
   var none2 = /* @__PURE__ */ __name(() => none, "none");
   var some2 = some;
-  var isOption2 = isOption;
   var isNone2 = isNone;
   var isSome2 = isSome;
   var match = /* @__PURE__ */ dual(2, (self, {
@@ -2494,7 +2493,6 @@ ${ind(d)}}`;
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/internal/count.js
   var normalize = /* @__PURE__ */ __name((n) => n > 0 ? Math.floor(n) : 0, "normalize");
-  var normalizeNonEmpty = /* @__PURE__ */ __name((n) => Math.max(1, normalize(n)), "normalizeNonEmpty");
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Result.js
   var succeed2 = succeed;
@@ -2509,50 +2507,10 @@ ${ind(d)}}`;
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Array.js
   var Array2 = globalThis.Array;
   var fromIterable = /* @__PURE__ */ __name((collection) => Array2.isArray(collection) ? collection : Array2.from(collection), "fromIterable");
-  var prepend = /* @__PURE__ */ dual(2, (self, head2) => [head2, ...self]);
   var append = /* @__PURE__ */ dual(2, (self, last) => [...self, last]);
   var isArray = Array2.isArray;
   var isArrayNonEmpty2 = isArrayNonEmpty;
   var isReadonlyArrayNonEmpty = isArrayNonEmpty;
-  function isOutOfBounds(i, as3) {
-    return !Number.isFinite(i) || i < 0 || i >= as3.length;
-  }
-  __name(isOutOfBounds, "isOutOfBounds");
-  var getUnsafe2 = /* @__PURE__ */ dual(2, (self, index) => {
-    const i = Math.floor(index);
-    if (isOutOfBounds(i, self)) {
-      throw new Error(`Index out of bounds: ${i}`);
-    }
-    return self[i];
-  });
-  var headNonEmpty = /* @__PURE__ */ getUnsafe2(0);
-  var chop = /* @__PURE__ */ dual(2, (self, f) => {
-    const input = fromIterable(self);
-    if (isReadonlyArrayNonEmpty(input)) {
-      const [b, rest] = f(input);
-      const out = [b];
-      let next = rest;
-      while (isArrayNonEmpty(next)) {
-        const [b2, rest2] = f(next);
-        out.push(b2);
-        next = rest2;
-      }
-      return out;
-    }
-    return [];
-  });
-  var splitAtNonEmpty = /* @__PURE__ */ dual(2, (self, n) => {
-    const _n = normalizeNonEmpty(n);
-    return _n >= self.length ? [copy(self), []] : [prepend(self.slice(1, _n), headNonEmpty(self)), self.slice(_n)];
-  });
-  var copy = /* @__PURE__ */ __name((self) => self.slice(), "copy");
-  var chunksOf = /* @__PURE__ */ dual(2, (self, n) => {
-    const input = fromIterable(self);
-    if (isReadonlyArrayNonEmpty(input)) {
-      return chop(input, splitAtNonEmpty(n));
-    }
-    return [];
-  });
   var hashBucketsAdd = /* @__PURE__ */ __name((buckets, value) => {
     const hash2 = hash(value);
     const bucket = buckets.get(hash2);
@@ -3486,7 +3444,6 @@ ${prefix}}`;
       return this[args]();
     }
   });
-  var fromOption2 = /* @__PURE__ */ dual((args2) => args2.length >= 2 || isOption2(args2[0]), (option2, onNone) => isNone2(option2) ? fail3(onNone ? onNone() : new NoSuchElementError("Effect.fromOption: Option.none")) : succeed3(option2.value));
   var fromResult = /* @__PURE__ */ match3({
     onFailure: fail3,
     onSuccess: succeed3
@@ -4424,24 +4381,6 @@ ${prefix}}`;
       }
     }
   });
-  var filter = /* @__PURE__ */ dual((args2) => isIterable(args2[0]) && !isEffect(args2[0]), (elements, predicate, options) => suspend(() => {
-    const out = [];
-    return as(forEach(elements, (a, i) => {
-      const result2 = predicate(a, i);
-      if (typeof result2 === "boolean") {
-        if (result2) out.push(a);
-        return void_;
-      }
-      return map3(result2, (keep) => {
-        if (keep) {
-          out.push(a);
-        }
-      });
-    }, {
-      discard: true,
-      concurrency: options?.concurrency
-    }), out);
-  }));
   var forkUnsafe = /* @__PURE__ */ __name((parent, effect2, immediate = false, daemon = false, uninterruptible3 = false) => {
     const parentRuntime = parent;
     const interruptible2 = uninterruptible3 === "inherit" ? parentRuntime.interruptible : !uninterruptible3;
@@ -5507,7 +5446,6 @@ ${prefix}}`;
   var try_2 = try_;
   var withFiber2 = withFiber;
   var fromResult2 = fromResult;
-  var fromOption3 = fromOption2;
   var flatMap3 = flatMap2;
   var flatten4 = flatten3;
   var andThen2 = andThen;
@@ -5526,7 +5464,6 @@ ${prefix}}`;
   var timeoutOption2 = timeoutOption;
   var sleep2 = sleep;
   var raceFirst2 = raceFirst;
-  var filter2 = filter;
   var when2 = when;
   var matchCauseEffect2 = matchCauseEffect;
   var context2 = context;
@@ -5621,6 +5558,7 @@ ${prefix}}`;
       complete,
       fail: fail7,
       requiresIssuance,
+      completionTimeoutMs: operation.kind === "loadQuests" ? 6e4 * Math.max(1, Math.ceil(operation.ids.length / 30)) : operation.kind === "openBank" ? 45e3 : 35e3,
       timeout: requiresIssuance ? setTimeout(() => fail7(new Error("The equip permit timed out")), Math.max(0, queueDeadline - Date.now())) : void 0
     });
     try {
@@ -5643,7 +5581,7 @@ ${prefix}}`;
     clearTimeout(pending3.timeout);
     pending3.timeout = setTimeout(() => {
       pending3.fail(new Error("The host operation timed out"));
-    }, 35e3);
+    }, pending3.completionTimeoutMs);
   }, "startOperation");
   var completeOperation = /* @__PURE__ */ __name((id, answer, error) => operations.get(id)?.complete(answer, error), "completeOperation");
   var failOperations = /* @__PURE__ */ __name((cause) => {
@@ -7940,14 +7878,14 @@ ${prefix}}`;
   var finite = /* @__PURE__ */ appendChecks(number2, [/* @__PURE__ */ isFinite()]);
   var numberToJson = /* @__PURE__ */ new Link(/* @__PURE__ */ new Union([finite, nonFiniteLiterals]), /* @__PURE__ */ new Transformation(/* @__PURE__ */ Number4(), /* @__PURE__ */ transform((n) => globalThis.Number.isFinite(n) ? n : globalThis.String(n))));
   function isPattern(regExp, annotations) {
-    const copy3 = new globalThis.RegExp(regExp);
+    const copy2 = new globalThis.RegExp(regExp);
     const payload = {
-      source: copy3.source,
-      flags: copy3.flags
+      source: copy2.source,
+      flags: copy2.flags
     };
     return makeFilter((s) => {
-      copy3.lastIndex = 0;
-      return copy3.test(s);
+      copy2.lastIndex = 0;
+      return copy2.test(s);
     }, {
       expected: `a string matching the RegExp ${payload.source}`,
       representation: {
@@ -7965,14 +7903,14 @@ ${prefix}}`;
   }
   __name(isPattern, "isPattern");
   var bodyOwners = /* @__PURE__ */ new WeakMap();
-  function copy2(ast, changes2) {
+  function copy(ast, changes2) {
     const out = Object.assign(Object.create(Object.getPrototypeOf(ast)), ast, changes2);
     if (Reflect.ownKeys(changes2).every((key) => key === "context" || key === "encoding")) {
       bodyOwners.set(out, getContextOwner(ast));
     }
     return out;
   }
-  __name(copy2, "copy");
+  __name(copy, "copy");
   function getContextOwner(ast) {
     const existing = bodyOwners.get(ast);
     if (existing !== void 0) return existing;
@@ -7985,7 +7923,7 @@ ${prefix}}`;
   }
   __name(getContextOwner, "getContextOwner");
   function replaceEncoding(ast, encoding) {
-    return ast.encoding === encoding ? ast : copy2(ast, {
+    return ast.encoding === encoding ? ast : copy(ast, {
       encoding
     });
   }
@@ -7998,7 +7936,7 @@ ${prefix}}`;
     if (owner.context === context3 && owner.encoding === ast.encoding) {
       return owner;
     }
-    return copy2(ast, {
+    return copy(ast, {
       context: context3
     });
   }
@@ -8012,7 +7950,7 @@ ${prefix}}`;
       const last = ast.checks[ast.checks.length - 1];
       return replaceChecks(ast, append(ast.checks.slice(0, -1), last.annotate(annotations)));
     }
-    return copy2(ast, {
+    return copy(ast, {
       annotations: {
         ...ast.annotations,
         ...annotations
@@ -8027,7 +7965,7 @@ ${prefix}}`;
     if (ast.checks === checks) {
       return ast;
     }
-    return copy2(ast, {
+    return copy(ast, {
       checks
     });
   }
@@ -8190,7 +8128,7 @@ ${prefix}}`;
     const type = "recur" in ast ? ast.recur(toType) : ast;
     if ("encodingChecks" in type && type.encodingChecks) {
       const checks = canPreserveEncodingChecks(ast) ? type.encodingChecks : isArrays(type) || isObjects(type) || isDeclaration(type) && type.typeParameters.length > 0 ? extractStructuralChecks(type.encodingChecks) : void 0;
-      return copy2(type, {
+      return copy(type, {
         encodingChecks: void 0,
         checks: combineChecks(type.checks, checks)
       });
@@ -9852,7 +9790,7 @@ ${prefix}}`;
     self.tail.array.push(message2);
     self.length++;
   }, "append");
-  var prepend2 = /* @__PURE__ */ __name((self, message2) => {
+  var prepend = /* @__PURE__ */ __name((self, message2) => {
     self.head = {
       array: [message2],
       mutable: true,
@@ -9914,7 +9852,7 @@ ${prefix}}`;
     }
     return message2;
   }, "take");
-  var filter3 = /* @__PURE__ */ __name((self, f) => {
+  var filter2 = /* @__PURE__ */ __name((self, f) => {
     const array2 = [];
     let chunk = self.head;
     let index = 0;
@@ -9938,7 +9876,7 @@ ${prefix}}`;
     };
     self.length = array2.length;
   }, "filter");
-  var remove = /* @__PURE__ */ __name((self, value) => filter3(self, (v) => v !== value), "remove");
+  var remove = /* @__PURE__ */ __name((self, value) => filter2(self, (v) => v !== value), "remove");
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/MutableRef.js
   var TypeId14 = "~effect/MutableRef";
@@ -10352,7 +10290,7 @@ ${prefix}}`;
       } else {
         const pollResult = subscription.poll();
         if (pollResult === Empty) {
-          prepend2(pollers, poller);
+          prepend(pollers, poller);
         } else {
           doneUnsafe(poller, succeed4(pollResult));
           strategy.onPubSubEmptySpaceUnsafe(pubsub, subscribers);
@@ -12926,9 +12864,8 @@ ${prefix}}`;
       (current) => current !== null ? succeed7(true) : house.getAvailableSlots().pipe(map5((available) => available > 0))
     )
   ), "houseCanAccept");
-  var makeBank = fnUntraced2(function* (bridge, host4, auth, inventory, house, wait) {
-    const loads = yield* make15(1);
-    const opens = yield* make15(1);
+  var makeBank = fnUntraced2(function* (bridge, host4, inventory, house, wait) {
+    const operationHost = globalThis.__host;
     const isOpen = /* @__PURE__ */ __name(() => bridge.invoke("bank.isOpen", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isOpen");
     const getAll = /* @__PURE__ */ __name(() => isHydrated(host4, "bank").pipe(
       flatMap3(
@@ -12942,46 +12879,13 @@ ${prefix}}`;
     ), "get");
     const getSlots = /* @__PURE__ */ __name(() => bridge.invoke("bank.getSlots", void 0, WireInt).pipe(map5(getOrElse(() => 0))), "getSlots");
     const getUsedSlots = /* @__PURE__ */ __name(() => bridge.invoke("bank.getUsedSlots", void 0, WireInt).pipe(map5(getOrElse(() => 0))), "getUsedSlots");
-    const isLoaded = /* @__PURE__ */ __name(() => bridge.invoke("bank.isLoaded", void 0, Boolean3).pipe(map5(getOrElse(() => false))), "isLoaded");
-    const load = /* @__PURE__ */ __name((force = false) => {
-      return loads.withPermits(1)(
-        gen2(function* () {
-          if (!(yield* auth.isLoggedIn())) return false;
-          const version = yield* host4.read({
-            kind: "itemHydration",
-            container: "bank"
-          });
-          if (version > 0 && !force) return true;
-          const requested = yield* bridge.invoke(
-            "bank.loadItems",
-            [force || version === 0],
-            Void2
-          );
-          if (isNone2(requested)) return false;
-          const loaded = yield* wait.until(isLoaded(), {
-            interval: "100 millis",
-            timeout: "10 seconds"
-          });
-          if (!loaded) return false;
-          const refreshed = yield* host4.command({
-            kind: "refreshContainer",
-            container: "bank"
-          });
-          return isSome2(refreshed);
-        })
-      );
-    }, "load");
-    const open = /* @__PURE__ */ __name((options = {}) => opens.withPermits(1)(
-      gen2(function* () {
-        if (!(yield* load(options.force ?? false))) return false;
-        if (yield* isOpen()) return true;
-        if (isNone2(
-          yield* bridge.invoke("bank.open", void 0, Void2)
-        )) {
-          return false;
-        }
-        return yield* wait.until(isOpen(), { timeout: "3 seconds" });
-      })
+    const load = /* @__PURE__ */ __name((force = false) => operate({ kind: "loadBank", force }, operationHost).pipe(
+      map5((answer) => answer.kind === "loadBank" && answer.value),
+      catch_2(() => succeed7(false))
+    ), "load");
+    const open = /* @__PURE__ */ __name((options = {}) => operate({ kind: "openBank", force: options.force ?? false }, operationHost).pipe(
+      map5((answer) => answer.kind === "openBank" && answer.value),
+      catch_2(() => succeed7(false))
     ), "open");
     const contains = /* @__PURE__ */ __name((selector, quantity) => get5(selector).pipe(
       map5(
@@ -13698,7 +13602,7 @@ ${prefix}}`;
     const operationHost = globalThis.__host;
     const get5 = /* @__PURE__ */ __name((selector) => readItem(host4, "drop", selector), "get");
     const accept = /* @__PURE__ */ __name((selector) => isSelectable(selector) ? operate({ kind: "acceptDrop", selector }, operationHost).pipe(
-      map5((answer) => answer.value),
+      map5((answer) => answer.kind === "acceptDrop" && answer.value),
       catch_2(() => succeed7(false))
     ) : succeed7(false), "accept");
     const contains = /* @__PURE__ */ __name((selector) => get5(selector).pipe(map5((drop) => drop !== null)), "contains");
@@ -14565,7 +14469,7 @@ ${prefix}}`;
         operationHost,
         deadline
       ).pipe(
-        map5((answer) => answer.value),
+        map5((answer) => answer.kind === "equipConsumable" && answer.value),
         catch_2(() => succeed7(false))
       );
     })), "equipConsumable");
@@ -15359,51 +15263,18 @@ ${prefix}}`;
   // packages/runtime/src/game/flash/api/Quests.ts
   var isQuestId = /* @__PURE__ */ __name((questId) => Number.isSafeInteger(questId) && questId > 0, "isQuestId");
   var makeQuests = /* @__PURE__ */ __name((bridge, host4, wait) => {
-    const loads = makeUnsafe5(1);
-    let nextLoadAt = 0;
+    const operationHost = globalThis.__host;
     const read = /* @__PURE__ */ __name((questId) => host4.read({ kind: "quest", id: questId }).pipe(
       map5((quest) => quest === null ? null : toLiveQuest(quest))
     ), "read");
     const isLoaded = /* @__PURE__ */ __name((questId) => host4.read({ kind: "quest", id: questId }).pipe(map5((quest) => quest !== null)), "isLoaded");
-    const waitForLoadSlot = gen2(function* () {
-      const delay3 = nextLoadAt - (yield* currentTimeMillis2);
-      if (delay3 > 0) yield* sleep2(delay3);
-      nextLoadAt = (yield* currentTimeMillis2) + 1500;
-    });
-    const requestBatch = fn2("Quests.requestBatch")(
-      function* (questIds, silent) {
-        const missing2 = yield* filter2(
-          questIds,
-          (id) => isLoaded(id).pipe(map5((loaded) => !loaded))
-        );
-        if (missing2.length === 0) return true;
-        yield* waitForLoadSlot;
-        yield* bridge.invoke(
-          silent ? "quests.getMultiple" : "quests.loadMultiple",
-          [missing2.join(",")],
-          Void2
-        ).pipe(flatMap3(fromOption3));
-        return yield* wait.until(
-          forEach2(missing2, isLoaded).pipe(
-            map5((results2) => results2.every(Boolean))
-          ),
-          { timeout: "5 seconds" }
-        );
-      },
-      catch_2(() => succeed7(false)),
-      repeat2({ times: 1, until: Boolean })
-    );
-    const loadBatch = fn2("Quests.loadBatch")(function* (questIds, silent = false) {
+    const loadBatch = /* @__PURE__ */ __name((questIds, silent = false) => {
       const ids = dedupe(questIds.filter(isQuestId));
-      const initial = yield* forEach2(ids, isLoaded);
-      if (initial.every(Boolean)) return initial;
-      yield* forEach2(
-        chunksOf(ids, 30),
-        (batch) => requestBatch(batch, silent),
-        { concurrency: 1, discard: true }
-      ).pipe(loads.withPermit);
-      return yield* forEach2(ids, isLoaded);
-    });
+      return operate({ kind: "loadQuests", ids, silent }, operationHost).pipe(
+        map5((answer) => answer.kind === "loadQuests" ? answer.value : []),
+        catch_2(() => forEach2(ids, isLoaded))
+      );
+    }, "loadBatch");
     const load = /* @__PURE__ */ __name((questId, silent = false) => loadBatch([questId], silent).pipe(
       map5((loaded) => loaded[0] ?? false)
     ), "load");
@@ -15932,7 +15803,7 @@ ${prefix}}`;
     const auth = makeAuth(bridge, host4, wait);
     const house = makeHouse(bridge, host4);
     const inventory = makeInventory(bridge, host4, house, wait);
-    const bank = yield* makeBank(bridge, host4, auth, inventory, house, wait);
+    const bank = yield* makeBank(bridge, host4, inventory, house, wait);
     const drops = yield* makeDrops(bridge, host4, auth);
     const map8 = makeMap(bridge, host4, wait);
     const monsterServices = yield* makeMonsters(bridge, host4, wait);
@@ -18062,9 +17933,9 @@ ${prefix}}`;
           "An enum needs a nonempty array of strings or numbers."
         );
       }
-      const copy3 = Object.freeze([...new Set(values)]);
-      super({ ...primitive(Literals(copy3), options), literals: copy3 });
-      this.values = copy3;
+      const copy2 = Object.freeze([...new Set(values)]);
+      super({ ...primitive(Literals(copy2), options), literals: copy2 });
+      this.values = copy2;
       Object.freeze(this);
     }
   };

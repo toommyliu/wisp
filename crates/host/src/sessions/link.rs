@@ -187,6 +187,7 @@ impl ScriptLink {
         operation: lucent_protocol::operation::Operation,
     ) -> Result<(), bridge::Error> {
         self.operations.submit(super::operations::Request {
+            binding: self.packets.binding(),
             id,
             owner: super::claims::Owner::script(self.attachment),
             recipient: self.attachment,
@@ -209,6 +210,7 @@ impl ScriptLink {
     ) -> Result<u64, bridge::Error> {
         let id = self.operations.prepare(owner.attachment)?;
         if let Err(error) = self.operations.submit(super::operations::Request {
+            binding: self.packets.binding(),
             id,
             owner,
             recipient: self.attachment,
