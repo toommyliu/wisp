@@ -15,10 +15,14 @@ pub(super) struct GateState {
 
 pub(crate) struct JobGate {
     pub(super) state: Mutex<GateState>,
+    #[cfg(feature = "testing")]
+    pub(super) open_probe: Mutex<Option<crate::sessions::operations::LockProbe>>,
 }
 impl JobGate {
     pub(super) fn new(binding: Binding) -> Self {
         Self {
+            #[cfg(feature = "testing")]
+            open_probe: Mutex::default(),
             state: Mutex::new(GateState {
                 binding,
                 recovery: 0,
@@ -31,7 +35,16 @@ impl JobGate {
         }
     }
     pub(crate) fn open(&self) -> bool {
+        #[cfg(feature = "testing")]
+        self.probe_open();
         !self.state.lock().closed
+    }
+    #[cfg(feature = "testing")]
+    fn probe_open(&self) {
+        let probe = self.open_probe.lock().clone();
+        if let Some(probe) = probe {
+            probe();
+        }
     }
     pub(crate) fn allows(&self, cycle: Option<u64>, recovery: u64) -> bool {
         let state = self.state.lock();
