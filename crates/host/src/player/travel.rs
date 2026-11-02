@@ -37,7 +37,7 @@ impl Running {
         }
         {
             let state = self.projection.read();
-            if !state.auth.logged_in {
+            if !state.auth.logged_in || state.connected == Some(false) {
                 return Ok(crate::game::safe_move::Snapshot {
                     logged_in: false,
                     username: state.auth.username.clone(),
