@@ -96,7 +96,7 @@ pub(crate) type TravelObservationProbe =
 #[cfg(feature = "testing")]
 pub(crate) type SafeMoveProbe = Arc<dyn Fn(Vec<String>) + Send + Sync>;
 #[cfg(feature = "testing")]
-pub(crate) type FollowerProbe = Arc<dyn Fn(&str) + Send + Sync>;
+pub(crate) type FollowerProbe = Arc<dyn Fn(&str, Instant) + Send + Sync>;
 
 #[derive(Default)]
 pub(crate) struct JobRequests {

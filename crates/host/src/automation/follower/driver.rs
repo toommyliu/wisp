@@ -160,6 +160,8 @@ impl FollowerPolicy {
         };
         if std::mem::take(&mut self.starting) {
             self.listen();
+            #[cfg(feature = "testing")]
+            self.probe("start", ms);
             self.feed(&view, Event::Start, ms);
         }
         while let Some(input) = self.backlog.pop_front() {
@@ -389,31 +391,38 @@ impl FollowerPolicy {
             let effects = self.core.advance(&view.snapshot, event, ms);
             self.deadline = effects.next_deadline;
             for effect in effects.actions {
+                #[cfg(feature = "testing")]
+                if let Effect::Issue { action, .. } = &effect {
+                    self.probe(
+                        match action {
+                            Action::Travel(travel::Request::Join { .. }) => "join",
+                            Action::Travel(travel::Request::Jump { .. }) => "jump",
+                            Action::Travel(travel::Request::Exit) => "exit",
+                            Action::GoTo(_) => "goto",
+                            Action::Walk(_) => "walk",
+                        },
+                        ms,
+                    );
+                }
                 self.apply(view, effect, &mut events);
             }
         }
     }
+    #[cfg(feature = "testing")]
+    fn probe(&self, name: &str, ms: u64) {
+        if let Some(probe) = self.link.records.jobs.follower_probe.lock().clone() {
+            probe(name, self.origin + Duration::from_millis(ms));
+        }
+    }
     fn apply(&mut self, view: &View, effect: Effect, events: &mut VecDeque<Event>) {
         match effect {
-            Effect::Issue { id, action } => {
-                #[cfg(feature = "testing")]
-                if let Some(probe) = self.link.records.jobs.follower_probe.lock().clone() {
-                    probe(match &action {
-                        Action::Travel(travel::Request::Join { .. }) => "join",
-                        Action::Travel(travel::Request::Jump { .. }) => "jump",
-                        Action::Travel(travel::Request::Exit) => "exit",
-                        Action::GoTo(_) => "goto",
-                        Action::Walk(_) => "walk",
-                    });
-                }
-                match self.issue(view, action) {
-                    Some(work) => self.work = Some((id, work)),
-                    None => events.push_back(Event::Completed {
-                        id,
-                        reply: Reply::Returned(false),
-                    }),
-                }
-            }
+            Effect::Issue { id, action } => match self.issue(view, action) {
+                Some(work) => self.work = Some((id, work)),
+                None => events.push_back(Event::Completed {
+                    id,
+                    reply: Reply::Returned(false),
+                }),
+            },
             Effect::Cancel { id } => match self.work.take() {
                 Some((current, Work::Travel(job, _))) if current == id => {
                     self.link.jobs.cancel(job)

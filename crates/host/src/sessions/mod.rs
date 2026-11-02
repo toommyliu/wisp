@@ -400,7 +400,10 @@ impl Session {
     }
 
     #[cfg(feature = "testing")]
-    pub fn set_follower_issue_probe(&self, probe: impl Fn(&str) + Send + Sync + 'static) {
+    pub fn set_follower_issue_probe(
+        &self,
+        probe: impl Fn(&str, std::time::Instant) + Send + Sync + 'static,
+    ) {
         *self.jobs.follower_probe.lock() = Some(Arc::new(probe));
     }
 

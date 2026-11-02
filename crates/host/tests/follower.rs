@@ -220,8 +220,10 @@ fn names(calls: &[(String, Json)]) -> Vec<&str> {
 }
 fn issues(session: &Session) -> mpsc::Receiver<(String, Instant)> {
     let (sender, issued) = mpsc::channel();
-    session.set_follower_issue_probe(move |name| {
-        let _ = sender.send((name.to_owned(), Instant::now()));
+    session.set_follower_issue_probe(move |name, at| {
+        if name != "start" {
+            let _ = sender.send((name.to_owned(), at));
+        }
     });
     issued
 }
@@ -447,12 +449,16 @@ fn a_readiness_edge_wakes_a_waiting_follower_without_readiness_calls() {
 #[test]
 fn a_silent_location_change_is_caught_by_the_five_second_watchdog() {
     let (session, link, _supervisor) = setup(vec![me("r1"), target("r1")]);
-    let issued = issues(&session);
-    let started = Instant::now();
+    let (sender, issued) = mpsc::channel();
+    session.set_follower_issue_probe(move |name, at| {
+        let _ = sender.send((name.to_owned(), at));
+    });
     start(&link, json!({"combatEnabled":false}));
     send(&link, moved("player-a", "r3"));
-    let (first, at) = issued.recv_timeout(TIMEOUT).unwrap();
-    assert_eq!(first, "jump");
+    let (first, started) = issued.recv_timeout(TIMEOUT).unwrap();
+    assert_eq!(first, "start");
+    let (second, at) = issued.recv_timeout(TIMEOUT).unwrap();
+    assert_eq!(second, "jump");
     assert!(
         at - started >= Duration::from_millis(5000),
         "the follower reacted to its own move before the watchdog"
@@ -772,8 +778,12 @@ fn stopping_or_losing_the_connection_mid_operation_issues_no_queued_call() {
             };
             match phase {
                 Phase::Combat => session.set_profile_dispatch_probe(move |_, attack| once(attack)),
-                Phase::Jump => session.set_follower_issue_probe(move |name| once(name == "jump")),
-                Phase::Goto => session.set_follower_issue_probe(move |name| once(name == "goto")),
+                Phase::Jump => {
+                    session.set_follower_issue_probe(move |name, _| once(name == "jump"))
+                }
+                Phase::Goto => {
+                    session.set_follower_issue_probe(move |name, _| once(name == "goto"))
+                }
             }
             let started = link.command(
                 serde_json::from_value(json!({"kind":"startFollower","config":config(json!({})),
