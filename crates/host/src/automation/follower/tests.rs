@@ -119,7 +119,7 @@ fn stop_count(effects: &Effects) -> usize {
     effects
         .actions
         .iter()
-        .filter(|effect| matches!(effect, Effect::StopCombat { .. }))
+        .filter(|effect| matches!(effect, Effect::StopCombat))
         .count()
 }
 fn assert_error(h: &Harness, attempts: u32, error: &str, reason: Option<&str>) {
