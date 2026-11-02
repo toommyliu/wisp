@@ -104,7 +104,11 @@ fn replacement_link(session: &mut Session) -> ScriptLink {
 }
 
 fn accept_in_flight(session: &mut Session, observer: &ScriptLink) -> ScriptRun {
-    let run = start(session, loose(&[("accept.js", ACCEPTING)]), Default::default());
+    let run = start(
+        session,
+        loose(&[("accept.js", ACCEPTING)]),
+        Default::default(),
+    );
     await_event(observer, "onProbeAccept", Some(&run));
     run
 }
@@ -136,12 +140,19 @@ fn a_kill_while_the_module_loads_issues_no_game_call() {
     let (gate, _guard) = held("module loading");
     let (_host, mut session, _runtime) = ready_runtime();
     let observer = session.attach(EventInterests::ALL).unwrap();
-    let run = start(&mut session, loose(&[("load.js", LOADING)]), Default::default());
+    let run = start(
+        &mut session,
+        loose(&[("load.js", LOADING)]),
+        Default::default(),
+    );
     gate.wait();
     run.kill();
     gate.open();
     let outcome = run.wait(TIMEOUT);
-    assert!(matches!(outcome, Err(RuntimeError::Killed(Kill::Requested))), "{outcome:?}");
+    assert!(
+        matches!(outcome, Err(RuntimeError::Killed(Kill::Requested))),
+        "{outcome:?}"
+    );
     drop(run);
     only_the_next_run_reaches_the_player(&mut session, &observer);
 }
@@ -150,7 +161,9 @@ fn a_kill_while_the_module_loads_issues_no_game_call() {
 fn a_player_restart_while_the_module_loads_issues_no_game_call() {
     let (gate, _guard) = held("module loading");
     let (_host, mut session, _observer) = supervised_session();
-    session.start_script(loose(&[("load.js", LOADING)])).unwrap();
+    session
+        .start_script(loose(&[("load.js", LOADING)]))
+        .unwrap();
     gate.wait();
     session.restart_player(testing::headless_surface()).unwrap();
     gate.open();
@@ -178,7 +191,10 @@ fn a_watchdog_during_module_load_issues_no_game_call() {
         Default::default(),
     );
     let outcome = run.wait(TIMEOUT);
-    assert!(matches!(outcome, Err(RuntimeError::Killed(Kill::Watchdog))), "{outcome:?}");
+    assert!(
+        matches!(outcome, Err(RuntimeError::Killed(Kill::Watchdog))),
+        "{outcome:?}"
+    );
     drop(run);
     only_the_next_run_reaches_the_player(&mut session, &observer);
 }
@@ -202,7 +218,10 @@ fn a_kill_during_the_first_action_issues_no_later_game_call() {
     let run = accept_in_flight(&mut session, &observer);
     run.kill();
     let outcome = run.wait(TIMEOUT);
-    assert!(matches!(outcome, Err(RuntimeError::Killed(Kill::Requested))), "{outcome:?}");
+    assert!(
+        matches!(outcome, Err(RuntimeError::Killed(Kill::Requested))),
+        "{outcome:?}"
+    );
     drop(run);
     only_the_next_run_reaches_the_player(&mut session, &observer);
 }
@@ -211,7 +230,9 @@ fn a_kill_during_the_first_action_issues_no_later_game_call() {
 fn a_player_restart_during_the_first_action_issues_no_later_game_call() {
     let (_host, mut session, observer) = accepting_session();
     session.supervise(None).unwrap();
-    session.start_script(loose(&[("accept.js", ACCEPTING)])).unwrap();
+    session
+        .start_script(loose(&[("accept.js", ACCEPTING)]))
+        .unwrap();
     await_event(&observer, "onProbeAccept", None);
     session.restart_player(testing::headless_surface()).unwrap();
     wait_last_end(&session, "accept.js ended because its player stopped");
