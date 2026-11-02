@@ -84,6 +84,9 @@ impl Running {
         })
     }
 
+    fn travel_open(&self, gate: &JobGate) -> bool {
+        gate.admits(self.operation_packets.binding())
+    }
     pub(super) fn travel_call(
         &mut self,
         gate: &JobGate,
@@ -91,7 +94,7 @@ impl Running {
         name: &str,
         args: Vec<Value>,
     ) -> Result<Value, Error> {
-        if !gate.open() {
+        if !self.travel_open(gate) {
             return Err(Error::Stopped);
         }
         if Instant::now() >= deadline {
@@ -121,7 +124,7 @@ impl Running {
                 .missing
                 .is_empty()
         {
-            let logged_in = if gate.open() && Instant::now() < deadline {
+            let logged_in = if self.travel_open(gate) && Instant::now() < deadline {
                 self.command(Command::RefreshLoggedIn {})
                     .ok()
                     .and_then(|json| serde_json::from_str::<bool>(&json).ok())
@@ -181,7 +184,7 @@ impl Running {
                     }
                 }
             }
-            snapshot.cells = if gate.open() && Instant::now() < deadline {
+            snapshot.cells = if self.travel_open(gate) && Instant::now() < deadline {
                 self.refresh_cells(|player, name| {
                     lucent_protocol::bridge::to_json(player.travel_call(
                         gate,

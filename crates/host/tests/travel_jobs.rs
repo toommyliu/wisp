@@ -514,3 +514,72 @@ fn oversized_travel_input_returns_false_without_a_loader_call() {
     }
     await_no_travel(&session);
 }
+
+#[test]
+fn a_script_jump_queued_before_connection_loss_is_never_issued() {
+    let (mut session, observer, _supervisor) = setup();
+    let run = start(
+        &mut session,
+        loose(&[(
+            "lost.js",
+            r#"
+        import * as api from "lucent/api";
+        import * as script from "lucent/script";
+        export default function* () {
+            yield* script.alert("ready");
+            yield* api.player.jumpToCell("r2", "Left");
+        }
+    "#,
+        )]),
+        Default::default(),
+    );
+    let ready = await_dialog(&session, &run, TIMEOUT);
+    let (reached, queued) = mpsc::channel();
+    let (release_controller, waits) = mpsc::channel::<()>();
+    let probe = Mutex::new(Some((reached, waits)));
+    session.set_queued_call_probe(move |name| {
+        if name == "player.jump"
+            && let Some((reached, waits)) = probe.lock().unwrap().take()
+        {
+            let _ = reached.send(());
+            let _ = waits.recv_timeout(TIMEOUT);
+        }
+    });
+    let (entered, arrived) = mpsc::channel();
+    let (release_player, held) = mpsc::channel::<()>();
+    let _hold = session.read_projection(move |_| {
+        let _ = entered.send(());
+        let _ = held.recv_timeout(TIMEOUT);
+    });
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    let lost = observer.call_loader(
+        "probe.emit",
+        vec![
+            Value::String("onConnection".into()),
+            Value::String("OnConnectionLost".into()),
+        ],
+    );
+    session.respond_dialog(ready.id, ScriptDialogResponse::Dismissed);
+    queued.recv_timeout(TIMEOUT).unwrap();
+    drop(release_player);
+    lost.recv_timeout(TIMEOUT).unwrap();
+    observer
+        .call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    let mut calls = Vec::new();
+    while let Some(event) = observer.try_event().unwrap() {
+        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event
+            && event.name == "onProbeCall"
+        {
+            calls.push(event.args[0].clone());
+        }
+    }
+    drop(release_controller);
+    assert!(
+        !calls.contains(&Value::String("player.jump".into())),
+        "{calls:?}"
+    );
+    run.wait(TIMEOUT).unwrap();
+    await_no_travel(&session);
+}

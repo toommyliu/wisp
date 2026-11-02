@@ -66,6 +66,7 @@ struct View {
     snapshot: Snapshot,
     map: String,
     alive: bool,
+    binding: Option<Binding>,
 }
 struct Unchanged {
     packets: Arc<Packets>,
@@ -281,6 +282,7 @@ impl FollowerPolicy {
                         random_room: Some(travel::random_private_room()),
                     },
                     map,
+                    binding: Some(self.link.packets.binding()),
                 }
             })
             .ok()
@@ -490,12 +492,18 @@ impl FollowerPolicy {
                 let executor = travel::TravelJob::new(request).ok()?;
                 let (reply, pending) = Pending::channel();
                 pending.set_waker(self.waker.clone());
-                let job = self.link.jobs.submit_travel(executor, reply.into()).ok()?;
+                let job = self
+                    .link
+                    .jobs
+                    .submit_travel(executor, reply.into(), view.binding?)
+                    .ok()?;
                 Some(Work::Travel(job, pending))
             }
-            Action::GoTo(name) => Some(Work::GoTo(
-                self.call("player.goToPlayer", vec![Value::String(name)]),
-            )),
+            Action::GoTo(name) => Some(Work::GoTo(self.call(
+                "player.goToPlayer",
+                vec![Value::String(name)],
+                view.binding?,
+            ))),
             Action::Walk(_) if !view.alive => None,
             Action::Walk(position) => {
                 let target = Position {
@@ -503,19 +511,26 @@ impl FollowerPolicy {
                     y: position.y.trunc(),
                 };
                 let args = vec![Value::Number(target.x), Value::Number(target.y)];
-                Some(Work::Walk(target, self.call("player.walkTo", args)))
+                Some(Work::Walk(
+                    target,
+                    self.call("player.walkTo", args, view.binding?),
+                ))
             }
         }
     }
-    fn call(&self, name: &str, args: Vec<Value>) -> PendingCall {
+    fn call(&self, name: &str, args: Vec<Value>, binding: Binding) -> PendingCall {
         let pending = self.link.inbox().call_loader_guarded(
             name.into(),
             args,
             Box::new(Unchanged {
                 packets: self.link.packets.clone(),
-                binding: self.link.packets.binding(),
+                binding,
             }),
         );
+        #[cfg(feature = "testing")]
+        if let Some(probe) = self.link.records.jobs.queued_call_probe.lock().clone() {
+            probe(name);
+        }
         pending.set_waker(self.waker.clone());
         pending
     }

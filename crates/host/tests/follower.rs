@@ -812,18 +812,6 @@ fn stopping_or_losing_the_connection_mid_operation_issues_no_queued_call() {
                 Phase::Goto => "player.goToPlayer",
                 Phase::Combat => "combat.attackMonster",
             };
-            if matches!(ending, Ending::ConnectionLost) && matches!(phase, Phase::Jump) {
-                let deadline = Instant::now() + TIMEOUT;
-                while session.live_travel_job_count() != 0 {
-                    assert!(
-                        Instant::now() < deadline,
-                        "the jump outlived the connection"
-                    );
-                    std::thread::yield_now();
-                }
-                drain(&link);
-                continue;
-            }
             let calls = drain(&link);
             assert!(
                 !calls.iter().any(|name| name == forbidden),
@@ -840,6 +828,165 @@ fn stopping_or_losing_the_connection_mid_operation_issues_no_queued_call() {
                 );
             }
         }
+    }
+}
+
+fn once(probe: impl Fn() + Send + Sync + 'static) -> impl Fn() + Send + Sync + 'static {
+    let armed = std::sync::atomic::AtomicBool::new(true);
+    move || {
+        if armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            probe();
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Move {
+    Goto,
+    Walk,
+    Jump,
+}
+
+#[test]
+fn a_move_decided_before_a_reconnect_is_never_issued_on_the_new_connection() {
+    for movement in [Move::Goto, Move::Walk, Move::Jump] {
+        let (players, overrides, decided, method) = match movement {
+            Move::Goto => (
+                vec![me("r1")],
+                json!({"combatEnabled":false}),
+                "goto",
+                "player.goToPlayer",
+            ),
+            Move::Walk => (
+                vec![me("r1"), target("r1")],
+                json!({"combatEnabled":false,"copyWalk":true}),
+                "walk",
+                "player.walkTo",
+            ),
+            Move::Jump => (
+                vec![me("r1"), target("r2")],
+                json!({"combatEnabled":false}),
+                "jump",
+                "player.jump",
+            ),
+        };
+        let (session, link, _supervisor) = setup_with(
+            |movie| {
+                movie
+                    .responding("player.goToPlayer", [(json!(null), vec![])])
+                    .responding(
+                        "flash.getGameObjectS",
+                        ["player-a", "password", "player-c", "password"]
+                            .map(|value| (json!(format!("\"{value}\"")), vec![])),
+                    )
+            },
+            players,
+        );
+        let (decision, decisions, proceed) = gate();
+        let decision = once(decision);
+        session.set_follower_issue_probe(move |name, _| {
+            if name == decided {
+                decision();
+            }
+        });
+        let (queued, queues, release) = gate();
+        let queued = once(queued);
+        session.set_queued_call_probe(move |name| {
+            if name == method {
+                queued();
+            }
+        });
+        let mut started = Some(
+            link.command(
+                serde_json::from_value(
+                    json!({"kind":"startFollower","config":config(overrides),"profile":null}),
+                )
+                .unwrap(),
+            ),
+        );
+        if matches!(movement, Move::Walk) {
+            started.take().unwrap().recv_timeout(TIMEOUT).unwrap();
+            send(
+                &link,
+                extension(json!({"cmd":"uotls","unm":"player-b","o":{"tx":5,"ty":6}})),
+            );
+        }
+        decisions.recv_timeout(TIMEOUT).unwrap();
+        send(&link, ("onConnection".into(), "OnConnectionLost".into()));
+        log_in_at(&link, vec![player(7, "player-c", "r1"), target("r1")]);
+        await_ready(&link);
+        assert_eq!(
+            link.read(|projection| projection.auth.username.clone())
+                .unwrap(),
+            "player-c"
+        );
+        drain(&link);
+        proceed.send(()).unwrap();
+        queues.recv_timeout(TIMEOUT).unwrap();
+        let calls = drain(&link);
+        release.send(()).unwrap();
+        if let Some(started) = started {
+            started.recv_timeout(TIMEOUT).unwrap();
+        }
+        assert!(
+            !calls.iter().any(|name| name == method),
+            "{movement:?}: {calls:?}"
+        );
+    }
+}
+
+#[test]
+fn a_jump_queued_before_a_connection_change_is_never_issued() {
+    for reconnect in [false, true] {
+        let (session, link, _supervisor) = setup(vec![me("r1"), target("r2")]);
+        let (decision, decisions, proceed) = gate();
+        let decision = once(decision);
+        session.set_follower_issue_probe(move |name, _| {
+            if name == "jump" {
+                decision();
+            }
+        });
+        let (queued, queues, release) = gate();
+        let queued = once(queued);
+        session.set_queued_call_probe(move |name| {
+            if name == "player.jump" {
+                queued();
+            }
+        });
+        let started = link.command(
+            serde_json::from_value(json!({"kind":"startFollower",
+                "config":config(json!({"combatEnabled":false})),"profile":null}))
+            .unwrap(),
+        );
+        decisions.recv_timeout(TIMEOUT).unwrap();
+        let held = hold(&session);
+        let mut changes = vec![("onConnection".to_owned(), "OnConnectionLost".to_owned())];
+        if reconnect {
+            changes.push(("onConnection".into(), "OnConnection".into()));
+            changes.push(area("battleon-2", vec![me("r1"), target("r1")]));
+        }
+        let changes: Vec<_> = changes
+            .into_iter()
+            .map(|(event, payload)| {
+                link.call_loader(
+                    "probe.emit",
+                    vec![Value::String(event), Value::String(payload)],
+                )
+            })
+            .collect();
+        proceed.send(()).unwrap();
+        queues.recv_timeout(TIMEOUT).unwrap();
+        started.recv_timeout(TIMEOUT).unwrap();
+        drop(held);
+        for change in changes {
+            change.recv_timeout(TIMEOUT).unwrap();
+        }
+        let calls = drain(&link);
+        release.send(()).unwrap();
+        assert!(
+            !calls.iter().any(|name| name == "player.jump"),
+            "reconnect {reconnect}: {calls:?}"
+        );
     }
 }
 

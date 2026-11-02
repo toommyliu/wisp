@@ -69,13 +69,18 @@ impl ScriptJobs {
             Ok(executor) => executor,
             Err(_) => return Ok(None),
         };
-        self.submit_travel(executor, TravelOwner::Script(self.completions.clone()))
-            .map(Some)
+        self.submit_travel(
+            executor,
+            TravelOwner::Script(self.completions.clone()),
+            self.player.packets.binding(),
+        )
+        .map(Some)
     }
     pub(crate) fn submit_travel(
         &self,
         executor: TravelJob,
         owner: TravelOwner,
+        binding: Binding,
     ) -> Result<JobId, String> {
         let script = owner.script();
         let mut handoff = self.requests.handoff.lock();
@@ -91,7 +96,7 @@ impl ScriptJobs {
             return Err("too many script jobs".into());
         }
         let id = JobId::next();
-        let gate = Arc::new(JobGate::new(self.player.packets.binding()));
+        let gate = Arc::new(JobGate::new(binding));
         self.live.lock().insert(id, gate.clone());
         handoff.travel.push_back(Request {
             id,
@@ -181,6 +186,10 @@ impl Travel {
                 deadline,
                 reply,
             });
+            #[cfg(feature = "testing")]
+            if let Some(probe) = link.records.jobs.queued_call_probe.lock().clone() {
+                probe(command.action.loader_call().0);
+            }
             self.waiting = Some(Waiting::Action {
                 pending,
                 command,
@@ -429,7 +438,11 @@ mod session_tests {
         let (reply, pending) = Pending::channel();
         jobs.link
             .jobs
-            .submit_travel(TravelJob::new(travel::Request::Exit).unwrap(), reply.into())
+            .submit_travel(
+                TravelJob::new(travel::Request::Exit).unwrap(),
+                reply.into(),
+                jobs.link.packets.binding(),
+            )
             .unwrap();
         assert_eq!(jobs.requests.handoff.lock().scripts, 0);
         let deadline = Instant::now() + Duration::from_secs(5);

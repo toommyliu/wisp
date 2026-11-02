@@ -39,6 +39,12 @@ impl JobGate {
         self.probe_open();
         !self.state.lock().closed
     }
+    pub(crate) fn admits(&self, binding: Binding) -> bool {
+        #[cfg(feature = "testing")]
+        self.probe_open();
+        let state = self.state.lock();
+        !state.closed && state.binding == binding
+    }
     pub(crate) fn while_open<T>(
         &self,
         action: impl FnOnce() -> Result<T, Error>,
@@ -97,6 +103,8 @@ pub(crate) type TravelObservationProbe =
 pub(crate) type SafeMoveProbe = Arc<dyn Fn(Vec<String>) + Send + Sync>;
 #[cfg(feature = "testing")]
 pub(crate) type FollowerProbe = Arc<dyn Fn(&str, Instant) + Send + Sync>;
+#[cfg(feature = "testing")]
+pub(crate) type QueuedCallProbe = Arc<dyn Fn(&str) + Send + Sync>;
 
 #[derive(Default)]
 pub(crate) struct JobRequests {
@@ -115,6 +123,8 @@ pub(crate) struct JobRequests {
     pub(crate) safe_move_probe: Mutex<Option<SafeMoveProbe>>,
     #[cfg(feature = "testing")]
     pub(crate) follower_probe: Mutex<Option<FollowerProbe>>,
+    #[cfg(feature = "testing")]
+    pub(crate) queued_call_probe: Mutex<Option<QueuedCallProbe>>,
 }
 #[derive(Default)]
 pub(super) struct Handoff {
