@@ -10,5 +10,5 @@
     "allowSyntheticDefaultImports": true,
     "skipDefaultLibCheck": true
   },
-  "include": ["src/shims/**/*", "src/**/*"]
+  "include": ["src/**/*"]
 }
