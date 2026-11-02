@@ -330,6 +330,15 @@ fn quest_movie() -> testing::ProbeMovie {
 }
 
 fn become_ready(link: &lucent_host::ScriptLink) {
+    link.call_loader(
+        "probe.emit",
+        vec![
+            Value::String("onConnection".into()),
+            Value::String("OnConnection".into()),
+        ],
+    )
+    .recv_timeout(TIMEOUT)
+    .unwrap();
     emit(
         link,
         json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
