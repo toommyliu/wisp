@@ -58,6 +58,7 @@ struct Flight {
 }
 enum Mutation {
     Accept(u64),
+    WaitingForAccept,
     Login(Pending<String>),
     Reject(Pending<String>),
 }
@@ -288,6 +289,7 @@ impl DropPolicy {
         let flight = self.pass.as_mut().unwrap().flight.take().unwrap();
         let result = match &flight.state {
             Mutation::Accept(_) => None,
+            Mutation::WaitingForAccept => Some(true),
             Mutation::Login(pending) | Mutation::Reject(pending) => pending
                 .try_recv()
                 .map(|r| matches!(r, Ok(value) if value == "true"))
@@ -298,19 +300,45 @@ impl DropPolicy {
             self.pass.as_mut().unwrap().flight = Some(flight);
             return next;
         };
-        if matches!(flight.state, Mutation::Login(_)) && success {
+        if matches!(
+            flight.state,
+            Mutation::Login(_) | Mutation::WaitingForAccept
+        ) && success
+        {
             match self.action(flight.attempt.item) {
                 Ok(Action::Reject) => {
-                    let pending = self.link.command(Command::RejectDrop {
-                        selector: ItemSelector::Id(flight.attempt.item as f64),
-                    });
-                    pending.set_waker(self.waker.clone());
-                    self.pass.as_mut().unwrap().flight = Some(Flight {
-                        state: Mutation::Reject(pending),
-                        deadline: now + REPLY_TIMEOUT,
-                        ..flight
-                    });
-                    return Some(now + REPLY_TIMEOUT);
+                    match self
+                        .link
+                        .reject_drop_unless_accepting(flight.attempt.item, &self.waker)
+                    {
+                        Ok(pending) => {
+                            let deadline = pending.as_ref().map(|_| now + REPLY_TIMEOUT);
+                            let state = match pending {
+                                Some(pending) => {
+                                    pending.set_waker(self.waker.clone());
+                                    Mutation::Reject(pending)
+                                }
+                                None => Mutation::WaitingForAccept,
+                            };
+                            self.pass.as_mut().unwrap().flight = Some(Flight {
+                                state,
+                                deadline: deadline.unwrap_or(now),
+                                ..flight
+                            });
+                            return deadline;
+                        }
+                        Err(Error::Timeout) => {
+                            self.pass.as_mut().unwrap().flight = Some(Flight {
+                                state: Mutation::WaitingForAccept,
+                                ..flight
+                            });
+                            return Some(now + READ_RETRY);
+                        }
+                        Err(_) => {
+                            self.cancel_pass();
+                            return None;
+                        }
+                    }
                 }
                 Err(Error::Timeout) => {
                     self.pass.as_mut().unwrap().waiting.push_back(Attempt {

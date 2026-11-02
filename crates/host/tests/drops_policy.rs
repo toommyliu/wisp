@@ -6,7 +6,9 @@ use lucent_host::{
     bridge::{ScriptEvent, Value},
     testing::{self, ProbeMovie},
 };
-use lucent_protocol::{command::Command, item::ItemContainer};
+use lucent_protocol::{
+    command::Command, item::ItemContainer, operation::Operation, query::ItemSelector,
+};
 use serde_json::json;
 use std::{
     sync::Arc,
@@ -592,5 +594,372 @@ fn reject_deadlines_are_100_200_and_400_ms() {
     logs.wait_for(
         tracing::Level::WARN,
         "environment drop rejection retries exhausted: [1]",
+    );
+}
+
+fn drain_rejects(link: &ScriptLink) -> Vec<Value> {
+    let mut ids = vec![];
+    while let Some(event) = link.try_event().unwrap() {
+        if let ScriptEvent::Loader { event, .. } = event
+            && event.name == "onProbeCall"
+            && event.args[0] == Value::String("drops.reject".into())
+        {
+            ids.push(event.args[1].clone());
+        }
+    }
+    ids
+}
+
+fn settle_policy(
+    policy: &mut lucent_host::automation::DropPolicy,
+    now: &mut Instant,
+) -> Option<Instant> {
+    let until = Instant::now() + TIMEOUT;
+    loop {
+        assert!(Instant::now() < until, "drop policy did not settle");
+        match policy.advance(*now) {
+            Some(at) if at <= *now => {}
+            Some(at) if at - *now < Duration::from_millis(100) => *now = at,
+            Some(at) if at - *now > Duration::from_millis(400) => {
+                thread::park_timeout(until.saturating_duration_since(Instant::now()));
+            }
+            answer => return answer,
+        }
+    }
+}
+
+#[test]
+fn policy_never_rejects_a_scripts_in_flight_accept() {
+    let logs = Logs::default();
+    let _guard = tracing::dispatcher::set_default(&logs.dispatch());
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        movie(true).accepting_drop(
+            Duration::from_secs(1),
+            packet(json!({"cmd":"getDrop","ItemID":71,"bSuccess":true,"iQtyNow":1})),
+        ),
+    );
+    common::log_in(&link);
+    edit(
+        &link,
+        json!({"kind":"setAutomationEnabled","capability":"drops","enabled":false}),
+    );
+    reject_else(&link);
+    drops(&link, &[(71, "Unwanted")]);
+    let mut supervisor = Supervisor::start(&mut session, None).unwrap();
+    supervisor
+        .start_script(
+            &mut session,
+            common::loose(&[(
+                "accept.js",
+                r#"
+        import * as api from "lucent/api";
+        export default function* () {
+            const ok = yield* api.drops.accept(71);
+            console.log("script accept result " + ok);
+        }
+    "#,
+            )]),
+        )
+        .unwrap();
+    common::await_event(&link, "onProbeAccept", None);
+    edit(
+        &link,
+        json!({"kind":"setAutomationEnabled","capability":"drops","enabled":true}),
+    );
+    logs.wait_for(tracing::Level::INFO, "session 1: accept.js completed");
+    logs.wait_for(tracing::Level::DEBUG, "environment drops reconciled");
+    assert_eq!(drain_rejects(&link), []);
+    assert!(
+        logs.messages(tracing::Level::INFO)
+            .iter()
+            .any(|m| m.contains("script accept result true"))
+    );
+    assert!(
+        link.read(|p| p.items.get(ItemContainer::Inventory, 71).is_some())
+            .unwrap()
+    );
+}
+
+#[test]
+fn policy_never_rejects_an_accept_queued_by_name() {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
+    );
+    common::log_in(&link);
+    reject_else(&link);
+    drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);
+    link.operate(Operation::AcceptDrop {
+        selector: ItemSelector::Id(70.0),
+    })
+    .unwrap();
+    common::await_event(&link, "onProbeAccept", None);
+    link.operate(Operation::AcceptDrop {
+        selector: ItemSelector::Name("Unwanted".into()),
+    })
+    .unwrap();
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Unpark(thread::current()))),
+    );
+    let mut now = Instant::now();
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
+    let rejected = drain_rejects(&link);
+    emit(
+        &link,
+        "onExtensionResponse",
+        packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":true,"iQtyNow":1})),
+    );
+    assert!(
+        rejected.is_empty(),
+        "rejected while an accept was queued: {rejected:?}"
+    );
+    common::await_event(&link, "onProbeAccept", None);
+    emit(
+        &link,
+        "onExtensionResponse",
+        packet(json!({"cmd":"getDrop","ItemID":69,"bSuccess":true,"iQtyNow":1})),
+    );
+    let until = Instant::now() + TIMEOUT;
+    loop {
+        settle_policy(&mut policy, &mut now);
+        if link
+            .read(|p| p.items.get(ItemContainer::Inventory, 69).is_some())
+            .unwrap()
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < until,
+            "queued accept did not reach inventory"
+        );
+        thread::park_timeout(until.saturating_duration_since(Instant::now()));
+    }
+    assert!(
+        rejected.is_empty(),
+        "rejected while an accept was queued: {rejected:?}"
+    );
+    assert_eq!(drain_rejects(&link), []);
+}
+
+fn wanted_during_backoff(metadata_changes: bool) {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(&host, movie(false));
+    common::log_in(&link);
+    reject_else(&link);
+    if metadata_changes {
+        edit(
+            &link,
+            json!({"kind":"setItemRules","rules":{"buckets":["ac-non-member"],"rejectElse":true}}),
+        );
+    }
+    drops(&link, &[(70, "Later Wanted")]);
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Unpark(thread::current()))),
+    );
+    let mut now = Instant::now();
+    let at = settle_policy(&mut policy, &mut now).unwrap();
+    assert_eq!(at - now, Duration::from_millis(100));
+    assert_eq!(drain_rejects(&link), [Value::Number(70.0)]);
+    if metadata_changes {
+        emit(
+            &link,
+            "onExtensionResponse",
+            packet(
+                json!({"cmd":"dropItem","items":{"70":{"ItemID":70,"sName":"Later Wanted","sType":"Item","bCoins":true,"iQty":1}}}),
+            ),
+        );
+    } else {
+        edit(&link, json!({"kind":"addItem","name":"later wanted"}));
+    }
+    now = at;
+    let until = Instant::now() + TIMEOUT;
+    loop {
+        match settle_policy(&mut policy, &mut now) {
+            Some(at) => now = at,
+            None if remaining(&link).is_empty() => break,
+            None => thread::park_timeout(until.saturating_duration_since(Instant::now())),
+        }
+        assert!(Instant::now() < until, "wanted drop did not reconcile");
+    }
+    assert_eq!(drain_rejects(&link), []);
+    assert!(
+        link.read(|p| p.items.get(ItemContainer::Inventory, 70).is_some())
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_record_edit_during_reject_backoff_prevents_further_rejects() {
+    wanted_during_backoff(false);
+}
+
+#[test]
+fn item_metadata_changes_during_reject_backoff_prevent_further_rejects() {
+    wanted_during_backoff(true);
+}
+
+#[test]
+fn a_detached_accept_protects_its_resolved_item_until_settlement() {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
+    );
+    common::log_in(&link);
+    reject_else(&link);
+    drops(&link, &[(70, "Original")]);
+    let id = link
+        .operate(Operation::AcceptDrop {
+            selector: ItemSelector::Name("Original".into()),
+        })
+        .unwrap();
+    common::await_event(&link, "onProbeAccept", None);
+    link.cancel_operation(id);
+    drops(&link, &[(70, "Renamed")]);
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Unpark(thread::current()))),
+    );
+    let mut now = Instant::now();
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
+    let rejected = drain_rejects(&link);
+    emit(
+        &link,
+        "onExtensionResponse",
+        packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":false})),
+    );
+    let until = Instant::now() + TIMEOUT;
+    while !remaining(&link).is_empty() {
+        settle_policy(&mut policy, &mut now);
+        if remaining(&link).is_empty() {
+            break;
+        }
+        assert!(
+            Instant::now() < until,
+            "failed accept did not release rejection"
+        );
+        thread::park_timeout(until.saturating_duration_since(Instant::now()));
+    }
+    assert!(
+        rejected.is_empty(),
+        "rejected before detached accept settled: {rejected:?}"
+    );
+    assert_eq!(drain_rejects(&link), [Value::Number(70.0)]);
+}
+
+#[test]
+fn cancelling_a_queued_accept_wakes_the_policy_to_reconsider_rejection() {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
+    );
+    common::log_in(&link);
+    reject_else(&link);
+    drops(&link, &[(69, "Unwanted"), (70, "Blocker")]);
+    link.operate(Operation::AcceptDrop {
+        selector: ItemSelector::Id(70.0),
+    })
+    .unwrap();
+    common::await_event(&link, "onProbeAccept", None);
+    let queued = link
+        .operate(Operation::AcceptDrop {
+            selector: ItemSelector::Id(69.0),
+        })
+        .unwrap();
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Unpark(thread::current()))),
+    );
+    let mut now = Instant::now();
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
+    let premature = drain_rejects(&link);
+    link.cancel_operation(queued);
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
+    let reconsidered = drain_rejects(&link);
+    let left = remaining(&link);
+    emit(
+        &link,
+        "onExtensionResponse",
+        packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":true,"iQtyNow":1})),
+    );
+    assert!(
+        premature.is_empty(),
+        "rejected before cancellation: {premature:?}"
+    );
+    assert_eq!(reconsidered, [Value::Number(69.0)]);
+    assert_eq!(left, [70]);
+}
+
+#[test]
+fn an_accept_prepared_before_issuance_protects_its_resolved_item() {
+    struct Release(std::sync::mpsc::Sender<()>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        movie(true).accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"}))),
+    );
+    common::log_in(&link);
+    reject_else(&link);
+    drops(&link, &[(70, "Original")]);
+    let (entered, arrived) = std::sync::mpsc::channel();
+    let (release, resumed) = std::sync::mpsc::channel();
+    let release = Release(release);
+    let resumed = std::sync::Mutex::new(resumed);
+    let armed = std::sync::atomic::AtomicBool::new(true);
+    link.set_operation_probe(move |_, issued| {
+        if !issued && armed.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            entered.send(()).unwrap();
+            resumed.lock().unwrap().recv_timeout(TIMEOUT).unwrap();
+        }
+    });
+    link.operate(Operation::AcceptDrop {
+        selector: ItemSelector::Name("Original".into()),
+    })
+    .unwrap();
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    drops(&link, &[(70, "Renamed")]);
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Unpark(thread::current()))),
+    );
+    let mut now = Instant::now();
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
+    let rejected = drain_rejects(&link);
+    drop(release);
+    common::await_event(&link, "onProbeAccept", None);
+    emit(
+        &link,
+        "onExtensionResponse",
+        packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":true,"iQtyNow":1})),
+    );
+    assert!(
+        rejected.is_empty(),
+        "rejected after accept preparation: {rejected:?}"
+    );
+    assert!(remaining(&link).is_empty());
+    assert!(
+        link.read(|p| p.items.get(ItemContainer::Inventory, 70).is_some())
+            .unwrap()
     );
 }
