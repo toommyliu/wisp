@@ -903,3 +903,51 @@ fn admission_publishes_waiting_before_returning_to_its_caller() {
     assert_eq!(phase, ScriptPhase::Waiting);
     assert_eq!(end.as_deref(), Some("admitted.js was stopped"));
 }
+
+#[test]
+fn queue_admission_publishes_waiting_before_returning_to_its_caller() {
+    let logs = Logs::default();
+    let (publishing, gate) = hold(
+        "session 1: admitted.js is waiting for login",
+        Some("lucent-supervisor"),
+        true,
+    );
+    let dispatch =
+        tracing::Dispatch::new(tracing_subscriber::registry().with(logs).with(publishing));
+    let (accepted, answer) = mpsc::channel();
+    let caller = std::thread::spawn(move || {
+        let _guard = tracing::dispatcher::set_default(&dispatch);
+        let host = testing::headless_host();
+        let (mut session, _observer) = testing::start_probe(&host, ready_movie());
+        session.supervise(None).unwrap();
+        use lucent_host::lifecycle::{Entry, EntryId, QueueCommand, Request};
+        session
+            .script_queue(QueueCommand::Add(Entry {
+                id: EntryId(1),
+                request: Request {
+                    name: "admitted.js".into(),
+                    reference: "admitted.js".into(),
+                    script: Arc::new(loose(&[("admitted.js", "export default function* () {}")])),
+                    inputs: Default::default(),
+                },
+                inputs_available: false,
+            }))
+            .unwrap();
+        session.script_queue(QueueCommand::Start).unwrap();
+        accepted.send(session.script_status().phase).unwrap();
+        session.stop_script();
+        wait_idle(&session);
+        session.script_status().last_end
+    });
+    gate.wait();
+    let early = answer.recv_timeout(Duration::from_secs(1));
+    gate.open();
+    let phase = match early {
+        Ok(phase) => phase,
+        Err(mpsc::RecvTimeoutError::Timeout) => answer.recv_timeout(TIMEOUT).unwrap(),
+        Err(error) => panic!("admission failed: {error}"),
+    };
+    let end = caller.join().unwrap();
+    assert_eq!(phase, ScriptPhase::Waiting);
+    assert_eq!(end.as_deref(), Some("admitted.js was stopped"));
+}
