@@ -1108,8 +1108,8 @@ impl Shared {
     fn attached<T>(&self, id: u64, dispatch: impl FnOnce() -> T) -> Option<T> {
         let queue = self.queue.lock();
         match queue.entries.get(&id)? {
-            Lifecycle::Queued { .. } | Lifecycle::IssuedAttached(_) => Some(dispatch()),
-            Lifecycle::IssuedDetached | Lifecycle::Settled => None,
+            Lifecycle::Queued { .. } | Lifecycle::Issued { owner: Some(_), .. } => Some(dispatch()),
+            Lifecycle::Issued { owner: None, .. } | Lifecycle::Settled => None,
         }
     }
 
