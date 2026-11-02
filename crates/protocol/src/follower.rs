@@ -27,7 +27,9 @@ impl FollowerAttackTarget {
                             && digits.bytes().all(|byte| byte.is_ascii_digit())
                     });
                 Some(match id {
-                    Some(digits) => Self::Id(digits.parse().unwrap_or(u64::MAX).min(MAX_SAFE_INTEGER)),
+                    Some(digits) => {
+                        Self::Id(digits.parse().unwrap_or(u64::MAX).min(MAX_SAFE_INTEGER))
+                    }
                     None => Self::Name(name.into()),
                 })
             }
@@ -133,7 +135,9 @@ impl FollowerConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum FollowerPhase {
     #[default]
@@ -259,6 +263,9 @@ mod tests {
                 "lockedZoneRoomOverride": "42",
             })
         );
-        assert_eq!(parse_follower_locations("doom\r\n Doom \n\ndage"), ["doom", "dage"]);
+        assert_eq!(
+            parse_follower_locations("doom\r\n Doom \n\ndage"),
+            ["doom", "dage"]
+        );
     }
 }

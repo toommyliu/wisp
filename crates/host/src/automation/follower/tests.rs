@@ -526,71 +526,59 @@ fn newer_walk_survives_old_completion_and_invalid_positions_never_walk() {
 }
 
 #[test]
-fn stop_and_reset_cancel_every_pending_operation_and_never_resume_stale_replies() {
+fn stop_cancels_every_pending_operation_and_never_resumes_stale_replies() {
     for operation in ["jump", "goto", "join", "walk", "exit"] {
-        for reset in [false, true] {
-            let mut cfg = config();
-            cfg.copy_walk = true;
-            cfg.locked_zone_fallbacks = vec!["doom".into()];
-            let mut h = Harness::new(
-                cfg,
-                snapshot(if operation == "walk" {
-                    Some("r1")
-                } else if operation == "jump" {
-                    Some("r2")
-                } else {
-                    None
-                }),
-            );
-            let pending = match operation {
-                "goto" => h.begin_goto(),
-                "join" => {
-                    h.begin_goto();
-                    join(
-                        h.deny("warning", "Cannot goto player in a locked zone."),
-                        "doom",
-                    )
-                }
-                "walk" => {
-                    h.tick(0);
-                    issue(
-                        h.move_target("r1", LocationKind::Walk(Some(Position { x: 1.0, y: 2.0 }))),
-                    )
-                    .0
-                }
-                _ => issue(h.tick(0)).0,
-            };
-            let effects = h.send(if reset { Event::Reset } else { Event::Stop });
-            assert!(cancelled(&effects, pending), "{operation}");
-            assert_eq!(stop_count(&effects), 1);
-            assert!(effects.actions.iter().any(|effect| matches!(
-                effect,
-                Effect::StopCombat { id } if *id == h.combat
-            )));
-            assert_eq!(effects.next_deadline, None);
-            assert!(h.reply(pending, Reply::Returned(true)).actions.is_empty());
-            assert!(h.tick(100000).actions.is_empty());
-            assert_eq!(
-                h.core.status().phase,
-                if reset { Phase::Idle } else { Phase::Stopped }
-            );
-            assert_eq!(h.core.status().last_error, None);
-            assert_eq!(h.core.status().attempts_remaining, 3);
-            assert_eq!(
-                h.core.status().stopped_reason.as_deref(),
-                if reset { None } else { Some("Stopped by user") }
-            );
-            assert!(h.send(Event::Stop).actions.is_empty());
-        }
+        let mut cfg = config();
+        cfg.copy_walk = true;
+        cfg.locked_zone_fallbacks = vec!["doom".into()];
+        let mut h = Harness::new(
+            cfg,
+            snapshot(if operation == "walk" {
+                Some("r1")
+            } else if operation == "jump" {
+                Some("r2")
+            } else {
+                None
+            }),
+        );
+        let pending = match operation {
+            "goto" => h.begin_goto(),
+            "join" => {
+                h.begin_goto();
+                join(
+                    h.deny("warning", "Cannot goto player in a locked zone."),
+                    "doom",
+                )
+            }
+            "walk" => {
+                h.tick(0);
+                issue(h.move_target("r1", LocationKind::Walk(Some(Position { x: 1.0, y: 2.0 })))).0
+            }
+            _ => issue(h.tick(0)).0,
+        };
+        let effects = h.send(Event::Stop);
+        assert!(cancelled(&effects, pending), "{operation}");
+        assert_eq!(stop_count(&effects), 1);
+        assert_eq!(effects.next_deadline, None);
+        assert!(h.reply(pending, Reply::Returned(true)).actions.is_empty());
+        assert!(h.tick(100000).actions.is_empty());
+        assert_eq!(h.core.status().phase, Phase::Stopped);
+        assert_eq!(h.core.status().last_error, None);
+        assert_eq!(h.core.status().attempts_remaining, 3);
+        assert_eq!(
+            h.core.status().stopped_reason.as_deref(),
+            Some("Stopped by user")
+        );
+        assert!(h.send(Event::Stop).actions.is_empty());
     }
 }
 
 #[test]
-fn reset_and_restart_keep_request_ids_distinct() {
+fn stop_and_restart_keep_request_ids_distinct() {
     let mut h = Harness::new(config(), snapshot(Some("r2")));
     let (old, _) = issue(h.tick(0));
     let combat = h.combat.unwrap();
-    h.send(Event::Reset);
+    h.send(Event::Stop);
     h.send(Event::Start);
     let (new, _) = issue(h.tick(0));
     assert_ne!(old, new);
@@ -611,7 +599,7 @@ fn empty_target_has_exact_error_and_stop_text() {
 }
 
 #[test]
-fn combat_failures_warnings_and_dispatch_errors_follow_the_session_contract() {
+fn combat_warnings_publish_and_a_failure_stops_with_the_session_text() {
     let mut h = Harness::new(config(), snapshot(Some("r1")));
     h.tick(0);
     let id = h.combat.unwrap();
@@ -619,25 +607,8 @@ fn combat_failures_warnings_and_dispatch_errors_follow_the_session_contract() {
         id,
         event: CombatEvent::Warnings(vec!["warning".into()]),
     });
-    h.send(Event::Combat {
-        id,
-        event: CombatEvent::DispatchError,
-    });
+    assert_eq!(h.core.status().warnings, ["warning"]);
     assert!(h.core.status().running);
-    assert_eq!(h.core.status().last_error, None);
-    h.send(Event::Combat {
-        id,
-        event: CombatEvent::AsyncFailure("".into()),
-    });
-    assert_eq!(
-        h.core.status().last_error.as_deref(),
-        Some("Message trigger failed")
-    );
-    h.send(Event::Combat {
-        id,
-        event: CombatEvent::Attacked,
-    });
-    assert_eq!(h.core.status().last_error, None);
     let stop = h.send(Event::Combat {
         id,
         event: CombatEvent::Failed("".into()),
@@ -928,9 +899,7 @@ fn a_tick_that_sees_the_target_first_leaves_its_arrival_to_players_changed() {
     h.view.target = Some(player("player-b", "r2"));
     assert!(h.tick(100).actions.is_empty());
     let (_, action) = issue(h.send(Event::PlayersChanged));
-    assert!(
-        matches!(action, Action::Travel(travel::Request::Jump { cell, .. }) if cell == "r2")
-    );
+    assert!(matches!(action, Action::Travel(travel::Request::Jump { cell, .. }) if cell == "r2"));
     assert_eq!(h.core.status().attempts_remaining, 3);
 }
 
@@ -974,4 +943,53 @@ fn no_own_player_counts_as_a_successful_follow() {
     assert_eq!(effects.next_deadline, Some(5500));
     assert_eq!(h.core.status().attempts_remaining, 3);
     assert_eq!(h.core.status().last_error, None);
+}
+
+#[test]
+fn a_walk_without_a_reply_is_dropped_after_five_seconds() {
+    let mut cfg = config();
+    cfg.copy_walk = true;
+    let mut h = Harness::new(cfg, snapshot(Some("r1")));
+    h.tick(0);
+    let pos = Position { x: 1.0, y: 2.0 };
+    let (walk, _) = issue(h.move_target("r1", LocationKind::Walk(Some(pos))));
+    assert!(h.tick(4999).actions.is_empty());
+    let effects = h.tick(5000);
+    assert!(cancelled(&effects, walk));
+    assert_eq!(effects.next_deadline, Some(10000));
+    assert_eq!(h.core.status().attempts_remaining, 3);
+    assert_eq!(h.core.status().last_error, None);
+}
+
+#[test]
+fn an_error_jumping_inside_a_fallback_map_tries_the_next_fallback() {
+    let mut cfg = config();
+    cfg.locked_zone_fallbacks = vec!["doom".into(), "dage".into()];
+    let mut h = Harness::new(cfg, snapshot(None));
+    h.begin_goto();
+    let first = join(
+        h.deny("warning", "Cannot goto player in a locked zone."),
+        "doom",
+    );
+    h.view.target = Some(player("player-b", "r2"));
+    h.reply(first, Reply::Returned(true));
+    let (jump, action) = issue(h.tick(100));
+    assert!(matches!(action, Action::Travel(travel::Request::Jump { cell, .. }) if cell == "r2"));
+    join(h.reply(jump, Reply::Error("jump failed".into())), "dage");
+    assert_eq!(h.core.status().attempts_remaining, 3);
+    assert_eq!(h.core.status().last_error, None);
+}
+
+#[test]
+fn without_copy_walk_a_walk_inside_the_target_cell_does_not_wake() {
+    let mut h = Harness::new(config(), snapshot(Some("r1")));
+    h.tick(0);
+    let pos = Position { x: 1.0, y: 2.0 };
+    assert!(
+        h.move_target("r1", LocationKind::Walk(Some(pos)))
+            .actions
+            .is_empty()
+    );
+    let (_, action) = issue(h.move_target("r2", LocationKind::Cell));
+    assert!(matches!(action, Action::Travel(travel::Request::Jump { cell, .. }) if cell == "r2"));
 }

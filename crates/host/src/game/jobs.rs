@@ -47,10 +47,10 @@ const MAX_MESSAGES: usize = 16;
 mod owner;
 pub(crate) mod safe_move;
 pub(crate) mod travel;
+use owner::JobRequest;
 #[cfg(feature = "testing")]
 pub(crate) use owner::{ActionProbe, ObservationProbe, SafeMoveProbe, TravelObservationProbe};
 pub(crate) use owner::{JobGate, JobKind, JobRequests, ScriptJobs};
-use owner::JobRequest;
 
 #[derive(Clone, Copy)]
 pub(crate) struct JobClock {

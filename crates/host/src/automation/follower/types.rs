@@ -81,9 +81,7 @@ pub enum Effect {
         id: RequestId,
         engaged: bool,
     },
-    StopCombat {
-        id: Option<RequestId>,
-    },
+    StopCombat,
 }
 #[derive(Clone, Debug)]
 pub enum Reply {
@@ -99,9 +97,6 @@ pub enum LocationKind {
 #[derive(Clone, Debug)]
 pub enum CombatEvent {
     Attacking,
-    Attacked,
-    DispatchError,
-    AsyncFailure(String),
     Failed(String),
     Warnings(Vec<String>),
 }
@@ -109,7 +104,6 @@ pub enum CombatEvent {
 pub enum Event {
     Start,
     Stop,
-    Reset,
     Tick,
     Completed {
         id: RequestId,

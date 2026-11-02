@@ -38,9 +38,11 @@ fn target(cell: &str) -> Json {
     player(8, "player-b", cell)
 }
 fn area(map: &str, players: Vec<Json>) -> Packet {
-    extension(json!({"cmd":"moveToArea","areaId":1,"areaName":map,"uoBranch":players,
+    extension(
+        json!({"cmd":"moveToArea","areaId":1,"areaName":map,"uoBranch":players,
         "mondef":[{"MonID":1,"strMonName":"Frogzard"}],
-        "monBranch":[{"MonID":1,"MonMapID":2,"intHP":50,"intHPMax":50,"intState":1}]}))
+        "monBranch":[{"MonID":1,"MonMapID":2,"intHP":50,"intHPMax":50,"intState":1}]}),
+    )
 }
 fn moved(name: &str, cell: &str) -> Packet {
     extension(json!({"cmd":"uotls","unm":name,"o":{"strFrame":cell,"strPad":"Left"}}))
@@ -76,7 +78,10 @@ fn movie() -> testing::ProbeMovie {
         .responding("combat.useSkill", [(json!(true), vec![])])
         .responding("combat.cancelAutoAttack", [(json!(null), vec![])])
         .responding("combat.cancelTarget", [(json!(null), vec![])])
-        .responding("player.jump", [(json!(null), vec![moved("player-a", "r2")])])
+        .responding(
+            "player.jump",
+            [(json!(null), vec![moved("player-a", "r2")])],
+        )
         .responding("player.getCell", [(json!("r2"), vec![])])
         .responding("player.getPad", [(json!("Left"), vec![])])
         .responding("world.isCellReady", [(json!(true), vec![])])
@@ -239,10 +244,7 @@ fn an_absent_target_is_reached_by_goto_before_combat() {
     let (_session, link, _supervisor) = setup(vec![me("r1")]);
     start(&link, json!({}));
     let calls = until(&link, "combat.attackMonster");
-    assert_eq!(
-        names(&calls),
-        ["player.goToPlayer", "combat.attackMonster"]
-    );
+    assert_eq!(names(&calls), ["player.goToPlayer", "combat.attackMonster"]);
     assert_eq!(calls[0].1, json!(["player-b"]));
     await_record(&link, |record| record["status"]["phase"] == "combat");
 }
@@ -252,10 +254,7 @@ fn a_locked_zone_warning_raised_inside_the_goto_moves_to_the_fallback() {
     let (_session, link, _supervisor) = setup_with(
         |movie| {
             movie
-                .responding(
-                    "player.goToPlayer",
-                    [(json!(null), vec![server(LOCKED)])],
-                )
+                .responding("player.goToPlayer", [(json!(null), vec![server(LOCKED)])])
                 .responding(
                     "player.joinMap",
                     [(
@@ -289,10 +288,7 @@ fn fallbacks_without_the_target_join_each_map_once_then_stop() {
     let (_session, link, _supervisor) = setup_with(
         |movie| {
             movie
-                .responding(
-                    "player.goToPlayer",
-                    [(json!(null), vec![server(LOCKED)])],
-                )
+                .responding("player.goToPlayer", [(json!(null), vec![server(LOCKED)])])
                 .responding(
                     "player.joinMap",
                     [
@@ -352,9 +348,7 @@ fn stop_sends_one_cancel_pair_and_nothing_after() {
     let pairs = stop(&link);
     assert_eq!(pairs["status"]["stoppedReason"], "Stopped by user");
     assert!(
-        drain(&link)
-            .iter()
-            .all(|name| !name.starts_with("combat.")),
+        drain(&link).iter().all(|name| !name.starts_with("combat.")),
         "a second stop sent another pair"
     );
 }
@@ -389,7 +383,10 @@ fn configuring_while_running_changes_nothing() {
         json!({"kind":"configureFollower","config":config(json!({"targetName":" Player-C ","attackPriority":["id:3","Frogzard"]}))}),
     );
     assert_eq!(configured["config"]["targetName"], "player-c");
-    assert_eq!(configured["config"]["attackPriority"], json!([3, "Frogzard"]));
+    assert_eq!(
+        configured["config"]["attackPriority"],
+        json!([3, "Frogzard"])
+    );
     assert!(configured["profile"].is_null());
     assert!(configured["status"]["stoppedReason"].is_null());
 }
@@ -575,10 +572,7 @@ fn a_long_logout_idles_then_follows_after_login() {
     session.set_profile_observation_probe(move |_| {
         let _ = observed.send(());
     });
-    send(
-        &link,
-        ("onConnection".into(), "OnConnectionLost".into()),
-    );
+    send(&link, ("onConnection".into(), "OnConnectionLost".into()));
     drain(&link);
     let deadline = Instant::now() + Duration::from_millis(5500);
     while Instant::now() < deadline {
@@ -797,7 +791,10 @@ fn stopping_or_losing_the_connection_mid_operation_issues_no_queued_call() {
             if matches!(ending, Ending::ConnectionLost) && matches!(phase, Phase::Jump) {
                 let deadline = Instant::now() + TIMEOUT;
                 while session.live_travel_job_count() != 0 {
-                    assert!(Instant::now() < deadline, "the jump outlived the connection");
+                    assert!(
+                        Instant::now() < deadline,
+                        "the jump outlived the connection"
+                    );
                     std::thread::yield_now();
                 }
                 drain(&link);
@@ -855,4 +852,45 @@ fn a_player_restart_mid_goto_rebuilds_without_the_old_goto() {
         "the old goto reached the new player"
     );
     assert_eq!(record(&link)["status"]["attemptsRemaining"], 3);
+}
+
+#[test]
+fn combat_dispatch_errors_keep_the_follower_running() {
+    let (_session, link, _supervisor) = setup_with(
+        |movie| movie.throwing("combat.attackMonster", "attack failed"),
+        vec![me("r1"), target("r1")],
+    );
+    start(&link, json!({}));
+    for _ in 0..3 {
+        until(&link, "combat.attackMonster");
+    }
+    let record = record(&link);
+    assert_eq!(record["status"]["running"], true);
+    assert!(record["status"]["lastError"].is_null());
+}
+
+#[test]
+fn a_failing_combat_profile_stops_the_follower() {
+    let (_session, link, _supervisor) = setup_with(
+        |movie| movie.game_object("world.actions.active", json!({})),
+        vec![me("r1"), target("r1")],
+    );
+    start(&link, json!({}));
+    let stopped = await_record(&link, |record| record["status"]["running"] == false);
+    assert_eq!(stopped["status"]["enabled"], false);
+    assert_eq!(stopped["status"]["stoppedReason"], "Combat profile failed");
+    let error = stopped["status"]["lastError"].as_str().unwrap();
+    assert!(
+        error.starts_with("combat profile observation failed for 5 seconds"),
+        "{error}"
+    );
+    let calls = until(&link, "combat.cancelTarget");
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(name, _)| name == "combat.cancelAutoAttack")
+            .count(),
+        1
+    );
+    assert!(drain(&link).iter().all(|name| !name.starts_with("combat.")),);
 }

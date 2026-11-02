@@ -4,7 +4,9 @@ use super::{
 };
 use crate::{
     ScriptLink,
-    bridge::{CallGuard, Error, EventInterests, EventKind, Pending, PendingCall, ScriptEvent, Value},
+    bridge::{
+        CallGuard, Error, EventInterests, EventKind, Pending, PendingCall, ScriptEvent, Value,
+    },
     game::{
         jobs::{JobId, JobKind},
         profile::ProfileJob,
@@ -55,7 +57,9 @@ enum Input {
 }
 enum Work {
     Travel(JobId, Pending<travel::Outcome>),
-    Call(PendingCall),
+    GoTo(PendingCall),
+    Walk(Position, PendingCall),
+    Arriving(Position, u64),
 }
 #[derive(Default)]
 struct View {
@@ -150,7 +154,7 @@ impl FollowerPolicy {
                 self.replies.extend(request.reply.take());
             }
         }
-        let more = self.listening && self.collect();
+        let more = self.listening && self.collect(ms);
         let Some(view) = self.view() else {
             return Some(now + Duration::from_millis(1));
         };
@@ -160,6 +164,24 @@ impl FollowerPolicy {
         }
         while let Some(input) = self.backlog.pop_front() {
             self.input(&view, input, ms);
+        }
+        if let Some((id, Work::Arriving(target, until))) = &self.work {
+            let arrived = view.snapshot.me.as_ref().is_some_and(|me| {
+                me.position
+                    .is_some_and(|at| at.x == target.x && at.y == target.y)
+            });
+            if arrived || ms >= *until {
+                let id = *id;
+                self.work = None;
+                self.feed(
+                    &view,
+                    Event::Completed {
+                        id,
+                        reply: Reply::Returned(arrived),
+                    },
+                    ms,
+                );
+            }
         }
         if self.deadline.is_some_and(|at| ms >= at) {
             self.feed(&view, Event::Tick, ms);
@@ -175,8 +197,15 @@ impl FollowerPolicy {
             self.listening = false;
             self.link.set_waker(Waker::noop().clone());
         }
+        let arriving = match self.work {
+            Some((_, Work::Arriving(_, until))) => Some(until),
+            _ => None,
+        };
         let deadline = self
             .deadline
+            .into_iter()
+            .chain(arriving)
+            .min()
             .map(|at| self.origin + Duration::from_millis(at));
         if more { Some(now) } else { deadline }
     }
@@ -225,19 +254,17 @@ impl FollowerPolicy {
         self.link
             .read_for(Duration::ZERO, |projection| {
                 let map = projection.world.map.name.clone();
-                let player = |data: lucent_protocol::world::PlayerData| {
-                    Player {
-                        username: data.username,
-                        location: Location {
-                            map: map.clone(),
-                            cell: data.entity.cell,
-                            pad: data.pad,
-                        },
-                        position: Some(Position {
-                            x: data.position.x,
-                            y: data.position.y,
-                        }),
-                    }
+                let player = |data: lucent_protocol::world::PlayerData| Player {
+                    username: data.username,
+                    location: Location {
+                        map: map.clone(),
+                        cell: data.entity.cell,
+                        pad: data.pad,
+                    },
+                    position: Some(Position {
+                        x: data.position.x,
+                        y: data.position.y,
+                    }),
                 };
                 let me = projection.world.get_me().map(|me| me.data());
                 View {
@@ -256,7 +283,7 @@ impl FollowerPolicy {
             })
             .ok()
     }
-    fn collect(&mut self) -> bool {
+    fn collect(&mut self, ms: u64) -> bool {
         let mut more = true;
         for _ in 0..64 {
             match self.link.try_event() {
@@ -271,15 +298,25 @@ impl FollowerPolicy {
         for (job, event) in self.shared.take_combat() {
             self.backlog.push_back(Input::Combat(job, event));
         }
+        let mut arriving = None;
         let reply = match &self.work {
-            Some((_, Work::Travel(_, pending))) => pending.try_recv().map(|outcome| {
-                Reply::Returned(outcome == Ok(travel::Outcome::Returned(true)))
-            }),
-            Some((_, Work::Call(pending))) => pending
+            Some((_, Work::Travel(_, pending))) => pending
                 .try_recv()
-                .map(|value| Reply::Returned(!matches!(value, Ok(Value::Bool(false)) | Err(_)))),
-            None => None,
+                .map(|outcome| Reply::Returned(outcome == Ok(travel::Outcome::Returned(true)))),
+            Some((_, Work::GoTo(pending))) => pending.try_recv().map(|_| Reply::Returned(true)),
+            Some((_, Work::Walk(target, pending))) => match pending.try_recv() {
+                Some(Ok(Value::Bool(true))) => {
+                    arriving = Some(Work::Arriving(*target, ms.saturating_add(3000)));
+                    None
+                }
+                Some(_) => Some(Reply::Returned(false)),
+                None => None,
+            },
+            Some((_, Work::Arriving(..))) | None => None,
         };
+        if let (Some(arriving), Some((_, work))) = (arriving, &mut self.work) {
+            *work = arriving;
+        }
         if let Some(reply) = reply {
             let (id, _) = self.work.take().unwrap();
             self.backlog.push_back(Input::Done(id, reply));
@@ -378,7 +415,9 @@ impl FollowerPolicy {
                 }
             }
             Effect::Cancel { id } => match self.work.take() {
-                Some((current, Work::Travel(job, _))) if current == id => self.link.jobs.cancel(job),
+                Some((current, Work::Travel(job, _))) if current == id => {
+                    self.link.jobs.cancel(job)
+                }
                 Some((current, _)) if current == id => {}
                 work => self.work = work,
             },
@@ -426,7 +465,7 @@ impl FollowerPolicy {
                     self.link.jobs.engage(job, engaged);
                 }
             }
-            Effect::StopCombat { .. } => {
+            Effect::StopCombat => {
                 if let Some((_, job)) = self.combat.take() {
                     self.link.jobs.cancel(job);
                 }
@@ -437,24 +476,29 @@ impl FollowerPolicy {
         }
     }
     fn issue(&self, view: &View, action: Action) -> Option<Work> {
-        let (name, args) = match action {
+        match action {
             Action::Travel(request) => {
                 let executor = travel::TravelJob::new(request).ok()?;
                 let (reply, pending) = Pending::channel();
                 pending.set_waker(self.waker.clone());
                 let job = self.link.jobs.submit_travel(executor, reply.into()).ok()?;
-                return Some(Work::Travel(job, pending));
+                Some(Work::Travel(job, pending))
             }
-            Action::GoTo(name) => ("player.goToPlayer", vec![Value::String(name)]),
-            Action::Walk(_) if !view.alive => return None,
-            Action::Walk(position) => (
-                "player.walkTo",
-                vec![
-                    Value::Number(position.x.trunc()),
-                    Value::Number(position.y.trunc()),
-                ],
-            ),
-        };
+            Action::GoTo(name) => Some(Work::GoTo(
+                self.call("player.goToPlayer", vec![Value::String(name)]),
+            )),
+            Action::Walk(_) if !view.alive => None,
+            Action::Walk(position) => {
+                let target = Position {
+                    x: position.x.trunc(),
+                    y: position.y.trunc(),
+                };
+                let args = vec![Value::Number(target.x), Value::Number(target.y)];
+                Some(Work::Walk(target, self.call("player.walkTo", args)))
+            }
+        }
+    }
+    fn call(&self, name: &str, args: Vec<Value>) -> PendingCall {
         let pending = self.link.inbox().call_loader_guarded(
             name.into(),
             args,
@@ -464,7 +508,7 @@ impl FollowerPolicy {
             }),
         );
         pending.set_waker(self.waker.clone());
-        Some(Work::Call(pending))
+        pending
     }
     fn publish(&self) {
         if self.shared.records.read().status == *self.core.status() {

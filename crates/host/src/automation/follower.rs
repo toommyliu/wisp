@@ -121,9 +121,8 @@ impl Follower {
     }
     fn stop(&mut self, reason: &str, error: Option<String>, effects: &mut Vec<Effect>) {
         self.cancel_pending(effects);
-        effects.push(Effect::StopCombat {
-            id: self.combat.take(),
-        });
+        self.combat = None;
+        effects.push(Effect::StopCombat);
         self.engaged = false;
         self.status.enabled = false;
         self.status.running = false;
@@ -367,19 +366,15 @@ impl Follower {
                     actions: effects,
                 };
             }
-            Event::Stop | Event::Reset => {
+            Event::Stop => {
                 if self.status.running {
                     self.stop("Stopped by user", None, &mut effects);
                 }
-                if matches!(event, Event::Reset) {
-                    self.status = Status::default();
-                } else {
-                    self.status.attempts_remaining = 3;
-                    self.status.last_error = None;
-                    self.status.phase = Phase::Stopped;
-                    self.status.stopped_reason = Some("Stopped by user".into());
-                    self.status.warnings.clear();
-                }
+                self.status.attempts_remaining = 3;
+                self.status.last_error = None;
+                self.status.phase = Phase::Stopped;
+                self.status.stopped_reason = Some("Stopped by user".into());
+                self.status.warnings.clear();
                 return Effects {
                     actions: effects,
                     next_deadline: None,
@@ -409,11 +404,6 @@ impl Follower {
                 if self.combat == Some(id) {
                     match event {
                         CombatEvent::Attacking if self.engaged => self.status.phase = Phase::Combat,
-                        CombatEvent::Attacked => self.status.last_error = None,
-                        CombatEvent::AsyncFailure(message) => {
-                            self.status.last_error =
-                                Some(nonempty(message, "Message trigger failed"))
-                        }
                         CombatEvent::Failed(message) => self.stop(
                             "Combat profile failed",
                             Some(nonempty(message, "Combat profile failed")),

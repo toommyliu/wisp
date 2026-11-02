@@ -1,8 +1,8 @@
 pub(crate) mod auto_attack;
-pub(crate) mod follower;
 mod changes;
 mod controller;
 pub(crate) mod dialogs;
+pub(crate) mod follower;
 use crate::scripting::RuntimeError;
 pub(crate) use changes::Changes;
 use lucent_protocol::script::{Script, ScriptStatus};
