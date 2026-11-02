@@ -29,6 +29,23 @@ const ACCEPTING: &str = r#"
     }
 "#;
 
+const SKILL: &str = r#"
+    import * as api from "lucent/api";
+    import * as script from "lucent/script";
+    console.log("module loading");
+    export default function* () {
+        yield* script.stop(String(yield* api.combat.useSkill(1)));
+    }
+"#;
+
+const TARGETED_SKILL: &str = r#"
+    import * as api from "lucent/api";
+    import * as script from "lucent/script";
+    export default function* () {
+        yield* script.stop(String(yield* api.combat.useSkill(1, { target: 1 })));
+    }
+"#;
+
 fn held(message: &str) -> (common::hold::Gate, tracing::dispatcher::DefaultGuard) {
     let (layer, gate) = hold(message, Some("lucent-js-"), true);
     let dispatch = tracing::Dispatch::new(
@@ -330,4 +347,160 @@ fn a_projected_read_does_not_ask_the_loader() {
             reason: Some("37".into())
         }
     );
+}
+
+fn emit(link: &ScriptLink, packet: serde_json::Value) {
+    link.call_loader(
+        "probe.emit",
+        vec![
+            Value::String("onExtensionResponse".into()),
+            Value::String(json!({"type":"json","dataObj":packet}).to_string()),
+        ],
+    )
+    .recv_timeout(TIMEOUT)
+    .unwrap();
+}
+
+fn boss_room() -> (lucent_host::Host, Session, ScriptLink) {
+    let host = testing::headless_host();
+    let (session, link) = testing::start_probe(
+        &host,
+        ready_movie()
+            .constant(
+                "combat.getTarget",
+                json!({"type":"monster","monsterMapId":1,"monsterId":1,"name":"Boss","cell":"Enter",
+                    "hp":100,"maxHp":100,"level":1,"race":"None","state":1}),
+            )
+            .constant("world.getAvailableMonsterMapIds", json!([1]))
+            .constant("combat.getSkillCooldownRemaining", json!(0))
+            .constant("combat.useSkill", json!(true))
+            .recording("combat.cancelAutoAttack")
+            .recording("combat.cancelTarget"),
+    );
+    log_in(&link);
+    emit(
+        &link,
+        json!({"cmd":"moveToArea","areaId":2,"areaName":"battleon-1",
+            "uoBranch":[{"entID":7,"uoName":"player-a","strFrame":"Enter","intHP":100,"intHPMax":100}],
+            "mondef":[{"MonID":1,"strMonName":"Boss","sRace":"None","iLvl":1}],
+            "monBranch":[{"MonID":1,"MonMapID":1,"intHP":100,"intHPMax":100,"intState":1}],
+            "monmap":[{"MonMapID":1,"strFrame":"Enter"}]}),
+    );
+    emit(&link, json!({"cmd":"monsterDrops","MonMapID":1,"items":{}}));
+    (host, session, link)
+}
+
+fn counter(link: &ScriptLink) {
+    emit(
+        link,
+        json!({"cmd":"cb","anims":[{"msg":"Boss prepares a counter attack","animStr":"cast",
+            "cInf":"p:7","tInf":"m:1"}]}),
+    );
+}
+
+fn refused() -> ScriptOutcome {
+    ScriptOutcome::StoppedByScript {
+        reason: Some("false".into()),
+    }
+}
+
+fn skill_after_a_held_counter(hold_at: &str, source: &str) -> ScriptOutcome {
+    let (gate, _guard) = held(hold_at);
+    let (_host, mut session, link) = boss_room();
+    let run = start(
+        &mut session,
+        loose(&[("skill.js", source)]),
+        Default::default(),
+    );
+    gate.wait();
+    counter(&link);
+    gate.open();
+    run.wait(TIMEOUT).unwrap()
+}
+
+#[test]
+fn a_counter_before_the_script_starts_refuses_its_first_skill() {
+    assert_eq!(
+        skill_after_a_held_counter("script worker booting", SKILL),
+        refused()
+    );
+}
+
+#[test]
+fn a_counter_before_the_script_starts_refuses_its_first_skill_on_a_named_target() {
+    assert_eq!(
+        skill_after_a_held_counter("script worker booting", TARGETED_SKILL),
+        refused()
+    );
+}
+
+#[test]
+fn a_counter_while_the_module_loads_refuses_its_first_skill() {
+    assert_eq!(
+        skill_after_a_held_counter("module loading", SKILL),
+        refused()
+    );
+}
+
+#[test]
+fn a_counter_during_the_run_refuses_the_next_skill() {
+    let (_host, mut session, link) = boss_room();
+    let run = start(
+        &mut session,
+        loose(&[(
+            "skill.js",
+            r#"
+            import * as api from "lucent/api";
+            import * as script from "lucent/script";
+            export default function* () {
+                yield* api.events.once(
+                    { type: "counter-attack-start" },
+                    { trigger: api.packet.sendToClient("started") },
+                );
+                yield* script.stop(String(yield* api.combat.useSkill(1)));
+            }
+        "#,
+        )]),
+        Default::default(),
+    );
+    await_event(&link, "onDebug", Some(&run));
+    counter(&link);
+    assert_eq!(run.wait(TIMEOUT).unwrap(), refused());
+}
+
+#[test]
+fn a_stop_while_the_module_loads_issues_no_game_call() {
+    let (gate, _guard) = held("module loading");
+    let (_host, mut session, _runtime) = ready_runtime();
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let run = start(
+        &mut session,
+        loose(&[("load.js", LOADING)]),
+        Default::default(),
+    );
+    gate.wait();
+    run.stop_script();
+    gate.open();
+    assert_eq!(
+        run.wait(TIMEOUT).unwrap(),
+        ScriptOutcome::Stopped { reason: None }
+    );
+    drop(run);
+    only_the_next_run_reaches_the_player(&mut session, &observer);
+}
+
+#[test]
+fn a_supervised_stop_while_the_module_loads_issues_no_game_call() {
+    let (gate, _guard) = held("module loading");
+    let logs = Logs::current().unwrap();
+    let (_host, mut session, observer) = supervised_session();
+    session
+        .start_script(loose(&[("load.js", LOADING)]))
+        .unwrap();
+    gate.wait();
+    session.stop_script();
+    logs.wait_for(tracing::Level::INFO, "session 1: stopping load.js");
+    gate.open();
+    wait_last_end(&session, "load.js was stopped");
+    only_the_next_run_reaches_the_player(&mut session, &observer);
 }
