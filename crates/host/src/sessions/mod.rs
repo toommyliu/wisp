@@ -13,6 +13,7 @@ use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
 pub use script_options::OptionsError;
 mod environment_order;
 pub use controller::{ScriptControls, ScriptRequest, Supervisor};
+mod actions;
 pub(crate) mod claims;
 pub mod lifecycle;
 mod link;
@@ -37,6 +38,7 @@ pub(crate) struct Records {
     pub(crate) jobs: Arc<crate::game::jobs::JobRequests>,
     pub(crate) settings: Arc<RwLock<GameSettings>>,
     pub(crate) environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
+    pub(crate) environment_updates: Arc<environment::Updates>,
     script_options: Arc<RwLock<ScriptOptions>>,
     pub(crate) auto_zone: Arc<RwLock<AutoZoneConfig>>,
     pub(crate) auto_relogin: Arc<RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>>,
@@ -164,6 +166,7 @@ impl Host {
             auto_attack,
             jobs: Arc::default(),
             environment: Arc::default(),
+            environment_updates: Arc::default(),
             script_options: Arc::default(),
             auto_relogin: relogin.records.clone(),
             relogin,
@@ -223,6 +226,7 @@ pub struct Session {
     auto_attack: Arc<auto_attack::Shared>,
     jobs: Arc<crate::game::jobs::JobRequests>,
     environment: Arc<RwLock<lucent_protocol::environment::EnvironmentState>>,
+    environment_updates: Arc<environment::Updates>,
     script_options: Arc<RwLock<ScriptOptions>>,
     auto_relogin: Arc<RwLock<lucent_protocol::auto_relogin::AutoReloginRecords>>,
     relogin: Arc<relogin::Shared>,
@@ -345,6 +349,7 @@ impl Session {
             changes: self.changes.clone(),
             jobs: self.jobs.clone(),
             environment: self.environment.clone(),
+            environment_updates: self.environment_updates.clone(),
             script_options: self.script_options.clone(),
             settings: self.settings.clone(),
             auto_zone: self.auto_zone.clone(),

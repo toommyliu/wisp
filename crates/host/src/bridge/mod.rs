@@ -41,14 +41,19 @@ pub enum Error {
     CommandDecode { callback: String, reason: String },
 }
 
+struct PendingState {
+    waker: Mutex<Option<Waker>>,
+    alive: AtomicBool,
+}
+
 pub struct Pending<T> {
     receiver: mpsc::Receiver<Result<T, Error>>,
-    waker: Arc<Mutex<Option<Waker>>>,
+    state: Arc<PendingState>,
 }
 
 pub(crate) struct Reply<T> {
     sender: Option<mpsc::Sender<Result<T, Error>>>,
-    waker: Arc<Mutex<Option<Waker>>>,
+    state: Arc<PendingState>,
 }
 
 impl<T> Reply<T> {
@@ -62,7 +67,7 @@ impl<T> Reply<T> {
     }
 
     fn wake(&self) {
-        let waker = self.waker.lock().unwrap().clone();
+        let waker = self.state.waker.lock().unwrap().clone();
         if let Some(waker) = waker {
             waker.wake();
         }
@@ -83,18 +88,21 @@ pub type PendingRead<T> = Pending<T>;
 impl<T> Pending<T> {
     pub(crate) fn channel() -> (Reply<T>, Self) {
         let (sender, receiver) = mpsc::channel();
-        let waker = Arc::new(Mutex::new(None));
+        let state = Arc::new(PendingState {
+            waker: Mutex::new(None),
+            alive: AtomicBool::new(true),
+        });
         (
             Reply {
                 sender: Some(sender),
-                waker: waker.clone(),
+                state: state.clone(),
             },
-            Self { receiver, waker },
+            Self { receiver, state },
         )
     }
 
     pub fn set_waker(&self, waker: Waker) {
-        *self.waker.lock().unwrap() = Some(waker);
+        *self.state.waker.lock().unwrap() = Some(waker);
     }
 
     pub fn try_recv(&self) -> Option<Result<T, Error>> {
@@ -115,16 +123,41 @@ impl<T> Pending<T> {
     }
 }
 
+impl<T> Drop for Pending<T> {
+    fn drop(&mut self) {
+        self.state.alive.store(false, Ordering::Release);
+    }
+}
+
+pub(crate) trait CallGuard: Send {
+    fn issue(&mut self, pending: &AtomicBool) -> Result<(), Error>;
+    fn returned(&mut self, result: &Result<Value, Error>);
+}
+
 pub(crate) struct Call {
     name: String,
     args: Vec<Value>,
     reply: Reply<Value>,
+    guard: Option<Box<dyn CallGuard>>,
 }
 
 impl Call {
     pub(crate) fn new(name: String, args: Vec<Value>) -> (Call, PendingCall) {
         let (reply, pending) = Pending::channel();
-        (Call { name, args, reply }, pending)
+        (
+            Call {
+                name,
+                args,
+                reply,
+                guard: None,
+            },
+            pending,
+        )
+    }
+
+    pub(crate) fn guarded(mut self, guard: Box<dyn CallGuard>) -> Self {
+        self.guard = Some(guard);
+        self
     }
 
     pub(crate) fn reject(self, error: Error) {
@@ -132,7 +165,14 @@ impl Call {
     }
 
     pub(crate) fn dispatch(&mut self, player: &mut Player) -> Result<Value, Error> {
-        invoke(player, &self.name, std::mem::take(&mut self.args))
+        if let Some(guard) = &mut self.guard {
+            guard.issue(&self.reply.state.alive)?;
+        }
+        let result = invoke(player, &self.name, std::mem::take(&mut self.args));
+        if let Some(guard) = &mut self.guard {
+            guard.returned(&result);
+        }
+        result
     }
 
     pub(crate) fn resolve(self, result: Result<Value, Error>) {

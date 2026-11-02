@@ -256,6 +256,21 @@ impl Inbox {
         pending
     }
 
+    pub(crate) fn call_loader_guarded(
+        &self,
+        name: String,
+        args: Vec<Value>,
+        guard: Box<dyn crate::bridge::CallGuard>,
+    ) -> PendingCall {
+        let (call, pending) = Call::new(name, args);
+        if let Err(error) = self.0.send(Msg::Call(call.guarded(guard)))
+            && let Msg::Call(call) = error.0
+        {
+            call.reject(BridgeError::Stopped);
+        }
+        pending
+    }
+
     pub(crate) fn read_projection<R: serde::Serialize + Send + 'static>(
         &self,
         read: impl FnOnce(&Projection) -> R + Send + 'static,

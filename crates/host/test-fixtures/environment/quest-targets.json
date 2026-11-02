@@ -1,0 +1,19 @@
+{
+  "quest": {
+    "cmd": "getQuests",
+    "quests": {"1": {
+      "QuestID": 1, "sName": "Targets",
+      "Rewards": [
+        {"ItemID": 4, "sName": "Reward"},
+        {"ItemID": 5, "sName": "permanent"}
+      ],
+      "RequiredItems": [
+        {"ItemID": 1, "sName": "Permanent", "bTemp": 0},
+        {"ItemID": 2, "sName": "Temporary", "bTemp": 1},
+        {"ItemID": 3, "sName": "Unknown"}
+      ]
+    }}
+  },
+  "expected": ["permanent", "Reward"],
+  "requirementsOnly": ["Permanent"]
+}

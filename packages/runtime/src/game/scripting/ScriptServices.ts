@@ -5,7 +5,7 @@ import type * as Effect from "effect/Effect";
 
 import type { HttpError } from "../../shared/http";
 import type { ArmyApiRuntimeShape } from "../army/Army";
-import type { EnvironmentShape } from "../environment/Environment";
+import type { EnvironmentShape } from "../../host/environment";
 import type {
   ScriptAutoReloginApi,
   ScriptAutoZoneApi,

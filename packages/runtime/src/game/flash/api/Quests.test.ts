@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -7,7 +7,10 @@ import type { HostStateService } from "../state/HostState";
 import { makeQuests } from "./Quests";
 import type { Wait } from "./Wait";
 
+afterEach(() => vi.unstubAllGlobals());
+
 const makeHarness = () => {
+  vi.stubGlobal("__host", { acquireQuestClaim: () => JSON.stringify("1"), releaseClaim: () => {}, settleClaim: () => {} });
   const completions: Array<readonly unknown[]> = [];
   const bridge = {
     invoke: (method: string, args: readonly unknown[] | undefined) => {

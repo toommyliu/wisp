@@ -1,5 +1,6 @@
 mod auto_zone;
 mod drops;
+pub(crate) mod follower;
 mod settings;
 
 pub use settings::SettingsPolicy;
@@ -11,3 +12,6 @@ pub use relogin::ReloginPolicy;
 
 #[cfg(test)]
 pub(crate) mod test_logs;
+
+pub(crate) mod environment;
+pub use environment::EnvironmentPolicy;
