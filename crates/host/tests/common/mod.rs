@@ -255,7 +255,7 @@ pub fn ready_runtime() -> (Host, Session, Runtime) {
 }
 
 #[cfg(target_os = "macos")]
-pub fn js_threads() -> Vec<String> {
+pub fn named_threads() -> Vec<String> {
     const PROC_PIDTHREADINFO: i32 = 5;
     const PROC_PIDLISTTHREADS: i32 = 6;
     unsafe {
@@ -283,6 +283,9 @@ pub fn js_threads() -> Vec<String> {
                 {
                     return "<exited>".into();
                 }
+                if info.pth_run_state == libc::TH_STATE_HALTED {
+                    return "<exited>".into();
+                }
                 let name = std::ffi::CStr::from_ptr(info.pth_name.as_ptr())
                     .to_string_lossy()
                     .into_owned();
@@ -293,7 +296,6 @@ pub fn js_threads() -> Vec<String> {
                 }
             })
             .collect();
-        names.retain(|name| name.starts_with("lucent-js-"));
         names.sort();
         names
     }
@@ -302,7 +304,7 @@ pub fn js_threads() -> Vec<String> {
 pub mod logs;
 
 #[cfg(target_os = "linux")]
-pub fn js_threads() -> Vec<String> {
+pub fn named_threads() -> Vec<String> {
     let mut names: Vec<_> = std::fs::read_dir("/proc/self/task")
         .unwrap()
         .filter_map(
@@ -313,10 +315,17 @@ pub fn js_threads() -> Vec<String> {
             },
         )
         .map(|name| name.trim().to_owned())
-        .filter(|name| name.starts_with("lucent-js-"))
         .collect();
     names.sort();
     names
 }
 
 pub mod hold;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn js_threads() -> Vec<String> {
+    named_threads()
+        .into_iter()
+        .filter(|name| name.starts_with("lucent-js-"))
+        .collect()
+}

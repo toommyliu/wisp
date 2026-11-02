@@ -487,8 +487,8 @@ fn settings_keep_their_cadence_through_boot_watchdog_and_reaping() {
             .collect();
         assert!(gaps.len() >= 8, "not enough observations: {gaps:?}");
         assert!(
-            gaps.iter().sum::<Duration>() / gaps.len() as u32 <= bound,
-            "loop {index} average cadence exceeded {bound:?}: {gaps:?}"
+            gaps.iter().all(|gap| *gap <= bound),
+            "loop {index} maximum cadence exceeded {bound:?}: {gaps:?}"
         );
         println!(
             "settings loop {index} maximum gap {:?}",
