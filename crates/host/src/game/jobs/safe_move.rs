@@ -106,6 +106,8 @@ impl SafeMoveJob {
             pending.set_waker(waker.clone());
             self.link.inbox().post(Msg::DispatchSafeMove {
                 action: command.action.clone(),
+                #[cfg(feature = "testing")]
+                probe: self.link.records.jobs.safe_move_probe.lock().clone(),
                 guard: if self.executor.restoring() {
                     self.cleanup.clone()
                 } else {
@@ -142,6 +144,11 @@ impl SafeMoveJob {
                     };
                     match result {
                         Ok(snapshot) => self.snapshot = snapshot,
+                        Err(Error::Timeout)
+                            if self
+                                .executor
+                                .observation_deadline()
+                                .is_some_and(|at| self.clock.ms(now) >= at) => {}
                         Err(error) => {
                             self.guard.gate.close();
                             let effects = self.executor.fail(error.to_string());
@@ -184,8 +191,17 @@ impl SafeMoveJob {
                 .map(|at| self.clock.at(at))
                 .unwrap_or(now + REPLY_TIMEOUT)
                 .min(now + REPLY_TIMEOUT);
+            if now >= deadline {
+                let effects =
+                    self.executor
+                        .advance(&self.snapshot, sm::Event::Tick, self.clock.ms(now));
+                self.apply(effects, now, waker);
+                return self.outcome.take();
+            }
             self.link.inbox().post(Msg::ObserveSafeMove {
                 reads: self.executor.reads(),
+                #[cfg(feature = "testing")]
+                probe: self.link.records.jobs.safe_move_probe.lock().clone(),
                 own_house: self.executor.reads_house(),
                 guard: self.guard.clone(),
                 deadline,
@@ -245,6 +261,49 @@ fn decode(action: &sm::Action, result: Result<Value, Error>) -> sm::Reply {
 mod tests {
     use super::*;
     use crate::testing;
+    #[test]
+    fn cancelling_a_queued_observation_prevents_its_game_calls() {
+        let host = testing::headless_host();
+        let (_session, link) = testing::start_probe(
+            &host,
+            testing::ProbeMovie::new()
+                .constant("auth.isLoggedIn", serde_json::json!(true))
+                .recording("world.isLoaded"),
+        );
+        link.command(lucent_protocol::command::Command::RefreshLoggedIn {})
+            .recv_timeout(REPLY_TIMEOUT)
+            .unwrap();
+        let (entered, arrived) = std::sync::mpsc::channel();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let _hold = link.inbox().read_projection(move |_| {
+            let _ = entered.send(());
+            let _ = held.recv();
+        });
+        arrived.recv_timeout(REPLY_TIMEOUT).unwrap();
+        let now = Instant::now();
+        let mut job = SafeMoveJob::new(&link, sm::RoomPolicy::Public, "", now);
+        assert!(job.advance(now, Waker::noop()).is_none());
+        job.cancel();
+        drop(release);
+        link.call_loader("probe.echo", vec![])
+            .recv_timeout(REPLY_TIMEOUT)
+            .unwrap();
+        while let Some(event) = link.try_event().unwrap() {
+            if let ScriptEvent::Loader { event, .. } = event {
+                assert_ne!(event.name, "onProbeCall");
+            }
+        }
+    }
+    #[test]
+    fn cancelling_a_scheduled_move_aborts_without_waiting_for_the_player() {
+        let host = testing::headless_host();
+        let (_session, link) = testing::start_probe(&host, testing::ProbeMovie::new());
+        let now = Instant::now();
+        let mut job = SafeMoveJob::new(&link, sm::RoomPolicy::Public, "", now);
+        job.cancel();
+        assert_eq!(job.advance(now, Waker::noop()), Some(sm::Outcome::Aborted));
+        assert!(job.deadline().is_none());
+    }
     #[test]
     fn travel_failures_keep_the_travel_reply_contract() {
         for error in [Error::Timeout, Error::Unavailable("player.joinMap".into())] {

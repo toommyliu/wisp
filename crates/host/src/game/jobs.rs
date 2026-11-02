@@ -48,7 +48,7 @@ mod owner;
 pub(crate) mod safe_move;
 pub(crate) mod travel;
 #[cfg(feature = "testing")]
-pub(crate) use owner::{ActionProbe, ObservationProbe, TravelObservationProbe};
+pub(crate) use owner::{ActionProbe, ObservationProbe, SafeMoveProbe, TravelObservationProbe};
 pub(crate) use owner::{JobGate, JobRequests, ScriptJobs};
 use owner::{JobKind, JobRequest};
 

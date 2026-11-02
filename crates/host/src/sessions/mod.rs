@@ -389,6 +389,11 @@ impl Session {
     }
 
     #[cfg(feature = "testing")]
+    pub fn set_safe_move_probe(&self, probe: impl Fn(Vec<String>) + Send + Sync + 'static) {
+        *self.jobs.safe_move_probe.lock() = Some(Arc::new(probe));
+    }
+
+    #[cfg(feature = "testing")]
     pub fn set_profile_observation_probe(
         &self,
         probe: impl Fn(std::time::Duration) + Send + Sync + 'static,

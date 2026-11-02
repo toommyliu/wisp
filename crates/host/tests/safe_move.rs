@@ -679,6 +679,15 @@ fn cancelling_safe_start_issues_no_further_game_calls() {
                 std::iter::repeat_n((json!(null), vec![]), 16),
             )
     });
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let after_cancel = cancelled.clone();
+    let (calls, recorded) = std::sync::mpsc::channel();
+    session.set_safe_move_probe(move |issued| {
+        let _ = calls.send((
+            after_cancel.load(std::sync::atomic::Ordering::Acquire),
+            issued,
+        ));
+    });
     options(&session, true);
     let controls = supervisor
         .start_script(
@@ -705,8 +714,8 @@ fn cancelling_safe_start_issues_no_further_game_calls() {
     while let Ok(Some(_)) = observer.try_event() {}
     options(&session, false);
     controls.stop();
-    let stopped = Instant::now();
     wait_for(&session, || session.script_status().last_end.is_some());
+    cancelled.store(true, std::sync::atomic::Ordering::Release);
     drop(release);
     session.watch(Waker::from(Arc::new(Unpark(std::thread::current()))));
     let deadline = Instant::now() + std::time::Duration::from_secs(30);
@@ -715,16 +724,19 @@ fn cancelling_safe_start_issues_no_further_game_calls() {
         assert!(!remaining.is_zero(), "did not settle");
         std::thread::park_timeout(remaining);
     }
-    let events = drain(&observer);
-    let calls: Vec<_> = events
-        .iter()
-        .filter(|(name, _)| name == "onProbeCall")
-        .map(|(_, args)| format!("{:?}", args.first()))
+    drain(&observer);
+    let observations: Vec<_> = recorded.try_iter().collect();
+    assert!(observations.iter().any(|(cancelled, calls)| {
+        !cancelled
+            && calls
+                .iter()
+                .any(|method| method == "flash.callGameFunction")
+    }));
+    let calls: Vec<_> = observations
+        .into_iter()
+        .filter(|(cancelled, _)| *cancelled)
+        .flat_map(|(_, calls)| calls)
         .collect();
-    eprintln!(
-        "idle {:?} after stop; game calls after cancellation: {calls:?}",
-        stopped.elapsed()
-    );
     assert!(calls.is_empty(), "{calls:?}");
 }
 
@@ -881,7 +893,7 @@ fn logged_out_safe_stop_makes_no_game_calls() {
         movie
             .responding(
                 "auth.isLoggedIn",
-                std::iter::once((json!(true), vec![]))
+                std::iter::repeat_n((json!(true), vec![]), 256)
                     .chain(std::iter::repeat_n((json!(false), vec![]), 64)),
             )
             .recording("world.isLoaded")
@@ -889,11 +901,21 @@ fn logged_out_safe_stop_makes_no_game_calls() {
     });
     supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
     wait_for(&session, || session.script_dialog().is_some());
+    let (calls, recorded) = std::sync::mpsc::channel();
+    session.set_safe_move_probe(move |issued| {
+        let _ = calls.send(issued);
+    });
     options(&session, true);
-    observer
-        .command(lucent_protocol::command::Command::RefreshLoggedIn {})
-        .recv_timeout(TIMEOUT)
-        .unwrap();
+    for _ in 0..256 {
+        observer
+            .command(lucent_protocol::command::Command::RefreshLoggedIn {})
+            .recv_timeout(TIMEOUT)
+            .unwrap();
+        if !observer.read(|p| p.auth.logged_in).unwrap() {
+            break;
+        }
+    }
+    assert!(!observer.read(|p| p.auth.logged_in).unwrap());
     drain(&observer);
     session.respond_dialog(
         session.script_dialog().unwrap().id,
@@ -904,9 +926,9 @@ fn logged_out_safe_stop_makes_no_game_calls() {
     });
     let events = drain(&observer);
     assert!(!observer.read(|p| p.auth.logged_in).unwrap());
-    let calls: Vec<_> = events
-        .iter()
-        .filter(|(name, _)| name == "onProbeCall")
-        .collect();
+    let observations: Vec<_> = recorded.try_iter().collect();
+    assert!(!observations.is_empty(), "safe stop was skipped");
+    let calls: Vec<_> = observations.into_iter().flatten().collect();
+    assert_eq!(probe_calls(&events, "flash.callGameFunction0"), 0);
     assert!(calls.is_empty(), "{calls:?}");
 }

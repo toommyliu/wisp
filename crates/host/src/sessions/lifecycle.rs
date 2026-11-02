@@ -232,6 +232,7 @@ impl Lifecycle {
                             result.effects.push(Effect::SafeMove {
                                 run: id,
                                 binding: run.binding,
+                                username: run.username.clone(),
                                 phase: SafePhase::Before,
                                 room_policy: options.room_policy.clone(),
                             });
@@ -318,6 +319,7 @@ impl Lifecycle {
                         result.effects.push(Effect::Logout {
                             run: id,
                             binding: run.binding,
+                            username: run.username.clone(),
                         });
                     } else {
                         *cleanup = Cleanup::Done;
@@ -609,6 +611,7 @@ impl Lifecycle {
             effects.push(Effect::SafeMove {
                 run: run.id,
                 binding: run.binding,
+                username: run.username.clone(),
                 phase: SafePhase::After,
                 room_policy: options.room_policy.clone(),
             });
@@ -617,6 +620,7 @@ impl Lifecycle {
             effects.push(Effect::Logout {
                 run: run.id,
                 binding: run.binding,
+                username: run.username.clone(),
             });
             Cleanup::Logout
         } else {

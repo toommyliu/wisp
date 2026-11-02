@@ -860,6 +860,7 @@ impl Supervision {
                 lc::Effect::SafeMove {
                     run,
                     binding,
+                    username,
                     phase,
                     room_policy,
                 } => {
@@ -883,7 +884,7 @@ impl Supervision {
                             job: crate::game::jobs::safe_move::SafeMoveJob::new(
                                 watch,
                                 policy,
-                                &self.readiness.username,
+                                &username,
                                 Instant::now(),
                             ),
                         });
@@ -903,14 +904,15 @@ impl Supervision {
                         answer = Some(lc::Event::SafeMoveDone { run, phase });
                     }
                 }
-                lc::Effect::Logout { run, binding } => {
+                lc::Effect::Logout {
+                    run,
+                    binding,
+                    username,
+                } => {
                     if binding == self.binding
                         && let Some(watch) = &self.watch
                     {
-                        let guard = crate::game::jobs::safe_move::Guard::new(
-                            watch,
-                            &self.readiness.username,
-                        );
+                        let guard = crate::game::jobs::safe_move::Guard::new(watch, &username);
                         let deadline = Instant::now() + Duration::from_secs(5);
                         let (reply, pending) = bridge::Pending::channel();
                         pending.set_waker(Waker::from(self.notify.clone()));

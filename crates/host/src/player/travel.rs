@@ -35,6 +35,18 @@ impl Running {
         ) {
             return Err(Error::Stopped);
         }
+        {
+            let state = self.projection.read();
+            if !state.auth.logged_in {
+                return Ok(crate::game::safe_move::Snapshot {
+                    logged_in: false,
+                    username: state.auth.username.clone(),
+                    equipped_house: false,
+                    own_house: false,
+                    travel: Snapshot::default(),
+                });
+            }
+        }
         let travel = self.observe_travel(reads, &guard.gate, deadline);
         let equipped_house = self
             .projection

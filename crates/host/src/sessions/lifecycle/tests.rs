@@ -419,7 +419,8 @@ fn safe_start_boot_outcome_safe_stop_and_logout_are_ordered() {
     );
     assert!(logout.effects.contains(&Effect::Logout {
         run,
-        binding: binding()
+        binding: binding(),
+        username: readiness().username,
     }));
     machine.advance(Event::LogoutDone(run), &readiness(), &opts, 6);
     assert!(machine.status().active.is_none());
