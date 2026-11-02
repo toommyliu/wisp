@@ -1,4 +1,3 @@
-import type { EnvironmentState } from "@lucent/schemas/environment";
 import type { BoostType } from "@lucent/game";
 import type * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -70,20 +69,3 @@ export const runEnvironmentCycleWhenLoggedIn = (
   isLoggedIn.pipe(
     Effect.flatMap((loggedIn) => (loggedIn ? cycle : Effect.void)),
   );
-
-const areStringArraysEqual = (
-  left: readonly string[],
-  right: readonly string[],
-): boolean =>
-  left.length === right.length &&
-  left.every((value, index) => value === right[index]);
-
-export const shouldReconcileEnvironmentDrops = (
-  previous: EnvironmentState,
-  next: EnvironmentState,
-): boolean =>
-  next.automation.drops &&
-  (!previous.automation.drops ||
-    previous.itemRules.rejectElse !== next.itemRules.rejectElse ||
-    !areStringArraysEqual(previous.itemNames, next.itemNames) ||
-    !areStringArraysEqual(previous.itemRules.buckets, next.itemRules.buckets));
