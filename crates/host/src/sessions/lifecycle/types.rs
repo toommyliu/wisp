@@ -203,12 +203,14 @@ pub enum Effect {
     SafeMove {
         run: RunId,
         binding: Binding,
+        username: String,
         phase: SafePhase,
         room_policy: RoomPolicy,
     },
     Logout {
         run: RunId,
         binding: Binding,
+        username: String,
     },
     Terminal(Terminal),
     Publish(Status),

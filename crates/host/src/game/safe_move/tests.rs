@@ -11,6 +11,8 @@ struct Scenario {
     updates: Vec<Update>,
     finished_at: u64,
     outcome: String,
+    #[serde(default)]
+    cancel_at: Option<u64>,
 }
 #[derive(Deserialize)]
 struct Expected {
@@ -40,7 +42,7 @@ fn shared_safe_move_transcripts() {
         "../../../tests/fixtures/safe_move/transcripts.json"
     ))
     .unwrap();
-    for scenario in scenarios {
+    for mut scenario in scenarios {
         let mut job = SafeMove::new(scenario.policy).unwrap();
         let mut snapshot = scenario.initial;
         let mut now = 0;
@@ -51,6 +53,10 @@ fn shared_safe_move_transcripts() {
         for _ in 0..10000 {
             while updates.peek().is_some_and(|u| u.at <= now) {
                 patch(&mut snapshot, &updates.next().unwrap().patch);
+            }
+            if scenario.cancel_at == Some(now) {
+                event = Event::Cancel;
+                scenario.cancel_at = None;
             }
             let effects = job.advance(
                 &serde_json::from_value(snapshot.clone()).unwrap(),
@@ -85,24 +91,29 @@ fn shared_safe_move_transcripts() {
                 );
                 assert_eq!(now, expected.at, "{}", scenario.name);
                 patch(&mut snapshot, &expected.patch);
-                let reply = match command.action {
-                    Action::Travel(travel::Action::CellReady(_)) => {
-                        Reply::Travel(travel::Reply::CellReady(expected.reply.as_bool().unwrap()))
-                    }
-                    Action::Travel(_) => Reply::Travel(if expected.reply == json!(true) {
-                        travel::Reply::Accepted
-                    } else {
-                        travel::Reply::Unavailable
-                    }),
-                    Action::House(_) | Action::SetReturnInfo(_) => {
-                        if expected.reply == json!(true) {
-                            Reply::Accepted
+                let reply = if let Some(error) = expected.reply.get("error").and_then(Value::as_str)
+                {
+                    Reply::Error(error.into())
+                } else {
+                    match command.action {
+                        Action::Travel(travel::Action::CellReady(_)) => Reply::Travel(
+                            travel::Reply::CellReady(expected.reply.as_bool().unwrap()),
+                        ),
+                        Action::Travel(_) => Reply::Travel(if expected.reply == json!(true) {
+                            travel::Reply::Accepted
                         } else {
-                            Reply::Unavailable
+                            travel::Reply::Unavailable
+                        }),
+                        Action::House(_) | Action::SetReturnInfo(_) => {
+                            if expected.reply == json!(true) {
+                                Reply::Accepted
+                            } else {
+                                Reply::Unavailable
+                            }
                         }
+                        _ if expected.reply == json!({"unavailable":true}) => Reply::Unavailable,
+                        _ => Reply::Value(expected.reply.clone()),
                     }
-                    _ if expected.reply == json!({"unavailable":true}) => Reply::Unavailable,
-                    _ => Reply::Value(expected.reply.clone()),
                 };
                 event = Event::Completed {
                     id: command.id,

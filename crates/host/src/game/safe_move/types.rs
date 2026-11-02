@@ -9,6 +9,12 @@ pub enum RoomPolicy {
     Specific { room: u32 },
     RandomPrivate { room: u32 },
 }
+#[derive(Clone, Copy)]
+pub(crate) enum HouseRead {
+    None,
+    IfEquipped,
+    Always,
+}
 #[derive(Clone, Debug, Deserialize)]
 pub struct Snapshot {
     pub logged_in: bool,
@@ -64,6 +70,7 @@ pub enum Reply {
 #[derive(Debug)]
 pub enum Event {
     Tick,
+    Cancel,
     Completed { id: u64, reply: Reply },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -107,6 +107,44 @@ impl SafeMove {
             sequence: 0,
         })
     }
+    pub(crate) fn reads(&self) -> travel::Reads {
+        match &self.phase {
+            Phase::New | Phase::Respawn(_) => travel::Reads::LOAD
+                .with(travel::Reads::ALIVE)
+                .with(travel::Reads::STATE),
+            Phase::Travel { job, .. } => job.reads(),
+            Phase::Ready(_) => travel::Reads::READY,
+            _ => travel::Reads::default(),
+        }
+    }
+    pub(crate) fn reads_house(&self) -> HouseRead {
+        match self.phase {
+            Phase::New => HouseRead::IfEquipped,
+            Phase::Ready(_) if matches!(self.destination, Some(Destination::House(_))) => {
+                HouseRead::Always
+            }
+            _ => HouseRead::None,
+        }
+    }
+    pub(crate) fn observation_deadline(&self) -> Option<u64> {
+        match &self.phase {
+            Phase::Travel { job, .. } => job.observation_deadline(),
+            Phase::Respawn(at) | Phase::Ready(at) => Some(*at),
+            _ => None,
+        }
+    }
+    pub(crate) fn restoring(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Pending {
+                kind: Pending::Restore(_),
+                ..
+            }
+        )
+    }
+    pub(crate) fn fail(&mut self, error: String) -> Effects {
+        self.finish(Outcome::Error(error))
+    }
     fn issue(&mut self, action: Action, kind: Pending) -> Effects {
         self.sequence += 1;
         self.phase = Phase::Pending {
@@ -154,6 +192,12 @@ impl SafeMove {
     pub fn advance(&mut self, snapshot: &Snapshot, mut event: Event, now: u64) -> Effects {
         if matches!(self.phase, Phase::Done) {
             return Effects::default();
+        }
+        if matches!(event, Event::Cancel) {
+            if self.restoring() {
+                return Effects::default();
+            }
+            return self.finish(Outcome::Aborted);
         }
         for _ in 0..8 {
             let phase = std::mem::replace(&mut self.phase, Phase::Done);
@@ -291,6 +335,9 @@ impl SafeMove {
                         });
                     }
                     if let Reply::Error(message) = reply {
+                        if let Pending::Clear(value) = &kind {
+                            self.saved_return_info = Some(value.clone());
+                        }
                         return self.finish(Outcome::Error(message));
                     }
                     match kind {
