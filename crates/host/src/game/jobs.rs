@@ -981,3 +981,6 @@ mod tests;
 
 #[cfg(all(test, feature = "testing"))]
 mod recovery_tests;
+
+#[cfg(all(test, feature = "testing"))]
+mod lock_order_tests;
