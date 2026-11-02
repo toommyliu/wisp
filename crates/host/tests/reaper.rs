@@ -283,7 +283,7 @@ fn a_panicking_reap_completes_the_run_and_admits_the_next_script() {
     drop(session);
     drop(host);
     quiescent_threads(
-        &["lucent-js", "lucent-reaper", "lucent-supervisor"],
+        &["lucent-js", "lucent-reaper", "lucent-super"],
         Instant::now() + TIMEOUT,
     );
     assert_eq!(phase, lucent_protocol::script::ScriptPhase::Idle);
@@ -351,7 +351,7 @@ fn a_stuck_controller_and_reaper_share_the_session_shutdown_deadline() {
     reaper_gate.open();
     dropper.join().unwrap();
     quiescent_threads(
-        &["lucent-js", "lucent-reaper", "lucent-supervisor"],
+        &["lucent-js", "lucent-reaper", "lucent-super"],
         Instant::now() + TIMEOUT,
     );
     controller_blocked.expect("the controller was not held");
@@ -413,7 +413,7 @@ fn an_abandoned_controller_does_not_warn_about_an_idle_reaper() {
     gate.open();
     dropper.join().unwrap();
     quiescent_threads(
-        &["lucent-js", "lucent-reaper", "lucent-supervisor"],
+        &["lucent-js", "lucent-reaper", "lucent-super"],
         Instant::now() + TIMEOUT,
     );
     result.expect("session shutdown exceeded its bound");
