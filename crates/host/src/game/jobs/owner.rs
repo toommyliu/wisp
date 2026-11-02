@@ -39,6 +39,18 @@ impl JobGate {
         self.probe_open();
         !self.state.lock().closed
     }
+    pub(crate) fn while_open<T>(
+        &self,
+        action: impl FnOnce() -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        #[cfg(feature = "testing")]
+        self.probe_open();
+        let state = self.state.lock();
+        if state.closed {
+            return Err(Error::Stopped);
+        }
+        action()
+    }
     #[cfg(feature = "testing")]
     fn probe_open(&self) {
         let probe = self.open_probe.lock().clone();
@@ -215,7 +227,8 @@ impl ScriptJobs {
     pub(crate) fn cancel(&self, id: JobId) {
         if let Some(gate) = self.live.lock().remove(&id) {
             gate.close();
-            if let Some(operation) = gate.state.lock().operation {
+            let operation = gate.state.lock().operation;
+            if let Some(operation) = operation {
                 self.operations.cancel(self.attachment, operation);
             }
             self.player.packets.release_owner(Owner {

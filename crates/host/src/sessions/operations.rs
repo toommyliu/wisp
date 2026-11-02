@@ -158,14 +158,16 @@ impl Packets {
         gate: &crate::game::jobs::JobGate,
         detached: &AtomicBool,
     ) -> Result<Option<super::ClaimGrant>, Error> {
-        let mut state = self.0.lock();
-        if state.stopped || detached.load(Ordering::Acquire) || !gate.open() {
-            return Err(Error::Stopped);
-        }
-        state.claims.acquire(
-            owner,
-            super::claims::ClaimResource::ConsumableSlot5 { item },
-        )
+        gate.while_open(|| {
+            let mut state = self.0.lock();
+            if state.stopped || detached.load(Ordering::Acquire) {
+                return Err(Error::Stopped);
+            }
+            state.claims.acquire(
+                owner,
+                super::claims::ClaimResource::ConsumableSlot5 { item },
+            )
+        })
     }
 
     pub(crate) fn release_attachment(&self, attachment: super::AttachmentId) {
