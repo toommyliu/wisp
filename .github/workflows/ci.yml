@@ -41,6 +41,19 @@ jobs:
           bash "$RUNNER_TEMP/m.sh" start
           if [ "$RUNNER_OS" = Linux ]; then sudo du -sh /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/* /usr/local/share/boost /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell /usr/local/share/chromium /usr/lib/jvm /opt/microsoft /opt/google /opt/az 2>/dev/null || true; df -h; lsblk || true; fi
 
+      - name: MEASURE simulate a runner with 14G free
+        if: runner.os == 'Linux'
+        run: |
+          avail=$(df -Pk . | awk 'NR==2{print $4}')
+          sudo fallocate -l $(( (avail - 14*1024*1024) * 1024 )) /ballast
+          df -h .
+
+      - name: Free Linux runner disk
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup /usr/share/swift
+
+      - run: bash "$RUNNER_TEMP/m.sh" after-free
+
       - name: Install Linux system packages
         if: runner.os == 'Linux'
         run: |
