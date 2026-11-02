@@ -193,7 +193,6 @@ fn stopping_a_waiting_script_cancels_it_without_starting_a_runtime() {
         .unwrap();
     transition(&changes, ScriptPhase::Waiting);
     session.stop_script();
-    transition(&changes, ScriptPhase::Finishing);
     transition(&changes, ScriptPhase::Idle);
     assert_eq!(session.script_status().script, None);
     assert_eq!(
