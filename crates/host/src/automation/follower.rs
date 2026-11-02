@@ -308,6 +308,24 @@ impl Follower {
             }
         }
     }
+    fn joined_own_fallback(&self, snapshot: &Snapshot) -> bool {
+        let (Stage::Pending {
+            kind: Pending::Join { index },
+            ..
+        }
+        | Stage::LateRoomFull { index, .. }) = self.stage
+        else {
+            return false;
+        };
+        let Some(map) = self.config.locked_zone_fallbacks.get(index) else {
+            return false;
+        };
+        let destination = fallback_map(map, &self.config.locked_zone_room_override);
+        snapshot
+            .me
+            .as_ref()
+            .is_some_and(|me| travel::map_name(&destination).eq_ignore_ascii_case(&me.location.map))
+    }
     fn deadline(&self, now: u64) -> Option<u64> {
         if !self.status.running {
             return None;
@@ -431,14 +449,8 @@ impl Follower {
             }
             Event::OwnMapJoined | Event::ConnectionChanged => {
                 self.movement = Movement::default();
-                let joining = matches!(
-                    self.stage,
-                    Stage::Pending {
-                        kind: Pending::Join { .. },
-                        ..
-                    } | Stage::LateRoomFull { .. }
-                );
-                if !joining || matches!(event, Event::ConnectionChanged) {
+                if matches!(event, Event::ConnectionChanged) || !self.joined_own_fallback(snapshot)
+                {
                     self.wake(&mut effects);
                 }
             }

@@ -877,8 +877,10 @@ fn own_fallback_join_and_its_grace_never_preempt_the_join() {
         h.deny("warning", "Cannot goto player in a locked zone."),
         "doom",
     );
+    h.view.me.as_mut().unwrap().location.map = "doom".into();
     assert!(h.send(Event::OwnMapJoined).actions.is_empty());
     h.view.target = Some(player("player-b", "r1"));
+    h.view.target.as_mut().unwrap().location.map = "doom".into();
     assert_eq!(
         h.reply(first, Reply::Returned(true)).next_deadline,
         Some(100)
@@ -887,6 +889,41 @@ fn own_fallback_join_and_its_grace_never_preempt_the_join() {
     assert!(engaged(&h.tick(100), true));
     assert_eq!(h.core.status().attempts_remaining, 3);
     h.view.target = None;
+    let (_, action) = issue(h.send(Event::OwnMapJoined));
+    assert!(matches!(action, Action::Travel(travel::Request::Exit)));
+}
+
+#[test]
+fn a_join_to_another_map_preempts_a_pending_fallback() {
+    let mut cfg = config();
+    cfg.locked_zone_fallbacks = vec!["doom".into(), "dage".into()];
+    let mut h = Harness::new(cfg, snapshot(None));
+    h.begin_goto();
+    let first = join(
+        h.deny("warning", "Cannot goto player in a locked zone."),
+        "doom",
+    );
+    h.view.me.as_mut().unwrap().location.map = "battleunderb".into();
+    assert!(cancelled(&h.send(Event::OwnMapJoined), first));
+}
+
+#[test]
+fn a_join_to_another_map_during_the_fallback_grace_preempts_it() {
+    let mut cfg = config();
+    cfg.locked_zone_fallbacks = vec!["doom".into(), "dage".into()];
+    cfg.locked_zone_room_override = "42".into();
+    let mut h = Harness::new(cfg, snapshot(None));
+    h.begin_goto();
+    let first = join(
+        h.deny("warning", "Cannot goto player in a locked zone."),
+        "doom-42",
+    );
+    h.view.me.as_mut().unwrap().location.map = "doom".into();
+    assert_eq!(
+        h.reply(first, Reply::Returned(true)).next_deadline,
+        Some(100)
+    );
+    h.view.me.as_mut().unwrap().location.map = "battleunderb".into();
     let (_, action) = issue(h.send(Event::OwnMapJoined));
     assert!(matches!(action, Action::Travel(travel::Request::Exit)));
 }

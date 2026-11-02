@@ -1,4 +1,5 @@
 mod target;
+pub(crate) use target::map_name;
 #[cfg(test)]
 mod tests;
 mod text;

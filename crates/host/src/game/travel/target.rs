@@ -8,10 +8,7 @@ pub(super) fn parse(request: &Request) -> Result<Option<Destination>, InputError
     } = request
     {
         let map = text::trim(target);
-        let split = map
-            .find('-')
-            .filter(|index| *index > 0 && *index < map.len() - 1);
-        Some(if let Some(index) = split {
+        Some(if let Some(index) = room_separator(map) {
             let token = &map[index + 1..];
             let fixed = token
                 .bytes()
@@ -48,4 +45,14 @@ pub(super) fn parse(request: &Request) -> Result<Option<Destination>, InputError
     };
 
     Ok(destination)
+}
+
+fn room_separator(map: &str) -> Option<usize> {
+    map.find('-')
+        .filter(|index| *index > 0 && *index < map.len() - 1)
+}
+
+pub(crate) fn map_name(target: &str) -> &str {
+    let map = text::trim(target);
+    room_separator(map).map_or(map, |index| &map[..index])
 }
