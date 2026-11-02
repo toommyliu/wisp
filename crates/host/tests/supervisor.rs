@@ -168,6 +168,10 @@ fn controls_cancel_a_waiting_script_without_replaying_it_after_login() {
         } else {
             controls.stop();
         }
+        let (probe, observed) = std::sync::mpsc::channel();
+        session.set_safe_move_probe(move |calls| {
+            let _ = probe.send(calls);
+        });
         let _supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
         let (level, end) = if kill {
             (WARN, "session 1: done.js was killed")
@@ -175,10 +179,14 @@ fn controls_cancel_a_waiting_script_without_replaying_it_after_login() {
             (INFO, "session 1: done.js was stopped")
         };
         logs.wait_for(level, end);
+        logs.wait_for(tracing::Level::DEBUG, "session 1: script worker reaped");
+        assert!(observed.try_recv().is_err(), "a safe move ran");
         log_in(&observer);
         controls.status();
         logs.wait_for(INFO, "session 1: no script is running");
         assert!(!session_lines(&logs, INFO).contains(&"session 1: done.js started".into()));
+        let warnings: &[&str] = if kill { &[end] } else { &[] };
+        assert_eq!(session_lines(&logs, WARN), warnings);
     }
 }
 
