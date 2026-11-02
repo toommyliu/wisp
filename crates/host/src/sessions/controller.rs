@@ -181,6 +181,7 @@ impl Supervisor {
             auth_reads: Vec::new(),
             auth_retry: 0,
             logout: None,
+            safe_move: None,
             clock: Instant::now(),
             deadlines: BTreeSet::new(),
             settings: None,
@@ -314,6 +315,22 @@ struct ReadyRead {
     world_ready: Option<bool>,
     player_ready: Option<bool>,
 }
+struct Logout {
+    run: RunId,
+    pending: bridge::Pending<String>,
+    deadline: Instant,
+    guard: Arc<crate::game::jobs::safe_move::Guard>,
+}
+impl Drop for Logout {
+    fn drop(&mut self) {
+        self.guard.close();
+    }
+}
+struct SafeMove {
+    run: RunId,
+    phase: lc::SafePhase,
+    job: crate::game::jobs::safe_move::SafeMoveJob,
+}
 struct Supervision {
     reaper: reaper::Sender,
     status: Arc<parking_lot::RwLock<ScriptStatus>>,
@@ -331,7 +348,8 @@ struct Supervision {
     ready_read: Option<ReadyRead>,
     auth_reads: Vec<bridge::Pending<String>>,
     auth_retry: u64,
-    logout: Option<(RunId, bridge::Pending<String>)>,
+    logout: Option<Logout>,
+    safe_move: Option<SafeMove>,
     clock: Instant,
     deadlines: BTreeSet<u64>,
     settings: Option<SettingsPolicy>,
@@ -538,6 +556,27 @@ impl Supervision {
             self.schedule(at);
         }
         self.projection();
+        if let Some(safe_move) = &mut self.safe_move {
+            if let Some(outcome) = safe_move
+                .job
+                .advance(Instant::now(), &Waker::from(self.notify.clone()))
+            {
+                let run = safe_move.run;
+                let phase = safe_move.phase;
+                if matches!(
+                    outcome,
+                    crate::game::safe_move::Outcome::Error(_)
+                        | crate::game::safe_move::Outcome::TimedOut
+                        | crate::game::safe_move::Outcome::Unavailable
+                ) {
+                    warn!("session {}: safe move failed: {outcome:?}", self.session);
+                }
+                self.safe_move = None;
+                self.advance(lc::Event::SafeMoveDone { run, phase });
+            } else if let Some(at) = safe_move.job.deadline() {
+                self.schedule(at);
+            }
+        }
         self.completions();
         let now = self.now();
         if self.deadlines.first().is_some_and(|at| *at <= now) {
@@ -679,17 +718,22 @@ impl Supervision {
                 });
             }
         }
-        if let Some((id, pending)) = &self.logout
-            && let Some(result) = pending.try_recv()
-        {
-            let id = *id;
-            if let Err(error) = result {
-                warn!("session {}: logout failed: {error}", self.session);
+        if let Some(logout) = &self.logout {
+            if let Some(result) = logout.pending.try_recv().or_else(|| {
+                (Instant::now() >= logout.deadline).then_some(Err(bridge::Error::Timeout))
+            }) {
+                let id = logout.run;
+                if let Err(error) = result {
+                    warn!("session {}: logout failed: {error}", self.session);
+                }
+                self.logout = None;
+                self.advance(lc::Event::LogoutDone(id));
+            } else {
+                self.schedule(logout.deadline);
             }
-            self.logout = None;
-            self.advance(lc::Event::LogoutDone(id));
         }
     }
+
     fn effects(&mut self, effects: Vec<lc::Effect>) {
         let mut effects = VecDeque::from(effects);
         while let Some(effect) = effects.pop_front() {
@@ -813,17 +857,75 @@ impl Supervision {
                         answer = Some(lc::Event::Reaped(run));
                     }
                 }
-                lc::Effect::SafeMove { run, phase, .. }
-                | lc::Effect::CancelSafeMove { run, phase } => {
-                    answer = Some(lc::Event::SafeMoveDone { run, phase })
+                lc::Effect::SafeMove {
+                    run,
+                    binding,
+                    phase,
+                    room_policy,
+                } => {
+                    if binding == self.binding
+                        && let Some(watch) = &self.watch
+                    {
+                        let policy = match room_policy {
+                            lc::RoomPolicy::Public => crate::game::safe_move::RoomPolicy::Public,
+                            lc::RoomPolicy::Specific(room) => {
+                                crate::game::safe_move::RoomPolicy::Specific { room }
+                            }
+                            lc::RoomPolicy::RandomPrivate => {
+                                crate::game::safe_move::RoomPolicy::RandomPrivate {
+                                    room: random_private_room(),
+                                }
+                            }
+                        };
+                        self.safe_move = Some(SafeMove {
+                            run,
+                            phase,
+                            job: crate::game::jobs::safe_move::SafeMoveJob::new(
+                                watch,
+                                policy,
+                                &self.readiness.username,
+                                Instant::now(),
+                            ),
+                        });
+                        self.schedule(Instant::now());
+                    } else {
+                        answer = Some(lc::Event::SafeMoveDone { run, phase });
+                    }
+                }
+                lc::Effect::CancelSafeMove { run, phase } => {
+                    if let Some(safe_move) = &mut self.safe_move
+                        && safe_move.run == run
+                        && safe_move.phase == phase
+                    {
+                        safe_move.job.cancel();
+                        self.schedule(Instant::now());
+                    } else {
+                        answer = Some(lc::Event::SafeMoveDone { run, phase });
+                    }
                 }
                 lc::Effect::Logout { run, binding } => {
                     if binding == self.binding
                         && let Some(watch) = &self.watch
                     {
-                        let pending = watch.command(lucent_protocol::command::Command::Logout {});
+                        let guard = crate::game::jobs::safe_move::Guard::new(
+                            watch,
+                            &self.readiness.username,
+                        );
+                        let deadline = Instant::now() + Duration::from_secs(5);
+                        let (reply, pending) = bridge::Pending::channel();
                         pending.set_waker(Waker::from(self.notify.clone()));
-                        self.logout = Some((run, pending));
+                        watch.inbox().post(crate::player::Msg::LifecycleLogout {
+                            guard: guard.clone(),
+                            deadline,
+                            reply,
+                        });
+                        self.logout = Some(Logout {
+                            run,
+                            pending,
+                            deadline,
+                            guard,
+                        });
+                        self.schedule(deadline);
                     } else {
                         answer = Some(lc::Event::LogoutDone(run));
                     }
@@ -1007,6 +1109,17 @@ fn with_reason(end: &str, reason: Option<String>) -> String {
         Some(reason) => format!("{end}: {reason}"),
         None => end.into(),
     }
+}
+
+fn random_private_room() -> u32 {
+    use std::sync::atomic::AtomicU64;
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let draw = SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ^ std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+    10000 + (draw % 90000) as u32
 }
 
 #[cfg(test)]

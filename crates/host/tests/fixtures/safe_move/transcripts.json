@@ -1414,5 +1414,170 @@
     "updates": [],
     "finished_at": 0,
     "outcome": "Aborted"
+  },
+  {
+    "name": "cancellation restores return info before finishing",
+    "initial": {
+      "logged_in": true,
+      "username": "Local Player",
+      "equipped_house": true,
+      "own_house": false,
+      "travel": {
+        "map": "battleon",
+        "room": 1,
+        "loaded": true,
+        "ready": true,
+        "tfer": true,
+        "alive": true,
+        "state": "idle",
+        "cell": "Enter",
+        "pad": "Spawn",
+        "live_cell": "Enter",
+        "live_pad": "Spawn",
+        "cells": [
+          "Enter"
+        ],
+        "monsters": []
+      }
+    },
+    "policy": {
+      "kind": "public"
+    },
+    "commands": [
+      {
+        "method": "flash.isNull",
+        "args": [
+          "world.returnInfo"
+        ],
+        "at": 1000,
+        "reply": false,
+        "patch": {}
+      },
+      {
+        "method": "flash.getGameObject",
+        "args": [
+          "world.returnInfo"
+        ],
+        "at": 1000,
+        "reply": {
+          "map": "battleon"
+        },
+        "patch": {}
+      },
+      {
+        "method": "flash.setGameObject",
+        "args": [
+          "world.returnInfo",
+          null
+        ],
+        "at": 1000,
+        "reply": true,
+        "patch": {}
+      },
+      {
+        "method": "flash.callGameFunction",
+        "args": [
+          "sfc.sendString",
+          "%xt%zm%house%1%Local Player%"
+        ],
+        "at": 1000,
+        "reply": true,
+        "patch": {}
+      },
+      {
+        "method": "flash.setGameObject",
+        "args": [
+          "world.returnInfo",
+          {
+            "map": "battleon"
+          }
+        ],
+        "at": 1100,
+        "reply": true,
+        "patch": {}
+      }
+    ],
+    "updates": [],
+    "finished_at": 1100,
+    "outcome": "Aborted",
+    "cancel_at": 1100
+  },
+  {
+    "name": "an uncertain clear restores return info before reporting its error",
+    "initial": {
+      "logged_in": true,
+      "username": "Local Player",
+      "equipped_house": true,
+      "own_house": false,
+      "travel": {
+        "map": "battleon",
+        "room": 1,
+        "loaded": true,
+        "ready": true,
+        "tfer": true,
+        "alive": true,
+        "state": "idle",
+        "cell": "Enter",
+        "pad": "Spawn",
+        "live_cell": "Enter",
+        "live_pad": "Spawn",
+        "cells": [
+          "Enter"
+        ],
+        "monsters": []
+      }
+    },
+    "policy": {
+      "kind": "public"
+    },
+    "commands": [
+      {
+        "method": "flash.isNull",
+        "args": [
+          "world.returnInfo"
+        ],
+        "at": 1000,
+        "reply": false,
+        "patch": {}
+      },
+      {
+        "method": "flash.getGameObject",
+        "args": [
+          "world.returnInfo"
+        ],
+        "at": 1000,
+        "reply": {
+          "map": "battleon"
+        },
+        "patch": {}
+      },
+      {
+        "method": "flash.setGameObject",
+        "args": [
+          "world.returnInfo",
+          null
+        ],
+        "at": 1000,
+        "reply": {
+          "error": "clear timed out"
+        },
+        "patch": {}
+      },
+      {
+        "method": "flash.setGameObject",
+        "args": [
+          "world.returnInfo",
+          {
+            "map": "battleon"
+          }
+        ],
+        "at": 1000,
+        "reply": true,
+        "patch": {}
+      }
+    ],
+    "updates": [],
+    "finished_at": 1000,
+    "outcome": "Error(\"clear timed out\")"
   }
 ]

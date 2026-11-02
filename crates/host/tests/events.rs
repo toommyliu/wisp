@@ -24,6 +24,12 @@ fn logout_reaches_a_fresh_runtime_on_a_logged_in_session() {
             .wait::<()>(TIMEOUT)
             .unwrap();
         common::ready(&runtime);
+        session
+            .attach(EventInterests::new(&[]))
+            .unwrap()
+            .command(lucent_protocol::command::Command::RefreshLoggedIn {})
+            .recv_timeout(TIMEOUT)
+            .unwrap();
         common::completed(&mut session);
         common::ready(&runtime);
         if kill_previous {

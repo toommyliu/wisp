@@ -7,6 +7,71 @@ use lucent_protocol::{command::Command, world::EntityState};
 use std::time::Instant;
 
 impl Running {
+    pub(super) fn safe_move_call(
+        &mut self,
+        guard: &crate::game::jobs::safe_move::Guard,
+        deadline: Instant,
+        method: &str,
+        args: Vec<Value>,
+    ) -> Result<Value, Error> {
+        if !guard.allows(
+            self.operation_packets.binding(),
+            &self.projection.read().auth.username,
+        ) {
+            return Err(Error::Stopped);
+        }
+        self.travel_call(&guard.gate, deadline, method, args)
+    }
+    pub(super) fn observe_safe_move(
+        &mut self,
+        reads: Reads,
+        own_house: crate::game::safe_move::HouseRead,
+        guard: &crate::game::jobs::safe_move::Guard,
+        deadline: Instant,
+    ) -> Result<crate::game::safe_move::Snapshot, Error> {
+        if !guard.allows(
+            self.operation_packets.binding(),
+            &self.projection.read().auth.username,
+        ) {
+            return Err(Error::Stopped);
+        }
+        let travel = self.observe_travel(reads, &guard.gate, deadline);
+        let equipped_house = self
+            .projection
+            .read()
+            .items
+            .all(lucent_protocol::item::ItemContainer::House)
+            .iter()
+            .any(|item| {
+                let item = item.data();
+                item.category == "House" && item.equipped
+            });
+        let read_house = match own_house {
+            crate::game::safe_move::HouseRead::None => false,
+            crate::game::safe_move::HouseRead::IfEquipped => equipped_house,
+            crate::game::safe_move::HouseRead::Always => true,
+        };
+        let own_house = if read_house {
+            let value = self.safe_move_call(
+                guard,
+                deadline,
+                "flash.callGameFunction0",
+                vec![Value::String("world.isMyHouse".into())],
+            )?;
+            matches!(value, Value::String(json) if serde_json::from_str::<bool>(&json).ok() == Some(true))
+        } else {
+            false
+        };
+        let state = self.projection.read();
+        Ok(crate::game::safe_move::Snapshot {
+            logged_in: state.auth.logged_in,
+            username: state.auth.username.clone(),
+            equipped_house,
+            own_house,
+            travel,
+        })
+    }
+
     pub(super) fn travel_call(
         &mut self,
         gate: &JobGate,

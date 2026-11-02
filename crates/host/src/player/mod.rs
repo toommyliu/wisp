@@ -170,6 +170,24 @@ impl Read {
 }
 
 pub(crate) enum Msg {
+    LifecycleLogout {
+        guard: Arc<crate::game::jobs::safe_move::Guard>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<String>,
+    },
+    ObserveSafeMove {
+        reads: crate::game::travel::Reads,
+        own_house: crate::game::safe_move::HouseRead,
+        guard: Arc<crate::game::jobs::safe_move::Guard>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<crate::game::safe_move::Snapshot>,
+    },
+    DispatchSafeMove {
+        action: crate::game::safe_move::Action,
+        guard: Arc<crate::game::jobs::safe_move::Guard>,
+        deadline: Instant,
+        reply: crate::bridge::Reply<Value>,
+    },
     ObserveTravel {
         reads: crate::game::travel::Reads,
         gate: Arc<crate::game::jobs::JobGate>,
@@ -378,6 +396,15 @@ fn first_viewport(
             Msg::LinkCount(reply) => {
                 let _ = reply.send(Ok(script_events.len()));
             }
+            Msg::LifecycleLogout { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
+            Msg::ObserveSafeMove { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
+            Msg::DispatchSafeMove { reply, .. } => {
+                let _ = reply.send(Err(BridgeError::NotReady));
+            }
             Msg::ObserveTravel { reply, .. } => {
                 let _ = reply.send(Ok(Default::default()));
             }
@@ -532,6 +559,50 @@ impl Running {
                 deliver_operation_answer(&self.script_events, attachment, answer);
             }
             Msg::Read(read) => (read.0)(Ok(&self.projection.read())),
+            Msg::LifecycleLogout {
+                guard,
+                deadline,
+                reply,
+            } => {
+                let result = if Instant::now() >= deadline {
+                    Err(BridgeError::Timeout)
+                } else if !guard.allows(
+                    self.operation_packets.binding(),
+                    &self.projection.read().auth.username,
+                ) {
+                    Err(BridgeError::Stopped)
+                } else {
+                    self.command(Command::Logout {})
+                };
+                let _ = reply.send(result);
+            }
+            Msg::ObserveSafeMove {
+                reads,
+                own_house,
+                guard,
+                deadline,
+                reply,
+            } => {
+                let result = self.observe_safe_move(reads, own_house, &guard, deadline);
+                let _ = reply.send(result);
+            }
+            Msg::DispatchSafeMove {
+                action,
+                guard,
+                deadline,
+                reply,
+            } => {
+                let (method, args) = action.loader_call();
+                let result = self.safe_move_call(
+                    &guard,
+                    deadline,
+                    method,
+                    args.into_iter()
+                        .map(lucent_protocol::bridge::from_json)
+                        .collect(),
+                );
+                let _ = reply.send(result);
+            }
             Msg::ObserveTravel {
                 reads,
                 gate,

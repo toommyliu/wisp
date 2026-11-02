@@ -3006,5 +3006,82 @@
     "outcome": false,
     "updates": [],
     "finished_at": 3000
+  },
+  {
+    "name": "exit ranks monster cells without case sensitivity",
+    "request": {
+      "kind": "exit"
+    },
+    "initial": {
+      "map": "battleon",
+      "room": 1,
+      "loaded": true,
+      "ready": true,
+      "tfer": true,
+      "alive": true,
+      "state": "combat",
+      "cell": "Enter",
+      "pad": "Spawn",
+      "live_cell": "Enter",
+      "live_pad": "Spawn",
+      "cells": [
+        "blank",
+        "Wait",
+        "Enter",
+        "Other",
+        "Safe"
+      ],
+      "monsters": [
+        {
+          "cell": "eNtEr",
+          "aggressive": true
+        },
+        {
+          "cell": "oThEr",
+          "aggressive": false
+        }
+      ]
+    },
+    "commands": [
+      {
+        "method": "combat.cancelAutoAttack",
+        "args": [],
+        "patch": {},
+        "reply": true,
+        "at": 0
+      },
+      {
+        "method": "combat.cancelTarget",
+        "args": [],
+        "patch": {},
+        "reply": true,
+        "at": 0
+      },
+      {
+        "method": "player.jump",
+        "args": [
+          "Safe"
+        ],
+        "patch": {
+          "live_cell": "Safe",
+          "live_pad": "Spawn",
+          "state": "idle"
+        },
+        "reply": true,
+        "at": 0
+      },
+      {
+        "method": "world.isCellReady",
+        "args": [
+          "Safe"
+        ],
+        "patch": {},
+        "reply": true,
+        "at": 0
+      }
+    ],
+    "outcome": true,
+    "updates": [],
+    "finished_at": 500
   }
 ]
