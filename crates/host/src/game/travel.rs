@@ -60,6 +60,7 @@ enum Phase {
     Wait { kind: Wait, expires: u64, next: u64 },
     Pending { id: u64, action: Pending },
     Jump { jump: Jump, next: u64 },
+    StartExit(Resume),
     ExitNext,
     Idle { expires: u64, next: u64 },
     ConfirmIdle { expires: u64, at: u64 },
@@ -111,6 +112,34 @@ impl TravelJob {
             exit_resume: Resume::Return,
         })
     }
+    pub fn reads(&self) -> Reads {
+        match &self.phase {
+            Phase::New => match self.request {
+                Request::Join { .. } => Reads::LOAD,
+                Request::Jump { .. } => Reads::default(),
+                Request::Exit => Reads::STATE,
+            },
+            Phase::Wait { kind, .. } => match kind {
+                Wait::ReadyBefore | Wait::ReadyAfter => Reads::READY,
+                Wait::Tfer => Reads::TFER,
+                Wait::Alive => Reads::ALIVE.with(Reads::STATE),
+                Wait::Load => Reads::LOAD,
+            },
+            Phase::Jump { .. } => Reads::LIVE,
+            Phase::StartExit(_) => Reads::EXIT,
+            Phase::Idle { .. } | Phase::ConfirmIdle { .. } => Reads::STATE,
+            _ => Reads::default(),
+        }
+    }
+    pub fn observation_deadline(&self) -> Option<u64> {
+        match &self.phase {
+            Phase::Wait { expires, .. }
+            | Phase::Idle { expires, .. }
+            | Phase::ConfirmIdle { expires, .. } => Some(*expires),
+            Phase::Jump { jump, .. } => Some(jump.expires),
+            _ => None,
+        }
+    }
     fn finish(&mut self, value: bool) -> Effects {
         self.phase = Phase::Done;
         Effects {
@@ -120,6 +149,10 @@ impl TravelJob {
     }
     fn issue(&mut self, action: Action, pending: Pending) -> Effects {
         self.sequence += 1;
+        let next_deadline = match &pending {
+            Pending::CellReady { jump, .. } => Some(jump.expires),
+            _ => None,
+        };
         self.phase = Phase::Pending {
             id: self.sequence,
             action: pending,
@@ -129,6 +162,7 @@ impl TravelJob {
                 id: self.sequence,
                 action,
             }),
+            next_deadline,
             ..Default::default()
         }
     }
@@ -284,6 +318,15 @@ impl TravelJob {
         {
             return self.finish(false);
         }
+        if let Phase::Pending {
+            action: Pending::CellReady { jump, .. },
+            ..
+        } = &self.phase
+            && now >= jump.expires
+        {
+            return self.resume_jump(false, jump.resume, now);
+        }
+        let reads = self.reads();
         if let Event::Completed { id, reply } = event {
             let Phase::Pending {
                 id: expected,
@@ -319,6 +362,10 @@ impl TravelJob {
                     }
                     let next = now.saturating_add(100).min(jump.expires);
                     self.phase = Phase::Jump { jump, next };
+                    return Effects {
+                        next_deadline: Some(next),
+                        ..Default::default()
+                    };
                 }
                 Pending::Stop => return self.issue(Action::CancelTarget, Pending::ClearTarget),
                 Pending::ClearTarget => {
@@ -330,6 +377,9 @@ impl TravelJob {
             }
         }
         for _ in 0..8 {
+            if self.reads() != reads {
+                break;
+            }
             match self.phase.clone() {
                 Phase::New => match self.request.clone() {
                     Request::Join { .. } => {
@@ -353,7 +403,7 @@ impl TravelJob {
                         if snapshot.state == CombatState::Idle {
                             return self.finish(true);
                         }
-                        self.start_exit(snapshot, Resume::Return);
+                        self.phase = Phase::StartExit(Resume::Return);
                     }
                 },
                 Phase::Wait {
@@ -392,7 +442,7 @@ impl TravelJob {
                                 self.exit_resume = Resume::Join;
                                 return self.after_exit(true);
                             }
-                            self.start_exit(snapshot, Resume::Join);
+                            self.phase = Phase::StartExit(Resume::Join);
                         }
                         Wait::Load => self.wait(Wait::ReadyAfter, 10000, now),
                         Wait::ReadyAfter => return self.after_ready(now),
@@ -443,6 +493,7 @@ impl TravelJob {
                     let next = now.saturating_add(100).min(jump.expires);
                     self.phase = Phase::Jump { jump, next };
                 }
+                Phase::StartExit(resume) => self.start_exit(snapshot, resume),
                 Phase::ExitNext => {
                     if self.exit_index >= self.exit_cells.len() {
                         return self.after_exit(false);
@@ -489,6 +540,15 @@ impl TravelJob {
                             next: now.saturating_add(100).min(expires),
                         };
                     }
+                }
+                Phase::Pending {
+                    action: Pending::CellReady { jump, .. },
+                    ..
+                } => {
+                    return Effects {
+                        next_deadline: Some(jump.expires),
+                        ..Default::default()
+                    };
                 }
                 Phase::Pending { .. } | Phase::Done => return Effects::default(),
             }

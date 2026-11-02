@@ -15,9 +15,10 @@ pub enum Request {
     },
     Exit,
 }
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CombatState {
+    #[default]
     Idle,
     Combat,
     Dead,
@@ -27,7 +28,7 @@ pub struct Monster {
     pub cell: String,
     pub aggressive: bool,
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Snapshot {
     pub map: String,
     pub room: u64,
@@ -94,4 +95,22 @@ pub enum Reply {
     Accepted,
     Unavailable,
     CellReady(bool),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reads(u8);
+impl Reads {
+    pub const LOAD: Self = Self(1);
+    pub const READY: Self = Self(2);
+    pub const TFER: Self = Self(4);
+    pub const ALIVE: Self = Self(8);
+    pub const STATE: Self = Self(16);
+    pub const LIVE: Self = Self(32);
+    pub const EXIT: Self = Self(64);
+    pub const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
 }
