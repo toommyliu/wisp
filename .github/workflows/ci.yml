@@ -34,11 +34,12 @@ jobs:
           cat > "$RUNNER_TEMP/m.sh" <<'EOF'
           echo "MEASURE $1 at $(date +%s)"
           df -h . 2>&1
-          if [ -d target ]; then du -sh target 2>/dev/null; du -sh target/debug/* 2>/dev/null | sort -h | tail -6; fi
+          if [ -d target ]; then du -sh target 2>/dev/null; du -sh target/debug/* 2>/dev/null | sort -h | tail -6; ls target/debug/deps | wc -l; fi
+          exit 0
           EOF
           nohup bash -c 'while :; do echo "$(date +%s) $(df -Pk . | awk "NR==2{print \$4}")" >> "$RUNNER_TEMP/disk.log"; sleep 5; done' >/dev/null 2>&1 &
           bash "$RUNNER_TEMP/m.sh" start
-          if [ "$RUNNER_OS" = Linux ]; then sudo du -sh /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/* /usr/local/share/boost /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell /usr/local/share/chromium /usr/lib/jvm /opt/microsoft /opt/google /opt/az 2>/dev/null; df -h; fi
+          if [ "$RUNNER_OS" = Linux ]; then sudo du -sh /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/* /usr/local/share/boost /usr/local/.ghcup /usr/share/swift /usr/local/share/powershell /usr/local/share/chromium /usr/lib/jvm /opt/microsoft /opt/google /opt/az 2>/dev/null || true; df -h; lsblk || true; fi
 
       - name: Install Linux system packages
         if: runner.os == 'Linux'
