@@ -90,6 +90,8 @@ impl Engine {
                     v8::Function::new(scope, host_acquire_consumable_claim),
                 ),
                 ("releaseClaim", v8::Function::new(scope, host_release_claim)),
+                ("startTravel", v8::Function::new(scope, host_start_travel)),
+                ("cancelTravel", v8::Function::new(scope, host_cancel_job)),
                 ("startJob", v8::Function::new(scope, host_start_job)),
                 ("engageJob", v8::Function::new(scope, host_engage_job)),
                 ("cancelJob", v8::Function::new(scope, host_cancel_job)),
@@ -888,6 +890,24 @@ fn host_cancel_io(
     {
         scope.get_slot::<Arc<super::io::Io>>().unwrap().cancel(id);
     }
+}
+
+fn host_start_travel(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    reply: v8::ReturnValue<v8::Value>,
+) {
+    let Some(json) = args.get(0).to_string(scope) else {
+        return;
+    };
+    let json = json.to_rust_string_lossy(scope);
+    let result = scope
+        .get_slot::<ScriptLink>()
+        .unwrap()
+        .jobs
+        .start_travel(&json)
+        .map(|id| id.map(|id| id.to_string()));
+    return_reply(scope, reply, result);
 }
 
 fn host_take_io_body(

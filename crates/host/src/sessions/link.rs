@@ -51,6 +51,7 @@ impl ScriptLink {
             player.clone(),
             operations.clone(),
             records.jobs.clone(),
+            events.completions(),
         );
         Self {
             jobs: Arc::new(jobs),
@@ -393,6 +394,12 @@ impl ScriptLink {
 
 impl Drop for ScriptLink {
     fn drop(&mut self) {
+        #[cfg(feature = "testing")]
+        self.records
+            .jobs
+            .controller_links
+            .lock()
+            .remove(&self.attachment);
         self.detached.store(true, Ordering::Release);
         self.jobs.revoke();
         self.packets.release_attachment(self.attachment);

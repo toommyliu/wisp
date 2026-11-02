@@ -2951,5 +2951,60 @@
     "updates": [],
     "outcome": true,
     "finished_at": 0
+  },
+  {
+    "name": "cell readiness reply after the jump deadline",
+    "request": {
+      "kind": "jump",
+      "cell": "Safe"
+    },
+    "initial": {
+      "map": "battleon",
+      "room": 1,
+      "loaded": true,
+      "ready": true,
+      "tfer": true,
+      "alive": true,
+      "state": "idle",
+      "cell": "Enter",
+      "pad": "Spawn",
+      "live_cell": "Enter",
+      "live_pad": "Spawn",
+      "cells": [
+        "Enter",
+        "Safe",
+        "Other",
+        "Fourth"
+      ],
+      "monsters": []
+    },
+    "commands": [
+      {
+        "method": "player.jump",
+        "args": [
+          "Safe"
+        ],
+        "patch": {
+          "cell": "Wrong",
+          "pad": "Wrong",
+          "live_cell": "Safe"
+        },
+        "reply": true,
+        "at": 0
+      },
+      {
+        "method": "world.isCellReady",
+        "args": [
+          "Safe"
+        ],
+        "patch": {},
+        "reply": true,
+        "at": 0,
+        "delay_ms": 3100
+      }
+    ],
+    "outcome": false,
+    "updates": [],
+    "finished_at": 3000
   }
 ]
