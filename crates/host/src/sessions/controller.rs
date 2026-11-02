@@ -1052,6 +1052,17 @@ fn with_reason(end: &str, reason: Option<String>) -> String {
     }
 }
 
+fn random_private_room() -> u32 {
+    use std::sync::atomic::AtomicU64;
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let draw = SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ^ std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+    10000 + (draw % 90000) as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1149,15 +1160,4 @@ mod tests {
             assert_eq!(ended("x.js", result), (level, line.into()));
         }
     }
-}
-
-fn random_private_room() -> u32 {
-    use std::sync::atomic::AtomicU64;
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-    let draw = SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ^ std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-    10000 + (draw % 90000) as u32
 }
