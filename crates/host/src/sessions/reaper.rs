@@ -178,6 +178,57 @@ mod tests {
     }
 
     #[test]
+    fn an_idle_reaper_at_the_deadline_does_not_report_abandoned_work() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use tracing_subscriber::prelude::*;
+        struct Warnings(Arc<AtomicUsize>);
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Warnings {
+            fn on_event(
+                &self,
+                event: &tracing::Event<'_>,
+                _: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                if *event.metadata().level() == tracing::Level::WARN {
+                    self.0.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+        let warnings = Arc::new(AtomicUsize::new(0));
+        let dispatch =
+            tracing::Dispatch::new(tracing_subscriber::registry().with(Warnings(warnings.clone())));
+        let _guard = tracing::dispatcher::set_default(&dispatch);
+        let reapers = Reapers::default();
+        let sender = reapers.start(1).unwrap();
+        let reaper = reapers.0.lock().remove(&1).unwrap();
+        reaper.join(1, Instant::now());
+        drop(sender);
+        assert_eq!(
+            warnings.load(Ordering::Relaxed),
+            0,
+            "an idle reaper has no abandoned work"
+        );
+    }
+
+    #[test]
+    fn a_late_reap_discards_its_task_without_panicking() {
+        let reapers = Reapers::default();
+        let sender = reapers.start(1).unwrap();
+        reapers.stop_session(1, Instant::now() + SHUTDOWN_TIMEOUT);
+        let (released, answer) = mpsc::channel::<()>();
+        let result = std::panic::catch_unwind(|| {
+            sender.reap(move || drop(released));
+        });
+        assert!(result.is_ok(), "late reap panicked after shutdown");
+        assert!(matches!(
+            answer.recv_timeout(Duration::from_secs(2)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        ));
+    }
+
+    #[test]
     fn a_panicking_join_does_not_stop_the_sessions_reaper() {
         let reapers = Reapers::default();
         let sender = reapers.start(1).unwrap();
