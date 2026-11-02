@@ -172,10 +172,14 @@ fn run_lock_interleaving() {
     observer.set_waker(Waker::from(Arc::new(Wake(thread::current()))));
     let deadline = Instant::now() + WAIT;
     loop {
-        if let Some(ScriptEvent::Operation { id, answer }) = observer.try_event().unwrap() {
-            assert_eq!(id, dispatch);
-            assert!(matches!(answer, Ok(OperationAnswer::LoadBank(true))));
-            break;
+        match observer.try_event().unwrap() {
+            Some(ScriptEvent::Operation { id, answer }) => {
+                assert_eq!(id, dispatch);
+                assert!(matches!(answer, Ok(OperationAnswer::LoadBank(true))));
+                break;
+            }
+            Some(_) => continue,
+            None => {}
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         assert!(!remaining.is_zero(), "issued operation did not settle");
