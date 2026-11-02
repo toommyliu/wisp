@@ -804,25 +804,20 @@ fn unconfirmed_house_arrival_retries_with_backoff_before_boot() {
                 std::iter::repeat_n((json!(null), vec![]), 16),
             )
     });
+    let (attempted, times) = std::sync::mpsc::channel();
+    session.set_safe_move_probe(move |calls| {
+        if calls
+            .iter()
+            .any(|method| method == "flash.callGameFunction")
+        {
+            let _ = attempted.send(Instant::now());
+        }
+    });
     options(&session, true);
     supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('booted'); }")])).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
-    observer.set_waker(Waker::from(Arc::new(Unpark(std::thread::current()))));
     session.watch(Waker::from(Arc::new(Unpark(std::thread::current()))));
-    let mut attempts = Vec::new();
-    loop {
-        while let Some(event) = observer.try_event().unwrap() {
-            if let ScriptEvent::Loader { event, .. } = event
-                && event.name == "onProbeCall"
-                && event.args.first() == Some(&Value::String("flash.callGameFunction".into()))
-            {
-                assert!(format!("{:?}", event.args).contains("%xt%zm%house%1%player-a%"));
-                attempts.push(Instant::now());
-            }
-        }
-        if session.script_dialog().is_some() {
-            break;
-        }
+    while session.script_dialog().is_none() {
         let remaining = deadline.saturating_duration_since(Instant::now());
         assert!(!remaining.is_zero(), "did not boot after house retries");
         std::thread::park_timeout(remaining);
@@ -835,6 +830,21 @@ fn unconfirmed_house_arrival_retries_with_backoff_before_boot() {
     wait_for(&session, || {
         session.script_status().phase == ScriptPhase::Idle
     });
+    let events = drain(&observer);
+    let packets: Vec<_> = events
+        .iter()
+        .filter(|(name, args)| {
+            name == "onProbeCall"
+                && args.first() == Some(&Value::String("flash.callGameFunction".into()))
+        })
+        .collect();
+    assert_eq!(packets.len(), 3);
+    assert!(
+        packets
+            .iter()
+            .all(|(_, args)| format!("{args:?}").contains("%xt%zm%house%1%player-a%"))
+    );
+    let attempts: Vec<_> = times.try_iter().collect();
     assert_eq!(attempts.len(), 3, "the house move must make three attempts");
     assert!(attempts[1].duration_since(attempts[0]) >= Duration::from_millis(5800));
     assert!(attempts[2].duration_since(attempts[1]) >= Duration::from_millis(6800));
