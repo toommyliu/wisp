@@ -13,7 +13,7 @@ import { completeTravel, failTravels } from "./travel";
 
 import { prepareJob, failJob, failJobs } from "./jobs";
 
-import type { ScriptSource } from "../game/scripting/ScriptRunner";
+import type { ScriptLoad } from "./scripts";
 
 declare global {
   var __host: {
@@ -44,7 +44,7 @@ declare global {
   };
   var __lucent: Readonly<{
     start(
-      load: ScriptSource["load"],
+      load: ScriptLoad,
       name: string,
       inputsJson: string,
     ): Promise<ScriptOutcome>;

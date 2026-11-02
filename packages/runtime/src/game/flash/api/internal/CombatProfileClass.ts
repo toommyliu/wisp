@@ -9,7 +9,7 @@ interface Dependencies {
   readonly player: Pick<Player, "getClassName">;
 }
 
-const classList = new Intl.ListFormat("en", { type: "disjunction" });
+let classList: Intl.ListFormat | undefined;
 
 const sameClass = (left: string, right: string): boolean =>
   left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
@@ -40,5 +40,5 @@ export const getCombatProfileClassWarning = Effect.fn(
   const equipped = itemName || className;
   return equipped === ""
     ? undefined
-    : `This profile is for ${classList.format(classNames)}, but ${equipped} is equipped.`;
+    : `This profile is for ${(classList ??= new Intl.ListFormat("en", { type: "disjunction" })).format(classNames)}, but ${equipped} is equipped.`;
 });

@@ -11,12 +11,32 @@ import type {
   ScriptOptionsApi,
 } from "@lucent/scripting-api/contract";
 import type { ScriptAsyncScope } from "./scriptAsyncScope";
-import type { ScriptDialogSource, ScriptDialogsShape } from "./ScriptDialogs";
 import {
   makeScriptExitSignal,
   ScriptExecutionError,
   ScriptStopSignal,
 } from "./ScriptRunnerErrors";
+
+export interface ScriptDialogSource {
+  readonly sourceName: string;
+}
+
+export interface ScriptDialogs {
+  readonly alert: (
+    source: ScriptDialogSource,
+    message: string,
+  ) => Effect.Effect<void>;
+  readonly beep: (times: number) => Effect.Effect<void>;
+  readonly confirm: (
+    source: ScriptDialogSource,
+    message: string,
+  ) => Effect.Effect<boolean>;
+  readonly prompt: (
+    source: ScriptDialogSource,
+    message: string,
+    placeholder?: string,
+  ) => Effect.Effect<string | null>;
+}
 
 export const snapshotRoomPolicy = (policy: RoomPolicy): RoomPolicy => ({
   ...policy,
@@ -36,10 +56,7 @@ const snapshotScriptInputValues = (
 };
 
 export interface ScriptRuntimeApiOptions {
-  readonly dialogs: Pick<
-    ScriptDialogsShape,
-    "alert" | "beep" | "confirm" | "prompt"
-  >;
+  readonly dialogs: ScriptDialogs;
   readonly scriptOptions: ScriptOptionsApi;
   readonly getInputValues: () => ScriptInputValues;
   readonly log: (...values: unknown[]) => void;

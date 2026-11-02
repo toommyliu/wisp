@@ -34,9 +34,9 @@ import * as Schema from "effect/Schema";
 import { completeOperation } from "../../../host/operations";
 
 import { makeApi } from "../api/Api";
-import { Bridge, makeBridge } from "../bridge/Bridge";
-import { Gateway, makeGateway } from "../bridge/Gateway";
-import { HostState, type HostStateService } from "../state/HostState";
+import { makeBridge } from "../bridge/Bridge";
+import { makeGateway } from "../bridge/Gateway";
+import type { HostStateService } from "../state/HostState";
 import { makeSettingsState, type SettingsState } from "../state/Settings";
 
 const normalizeGameText = (value: string): string => value.trim().toLowerCase();
@@ -543,12 +543,6 @@ export const makeFakeBankOperations = (target: Window, state: FakeHostState) => 
 export const makeFakeApi = (target: Window, state: FakeHostState) =>
   Effect.gen(function* () {
     const bridge = yield* makeBridge(target);
-    const gateway = yield* makeGateway(target).pipe(
-      Effect.provideService(Bridge, bridge),
-    );
-    return yield* makeApi.pipe(
-      Effect.provideService(Bridge, bridge),
-      Effect.provideService(Gateway, gateway),
-      Effect.provideService(HostState, makeFakeHost(state, target)),
-    );
+    const gateway = yield* makeGateway(bridge, target);
+    return yield* makeApi(bridge, gateway, makeFakeHost(state, target));
   });

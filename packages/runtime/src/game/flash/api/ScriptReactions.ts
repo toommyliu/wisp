@@ -1,6 +1,4 @@
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 
 import type { GatewayService } from "../bridge/Gateway";
 import type { HostStateService } from "../state/HostState";
@@ -40,9 +38,3 @@ export const start = Effect.fnUntraced(function* ({
   );
   yield* gateway.start(antiCounter.handleEvent);
 });
-
-export class ScriptReactions extends Context.Service<ScriptReactions, Services>()(
-  "lucent/renderer/flash/ScriptReactions",
-) {}
-
-export const layer = Layer.effectDiscard(Effect.flatMap(ScriptReactions, start));

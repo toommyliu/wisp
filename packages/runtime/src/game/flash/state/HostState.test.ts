@@ -1,28 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { DiagnosticSink } from "../bridge/DiagnosticSink";
 import { item } from "../testing/FakeHost";
 import {
-  HostState,
   isHydrated,
   itemQuantity,
-  layer,
+  makeHostState,
   readItem,
 } from "./HostState";
 
 const reports: unknown[][] = [];
-const live = layer.pipe(
-  Layer.provide(
-    Layer.succeed(DiagnosticSink, {
+const live = () =>
+  makeHostState(__host).pipe(
+    Effect.provideService(DiagnosticSink, {
       report: (...args) => {
         reports.push(args);
       },
     }),
-  ),
-);
+  );
 
 const stubHost = (host: {
   readonly read?: (query: string) => string;
@@ -46,7 +43,7 @@ describe("HostState", () => {
           return '{"id":5,"name":"battleon","roomNumber":1}';
         },
       });
-      const host = yield* HostState.pipe(Effect.provide(live));
+      const host = yield* live();
       expect(yield* host.read({ kind: "map" })).toEqual({
         id: 5,
         name: "battleon",
@@ -63,7 +60,7 @@ describe("HostState", () => {
           throw new Error("auth.getServers has no loader callback");
         },
       });
-      const host = yield* HostState.pipe(Effect.provide(live));
+      const host = yield* live();
       expect(yield* host.command({ kind: "refreshServers" })).toEqual(
         Option.none(),
       );
@@ -85,7 +82,7 @@ describe("HostState", () => {
           throw new Error("auth.login has no loader callback");
         },
       });
-      const host = yield* HostState.pipe(Effect.provide(live));
+      const host = yield* live();
       expect(
         yield* host.command({
           kind: "login",
@@ -107,7 +104,7 @@ describe("HostState", () => {
   it.effect("returns a successful command's answer", () =>
     Effect.gen(function* () {
       stubHost({ command: () => "3" });
-      const host = yield* HostState.pipe(Effect.provide(live));
+      const host = yield* live();
       expect(
         yield* host.command({ kind: "refreshContainer", container: "bank" }),
       ).toEqual(Option.some(3));
@@ -123,7 +120,7 @@ describe("HostState", () => {
         '{"kind":"item","container":"bank","selector":"Gem"}': "null",
       };
       stubHost({ read: (query) => answers[query] ?? "unexpected" });
-      const host = yield* HostState.pipe(Effect.provide(live));
+      const host = yield* live();
       expect(yield* itemQuantity(host, "bank", "Ore")).toBe(3);
       expect(yield* itemQuantity(host, "bank", "Gem")).toBe(0);
     }),
@@ -133,7 +130,7 @@ describe("HostState", () => {
     Effect.gen(function* () {
       let version = 0;
       stubHost({ read: () => String(version) });
-      const host = yield* HostState.pipe(Effect.provide(live));
+      const host = yield* live();
       expect(yield* isHydrated(host, "inventory")).toBe(false);
       version = 2;
       expect(yield* isHydrated(host, "inventory")).toBe(true);
@@ -151,7 +148,7 @@ describe("HostState", () => {
           );
         },
       });
-      const host = yield* HostState.pipe(Effect.provide(live));
+      const host = yield* live();
       expect(yield* readItem(host, "inventory", Number.NaN)).toBeNull();
       expect(
         yield* readItem(host, "inventory", { itemId: Number.NaN }),

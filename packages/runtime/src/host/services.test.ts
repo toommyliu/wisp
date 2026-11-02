@@ -5,10 +5,8 @@ import * as Effect from "effect/Effect";
 import { makeScriptArmyApi } from "../game/scripting/api/Army";
 import { makeScriptAsyncScope } from "../game/scripting/scriptAsyncScope";
 import { makeScriptRuntimeApi } from "../game/scripting/ScriptRuntime";
-import {
-  unavailableScriptDialogs,
-  unavailableScriptServices,
-} from "./services";
+import { makeHostDialogs } from "./dialogs";
+import { unavailableArmy, unavailableEnvironment } from "./services";
 
 const failure = <A, E>(effect: Effect.Effect<A, E>) =>
   effect.pipe(
@@ -26,10 +24,12 @@ describe("unavailable host services", () => {
     Effect.gen(function* () {
       const scope = makeScriptAsyncScope();
       yield* Effect.addFinalizer(() => scope.close);
-      const services = unavailableScriptServices;
-      const army = makeScriptArmyApi(services.army, scope, () => Effect.void);
+      const army = makeScriptArmyApi(unavailableArmy, scope, () => Effect.void);
       const script = makeScriptRuntimeApi({
-        dialogs: unavailableScriptDialogs,
+        dialogs: makeHostDialogs({
+          requestIo: () => "",
+          cancelIo: () => undefined,
+        }),
         scriptOptions: {
           get: () =>
             Effect.succeed({
@@ -48,11 +48,8 @@ describe("unavailable host services", () => {
       expect(yield* failure(army.start("farm"))).toBe(
         "The army service is not available yet.",
       );
-      expect(yield* failure(services.environment.syncToAll())).toBe(
+      expect(yield* failure(unavailableEnvironment.syncToAll())).toBe(
         "The environment service is not available yet.",
-      );
-      expect(yield* failure(script.alert("Done"))).toBe(
-        "The dialogs service is not available yet.",
       );
       expect(yield* failure(script.beep())).toBe(
         "The beep service is not available yet.",
