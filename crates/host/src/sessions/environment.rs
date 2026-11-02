@@ -188,12 +188,32 @@ pub(super) fn reduce(state: &mut EnvironmentState, edit: EnvironmentEdit) {
     }
     normalize(state);
 }
+pub(super) fn write(
+    records: &super::Records,
+    update: impl FnOnce(&mut EnvironmentState),
+) -> EnvironmentState {
+    let mut state = records.environment.write();
+    let before = state.clone();
+    update(&mut state);
+    let changed = *state != before;
+    let result = state.clone();
+    drop(state);
+    if changed {
+        records.changes.notify();
+    }
+    result
+}
+
 pub(super) fn apply(state: &mut EnvironmentState, edit: EnvironmentEdit, projection: &Projection) {
     let before = (state.quest_ids.clone(), state.quest_auto_register.clone());
     reduce(state, edit);
     if state.quest_ids == before.0 && state.quest_auto_register == before.1 {
         return;
     }
+    register_loaded(state, projection);
+}
+
+pub(super) fn register_loaded(state: &mut EnvironmentState, projection: &Projection) {
     for quest in projection.quests.all() {
         let quest = quest.data();
         if !state.quest_ids.contains(&quest.id) {
@@ -299,5 +319,46 @@ mod tests {
         ];
         normalize_names(&mut names);
         assert_eq!(names, ["apple", "Zorbak", "éclair", "Ωmega"]);
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+    #[test]
+    fn loaded_targets_keep_reward_spelling_and_require_explicit_non_temporary_items() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../test-fixtures/environment/quest-targets.json"
+        ))
+        .unwrap();
+        let mut projection = Projection::default();
+        projection.packet(
+            &lucent_protocol::Packet::Extension {
+                command: "getQuests".into(),
+                data: fixture["quest"].clone(),
+                raw: String::new(),
+                encoding: lucent_protocol::PacketEncoding::Json,
+            },
+            0.,
+            false,
+        );
+        let mut state = EnvironmentState {
+            quest_ids: vec![1.],
+            ..Default::default()
+        };
+        state.quest_auto_register.requirements = true;
+        state.quest_auto_register.rewards = true;
+        register_loaded(&mut state, &projection);
+        assert_eq!(serde_json::json!(state.item_names), fixture["expected"]);
+        reduce(&mut state, EnvironmentEdit::ClearQuests {});
+        assert_eq!(serde_json::json!(state.item_names), fixture["expected"]);
+        state.item_names.clear();
+        state.quest_ids = vec![1.];
+        state.quest_auto_register.rewards = false;
+        register_loaded(&mut state, &projection);
+        assert_eq!(
+            serde_json::json!(state.item_names),
+            fixture["requirementsOnly"]
+        );
     }
 }

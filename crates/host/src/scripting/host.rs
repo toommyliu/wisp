@@ -38,6 +38,26 @@ pub(crate) fn operate(link: &ScriptLink, id: &str, json: &str) -> Result<(), Str
         .map_err(|error| error.to_string())
 }
 
+pub(crate) fn acquire_inventory_use_claim(link: &ScriptLink, json: &str) -> Result<String, String> {
+    let id: i64 = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    if !(1..=9_007_199_254_740_991).contains(&id) {
+        return Err("invalid item ID".into());
+    }
+    link.acquire_inventory_use_claim(id)
+        .map(|grant| serde_json::to_string(&grant.map(|g| g.id.to_string())).unwrap())
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) fn acquire_quest_claim(link: &ScriptLink, json: &str) -> Result<String, String> {
+    let id: i64 = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    if !(1..=9_007_199_254_740_991).contains(&id) {
+        return Err("invalid quest ID".into());
+    }
+    link.acquire_quest_claim(id)
+        .map(|grant| serde_json::to_string(&grant.map(|g| g.id.to_string())).unwrap())
+        .map_err(|e| e.to_string())
+}
+
 pub(crate) fn acquire_consumable_claim(link: &ScriptLink, json: &str) -> Result<String, String> {
     let item: Option<i64> = serde_json::from_str(json).map_err(|error| error.to_string())?;
     if item.is_some_and(|id| !(1..=9_007_199_254_740_991).contains(&id)) {

@@ -125,6 +125,35 @@ impl Packets {
         self.0.lock().waiting.take();
     }
 
+    pub(crate) fn acquire_inventory_use_claim(
+        &self,
+        owner: super::claims::Owner,
+        id: i64,
+    ) -> Result<Option<super::claims::ClaimGrant>, Error> {
+        let mut state = self.0.lock();
+        if state.stopped {
+            return Err(Error::Stopped);
+        }
+        state.claims.acquire(
+            owner,
+            super::claims::ClaimResource::InventoryUse { item: id },
+        )
+    }
+
+    pub(crate) fn acquire_quest_claim(
+        &self,
+        owner: super::claims::Owner,
+        id: i64,
+    ) -> Result<Option<super::claims::ClaimGrant>, Error> {
+        let mut state = self.0.lock();
+        if state.stopped {
+            return Err(Error::Stopped);
+        }
+        state
+            .claims
+            .acquire(owner, super::claims::ClaimResource::Quest { id })
+    }
+
     pub(crate) fn acquire_claim(
         &self,
         owner: super::claims::Owner,

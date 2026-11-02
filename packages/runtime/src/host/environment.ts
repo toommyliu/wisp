@@ -1,6 +1,74 @@
 import type { EnvironmentEdit, EnvironmentState } from "@lucent/game/protocol";
 import * as Effect from "effect/Effect";
-import type { EnvironmentShape } from "../game/environment/Environment";
+import type { EnvironmentDropPolicy, EnvironmentItemRules, EnvironmentQuestAutoRegisterOptions } from "@lucent/schemas/environment";
+
+export interface EnvironmentShape {
+  getState(): Effect.Effect<EnvironmentState>;
+  clear(): Effect.Effect<EnvironmentState, unknown>;
+  addQuest(
+    questId: number,
+    rewardItemId?: number,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  removeQuest(questId: number): Effect.Effect<EnvironmentState, unknown>;
+  setQuestReward(
+    questId: number,
+    rewardItemId: number,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  clearQuestReward(questId: number): Effect.Effect<EnvironmentState, unknown>;
+  clearQuests(): Effect.Effect<EnvironmentState, unknown>;
+  setQuestAutoRegister(
+    options: Partial<EnvironmentQuestAutoRegisterOptions>,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setAutoRegisterRequirements(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setAutoRegisterRewards(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  addItem(name: string): Effect.Effect<EnvironmentState, unknown>;
+  removeItem(name: string): Effect.Effect<EnvironmentState, unknown>;
+  setAcceptAcMemberOnlyDrops(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setAcceptAcNonMemberDrops(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setAcceptNonAcMemberOnlyDrops(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setAcceptNonAcNonMemberDrops(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setRejectUnregisteredDrops(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setDropPolicy(
+    policy: Partial<EnvironmentDropPolicy>,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setItemRules(
+    rules: EnvironmentItemRules,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  clearItems(): Effect.Effect<EnvironmentState, unknown>;
+  addBoost(name: string): Effect.Effect<EnvironmentState, unknown>;
+  removeBoost(name: string): Effect.Effect<EnvironmentState, unknown>;
+  clearBoosts(): Effect.Effect<EnvironmentState, unknown>;
+  fetchBoosts(): Effect.Effect<readonly string[], unknown>;
+  setBoostAutomationEnabled(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setDropAutomationEnabled(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setItemNotification(
+    name: string,
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  setQuestAutomationEnabled(
+    enabled: boolean,
+  ): Effect.Effect<EnvironmentState, unknown>;
+  syncToAll(): Effect.Effect<EnvironmentState, unknown>;
+}
+
 
 export const makeEnvironmentService = (
   host: Pick<typeof __host, "read" | "command">,

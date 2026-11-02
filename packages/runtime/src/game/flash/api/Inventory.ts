@@ -278,21 +278,34 @@ export const makeInventory = (
     if (item === null || !isDirectInventoryUseItem(item.category, item.link)) {
       return false;
     }
-    if (!(yield* canUseMemberItem(item.memberOnly))) return false;
+    return yield* Effect.acquireUseRelease(
+      Effect.sync(() => JSON.parse(
+        operationHost.acquireInventoryUseClaim(JSON.stringify(item.itemId)),
+      ) as string | null),
+      claim => {
+        if (claim === null) return Effect.succeed(false);
+        return Effect.gen(function* () {
+          if (!(yield* canUseMemberItem(item.memberOnly))) return false;
 
-    const startingQuantity = item.quantity;
-    const sent = yield* bridge
-      .invoke("inventory.use", [{ itemId: item.itemId }], Schema.Boolean)
-      .pipe(Effect.map(Option.getOrElse(() => false)));
-    if (!sent) return false;
+          const startingQuantity = item.quantity;
+          const sent = yield* bridge
+            .invoke("inventory.use", [{ itemId: item.itemId }], Schema.Boolean)
+            .pipe(Effect.map(Option.getOrElse(() => false)));
+          if (!sent) return false;
 
-    return yield* wait.until(
-      get(item.itemId).pipe(
-        Effect.map(
-          (current) => current === null || current.quantity < startingQuantity,
-        ),
-      ),
-      { timeout: "5 seconds" },
+          return yield* wait.until(
+            get(item.itemId).pipe(
+              Effect.map(
+                (current) => current === null || current.quantity < startingQuantity,
+              ),
+            ),
+            { timeout: "5 seconds" },
+          );
+        });
+      },
+      claim => Effect.sync(() => {
+        if (claim !== null) operationHost.releaseClaim(claim);
+      }),
     );
   });
 

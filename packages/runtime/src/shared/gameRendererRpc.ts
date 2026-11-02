@@ -1,4 +1,3 @@
-import { PositiveInt } from "@lucent/schemas";
 import {
   FollowerConfigSchema,
   FollowerStateSchema,
@@ -7,7 +6,6 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
-import { EnvironmentBoostDiscoverySchema } from "./environmentBoosts";
 import {
   GrabbedDataSchema,
   LoaderGrabberGrabRequestSchema,
@@ -63,16 +61,6 @@ export const PacketsRpcs = RpcGroup.make(
   Rpc.make("PacketsStopQueue", { error: PacketsError }),
 );
 
-export const EnvironmentRpcs = RpcGroup.make(
-  Rpc.make("EnvironmentFetchBoosts", {
-    success: EnvironmentBoostDiscoverySchema,
-  }),
-  Rpc.make("EnvironmentWithdrawBoosts", {
-    payload: { itemIds: Schema.Array(PositiveInt) },
-    success: Schema.Array(PositiveInt),
-  }),
-);
-
 export const FollowerRpcs = RpcGroup.make(
   Rpc.make("FollowerConfigure", {
     payload: FollowerConfigSchema,
@@ -88,7 +76,6 @@ export const FollowerRpcs = RpcGroup.make(
 );
 
 export const GameRendererRpcs = RpcGroup.make().merge(
-  EnvironmentRpcs,
   FollowerRpcs,
   LoaderGrabberRpcs,
   PacketsRpcs,

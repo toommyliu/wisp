@@ -229,6 +229,77 @@ impl ScriptLink {
         Ok(id)
     }
 
+    pub fn acquire_inventory_use_claim(
+        &self,
+        id: i64,
+    ) -> Result<Option<super::ClaimGrant>, bridge::Error> {
+        self.packets
+            .acquire_inventory_use_claim(super::claims::Owner::script(self.attachment), id)
+    }
+
+    pub(crate) fn inventory_use_lease(
+        &self,
+        id: i64,
+    ) -> Result<Option<crate::automation::environment::Lease>, bridge::Error> {
+        let owner = super::claims::Owner::script(self.attachment);
+        let packets = self.packets.clone();
+        Ok(self.acquire_inventory_use_claim(id)?.map(|grant| {
+            crate::automation::environment::Lease::new(move || {
+                packets.release_claim(owner, grant.id)
+            })
+        }))
+    }
+
+    pub fn acquire_quest_claim(&self, id: i64) -> Result<Option<super::ClaimGrant>, bridge::Error> {
+        self.packets
+            .acquire_quest_claim(super::claims::Owner::script(self.attachment), id)
+    }
+
+    pub(crate) fn quest_lease(
+        &self,
+        id: i64,
+    ) -> Result<Option<crate::automation::environment::Lease>, bridge::Error> {
+        let owner = super::claims::Owner::script(self.attachment);
+        let packets = self.packets.clone();
+        Ok(self.acquire_quest_claim(id)?.map(|grant| {
+            crate::automation::environment::Lease::new(move || {
+                packets.release_claim(owner, grant.id)
+            })
+        }))
+    }
+
+    pub(crate) fn environment_snapshot(
+        &self,
+        register: bool,
+    ) -> Pending<crate::automation::environment::Snapshot> {
+        let records = self.records.clone();
+        self.inbox.read_projection(move |projection| {
+            let config = if register {
+                super::environment::write(&records, |state| {
+                    super::environment::register_loaded(state, projection)
+                })
+            } else {
+                records.environment.read().clone()
+            };
+            crate::automation::environment::Snapshot {
+                config,
+                logged_in: projection.auth.logged_in,
+                quests: projection
+                    .quests
+                    .all()
+                    .iter()
+                    .map(|q| q.data().id)
+                    .collect(),
+                items: projection
+                    .items
+                    .all(lucent_protocol::item::ItemContainer::Inventory)
+                    .iter()
+                    .map(|i| i.data().clone())
+                    .collect(),
+            }
+        })
+    }
+
     pub fn acquire_consumable_claim(
         &self,
         item: Option<i64>,
@@ -454,21 +525,15 @@ pub(super) fn route_command(
             );
         }
         Command::UpdateEnvironment { edit } => {
-            let environment = records.environment.clone();
-            let changes = records.changes.clone();
+            let records = records.clone();
             return inbox.read_projection(move |projection| {
-                let mut state = environment.write();
-                let before = state.clone();
-                super::environment::apply(&mut state, edit, projection);
-                let changed = *state != before;
-                let result = serde_json::to_string(&*state).unwrap();
-                drop(state);
-                if changed {
-                    changes.notify();
-                }
-                result
+                let state = super::environment::write(&records, |state| {
+                    super::environment::apply(state, edit, projection)
+                });
+                serde_json::to_string(&state).unwrap()
             });
         }
+
         Command::SetAutoReloginEnabled { enabled } => return submit(Edit::Enabled(enabled)),
         Command::SetAutoReloginDelay { delay_ms } => return submit(Edit::Delay(delay_ms)),
         Command::SetAutoReloginServer { server } => return submit(Edit::Server(server)),

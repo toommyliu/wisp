@@ -90,6 +90,14 @@ impl Engine {
                     v8::Function::new(scope, host_acquire_consumable_claim),
                 ),
                 ("releaseClaim", v8::Function::new(scope, host_release_claim)),
+                (
+                    "acquireInventoryUseClaim",
+                    v8::Function::new(scope, host_acquire_inventory_use_claim),
+                ),
+                (
+                    "acquireQuestClaim",
+                    v8::Function::new(scope, host_acquire_quest_claim),
+                ),
                 ("startTravel", v8::Function::new(scope, host_start_travel)),
                 ("cancelTravel", v8::Function::new(scope, host_cancel_job)),
                 ("startJob", v8::Function::new(scope, host_start_job)),
@@ -706,6 +714,38 @@ fn host_cancel_operation(
     {
         scope.get_slot::<ScriptLink>().unwrap().cancel_operation(id);
     }
+}
+
+fn host_acquire_inventory_use_claim(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    reply: v8::ReturnValue<v8::Value>,
+) {
+    let Some(json) = args.get(0).to_string(scope) else {
+        return;
+    };
+    let result = host::acquire_inventory_use_claim(
+        scope.get_slot::<ScriptLink>().unwrap(),
+        &json.to_rust_string_lossy(scope),
+    )
+    .map(Some);
+    return_reply(scope, reply, result);
+}
+
+fn host_acquire_quest_claim(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    reply: v8::ReturnValue<v8::Value>,
+) {
+    let Some(json) = args.get(0).to_string(scope) else {
+        return;
+    };
+    let result = host::acquire_quest_claim(
+        scope.get_slot::<ScriptLink>().unwrap(),
+        &json.to_rust_string_lossy(scope),
+    )
+    .map(Some);
+    return_reply(scope, reply, result);
 }
 
 fn host_acquire_consumable_claim(

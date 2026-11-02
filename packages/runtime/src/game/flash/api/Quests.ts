@@ -64,26 +64,42 @@ export const makeQuests = (
       .pipe(Effect.map(Option.getOrElse(() => false)));
   };
 
+  const withQuestClaim = <E, R>(
+    id: number,
+    action: Effect.Effect<boolean, E, R>,
+  ) => Effect.acquireUseRelease(
+    Effect.sync(() => JSON.parse(
+      operationHost.acquireQuestClaim(JSON.stringify(id)),
+    ) as string | null),
+    claim => claim === null ? Effect.succeed(false) : action,
+    claim => Effect.sync(() => {
+      if (claim !== null) operationHost.releaseClaim(claim);
+    }),
+  );
+
   const accept = (questId: number, silent = false) => {
     if (!isQuestId(questId)) return Effect.succeed(false);
-    return Effect.gen(function* () {
-      let actionAvailable = false;
-      if (!(yield* isLoaded(questId))) {
-        actionAvailable = yield* wait.forGameAction("acceptQuest");
-        if (!actionAvailable || !(yield* load(questId, silent))) return false;
-      }
-      if (yield* isInProgress(questId)) return true;
-      if (!actionAvailable && !(yield* wait.forGameAction("acceptQuest")))
-        return false;
-      const accepted = yield* bridge
-        .invoke("quests.accept", [questId, silent], Schema.Boolean)
-        .pipe(Effect.map(Option.getOrElse(() => false)));
-      return accepted
-        ? yield* wait.until(isInProgress(questId), {
-            timeout: "5 seconds",
-          })
-        : false;
-    });
+    return withQuestClaim(
+      questId,
+      Effect.gen(function* () {
+        let actionAvailable = false;
+        if (!(yield* isLoaded(questId))) {
+          actionAvailable = yield* wait.forGameAction("acceptQuest");
+          if (!actionAvailable || !(yield* load(questId, silent))) return false;
+        }
+        if (yield* isInProgress(questId)) return true;
+        if (!actionAvailable && !(yield* wait.forGameAction("acceptQuest")))
+          return false;
+        const accepted = yield* bridge
+          .invoke("quests.accept", [questId, silent], Schema.Boolean)
+          .pipe(Effect.map(Option.getOrElse(() => false)));
+        return accepted
+          ? yield* wait.until(isInProgress(questId), {
+              timeout: "5 seconds",
+            })
+          : false;
+      }),
+    );
   };
 
   const abandon = (questId: number) => {
@@ -126,35 +142,38 @@ export const makeQuests = (
     if (options?.turnIns !== undefined && !Number.isFinite(options.turnIns)) {
       return Effect.succeed(false);
     }
-    return Effect.gen(function* () {
-      if (!(yield* isInProgress(questId))) return false;
-      if (!(yield* canComplete(questId))) return false;
-      if (
-        !(yield* wait.forGameAction("tryQuestComplete", {
-          timeout: "5 seconds",
-        }))
-      ) {
-        return false;
-      }
-      const turnIns =
-        options?.turnIns === undefined
-          ? yield* getMaxTurnIns(questId)
-          : Math.max(1, Math.trunc(options.turnIns));
-      const event = yield* wait.forEvent(
-        { questId, type: "quest-complete" },
-        {
-          timeout: "5 seconds",
-          trigger: bridge
-            .invoke(
-              "quests.complete",
-              [questId, turnIns, options?.rewardItemId ?? -1, false],
-              Schema.Void,
-            )
-            .pipe(Effect.map(Option.isSome)),
-        },
-      );
-      return event !== null;
-    });
+    return withQuestClaim(
+      questId,
+      Effect.gen(function* () {
+        if (!(yield* isInProgress(questId))) return false;
+        if (!(yield* canComplete(questId))) return false;
+        if (
+          !(yield* wait.forGameAction("tryQuestComplete", {
+            timeout: "5 seconds",
+          }))
+        ) {
+          return false;
+        }
+        const turnIns =
+          options?.turnIns === undefined
+            ? yield* getMaxTurnIns(questId)
+            : Math.max(1, Math.trunc(options.turnIns));
+        const event = yield* wait.forEvent(
+          { questId, type: "quest-complete" },
+          {
+            timeout: "5 seconds",
+            trigger: bridge
+              .invoke(
+                "quests.complete",
+                [questId, turnIns, options?.rewardItemId ?? -1, false],
+                Schema.Void,
+              )
+              .pipe(Effect.map(Option.isSome)),
+          },
+        );
+        return event !== null;
+      }),
+    );
   };
 
   const get = (questId: number) => {
