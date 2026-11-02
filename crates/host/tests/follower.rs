@@ -857,7 +857,11 @@ fn a_player_restart_mid_goto_rebuilds_without_the_old_goto() {
 #[test]
 fn combat_dispatch_errors_keep_the_follower_running() {
     let (_session, link, _supervisor) = setup_with(
-        |movie| movie.throwing("combat.attackMonster", "attack failed"),
+        |movie| {
+            movie
+                .throwing("combat.attackMonster", "attack failed")
+                .recording("combat.attackMonster")
+        },
         vec![me("r1"), target("r1")],
     );
     start(&link, json!({}));
