@@ -167,7 +167,7 @@ fn quest_accepts_then_completes_with_maximum_turn_ins_and_override() {
     host.config
         .borrow_mut()
         .quest_rewards
-        .insert("802".into(), 5586.);
+        .insert("802".into(), 1.);
     host.reply(
         "quests.isInProgress",
         [false, false, true, true, true]
@@ -184,6 +184,19 @@ fn quest_accepts_then_completes_with_maximum_turn_ins_and_override() {
     assert!(host.calls.borrow().is_empty());
     tick(&mut state, &host, now + QUEST_INTERVAL);
     assert_eq!(host.names("quests.accept").len(), 1);
+    *host.hold_at.borrow_mut() = Some(("quests.getMaxTurnIns".into(), 1));
+    tick(&mut state, &host, now + QUEST_INTERVAL * 2);
+    assert!(host.names("quests.complete").is_empty());
+    host.config
+        .borrow_mut()
+        .quest_rewards
+        .insert("802".into(), 5586.);
+    host.held
+        .borrow_mut()
+        .pop()
+        .unwrap()
+        .send(Ok(Value::String("3".into())))
+        .unwrap();
     tick(&mut state, &host, now + QUEST_INTERVAL * 2);
     assert_eq!(
         host.names("quests.complete")[0].1,
