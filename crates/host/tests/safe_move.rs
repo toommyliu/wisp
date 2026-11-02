@@ -163,6 +163,47 @@ fn every_terminal_outcome_runs_safe_stop() {
 }
 
 #[test]
+fn a_script_ended_before_it_starts_makes_no_safe_move() {
+    for kill in [false, true] {
+        let (mut session, observer, mut supervisor) = setup_with(true, |movie| {
+            movie.responding(
+                "player.isLoaded",
+                std::iter::repeat_n((json!(false), vec![]), 256),
+            )
+        });
+        let (calls, observed) = std::sync::mpsc::channel();
+        session.set_safe_move_probe(move |issued| {
+            let _ = calls.send(issued);
+        });
+        options(&session, true);
+        let controls = supervisor
+            .start_script(
+                &mut session,
+                loose(&[("x.js", "export default function* () {}")]),
+            )
+            .unwrap();
+        assert_eq!(session.script_status().phase, ScriptPhase::Waiting);
+        if kill {
+            controls.kill();
+        } else {
+            controls.stop();
+        }
+        wait_for(&session, || {
+            session.script_status().phase == ScriptPhase::Idle
+        });
+        let events = drain(&observer);
+        let end = if kill {
+            "x.js was killed"
+        } else {
+            "x.js was stopped"
+        };
+        assert_eq!(session.script_status().last_end.as_deref(), Some(end));
+        assert_eq!(probe_calls(&events, "flash.callGameFunction0"), 0);
+        assert!(observed.try_recv().is_err(), "a safe move ran");
+    }
+}
+
+#[test]
 fn disabled_safe_moves_make_no_house_observation() {
     let (mut session, observer, mut supervisor) = setup(true);
     supervisor
