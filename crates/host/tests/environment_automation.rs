@@ -53,7 +53,7 @@ fn registered_quests_load_without_a_script_while_settings_continue() {
                 if name == Some(&Value::String("quests.getMultiple".into())) {
                     loaded = true;
                 }
-                if name == Some(&Value::String("settings.setWalkSpeed".into())) {
+                if accepted && name == Some(&Value::String("settings.setWalkSpeed".into())) {
                     settings += 1;
                 }
                 if name == Some(&Value::String("quests.accept".into())) {
