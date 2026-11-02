@@ -7,8 +7,6 @@ import * as Stream from "effect/Stream";
 
 import { FollowerRpcs } from "../../shared/gameRendererRpc";
 import { Api } from "../flash/api/Api";
-import { makeAutoAttack } from "./AutoAttack";
-import type { AutoAttackState } from "./AutoAttack";
 import { makeDesktopFollowerPort, makeFollower } from "./Follower";
 import type { FollowerState } from "@lucent/schemas/follower";
 
@@ -17,7 +15,6 @@ export const makeAutomation = Effect.gen(function* () {
   const scope = yield* Effect.scope;
   const fibers = yield* FiberMap.make<string>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
-  const autoAttack = yield* makeAutoAttack(api, fibers);
   const follower = yield* makeFollower(api, fibers, makeDesktopFollowerPort());
 
   const observe = <S>(
@@ -32,18 +29,8 @@ export const makeAutomation = Effect.gen(function* () {
       }),
     );
 
-  const observeAutoAttack = (listener: (state: AutoAttackState) => void) =>
-    observe(autoAttack.changes, listener);
-
-
   const observeFollower = (listener: (state: FollowerState) => void) =>
     observe(follower.changes, listener);
-
-  const autoAttackApi = {
-    ...autoAttack,
-    onState: observeAutoAttack,
-  };
-
 
   const followerApi = {
     ...follower,
@@ -51,7 +38,6 @@ export const makeAutomation = Effect.gen(function* () {
   };
 
   return {
-    autoAttack: autoAttackApi,
     follower: followerApi,
   };
 });
