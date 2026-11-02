@@ -14,11 +14,6 @@ enum Source {
     Standalone,
     Queue,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Attempt {
-    Initial,
-    Restart,
-}
 #[derive(Clone, Debug)]
 struct Run {
     id: RunId,
@@ -26,7 +21,6 @@ struct Run {
     request: Request,
     username: String,
     source: Source,
-    attempt: Attempt,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Worker {
@@ -135,8 +129,7 @@ impl Lifecycle {
                 name: run.request.name.clone(),
                 phase: self.state.phase().unwrap(),
             }),
-            waiting_to_restart: matches!(self.pending, Some(Pending::Restart { .. }))
-                || matches!(&self.state, State::Waiting { run, .. } if run.attempt == Attempt::Restart),
+            waiting_to_restart: matches!(self.pending, Some(Pending::Restart { .. })),
             latest: self.latest.clone(),
             queue: self.queue.status(),
         }
@@ -163,7 +156,6 @@ impl Lifecycle {
                         .begin(
                             request,
                             Source::Standalone,
-                            Attempt::Initial,
                             readiness,
                             now,
                             &mut result.effects,
@@ -341,17 +333,6 @@ impl Lifecycle {
         }
         if !options.restart_after_reconnect {
             self.cancel_restart();
-            if matches!(&self.state, State::Waiting { run, .. } if run.attempt == Attempt::Restart)
-            {
-                self.finish(
-                    Outcome::Stopped(StopReason::Requested(
-                        "Restart after reconnect disabled".into(),
-                    )),
-                    false,
-                    options,
-                    &mut result.effects,
-                );
-            }
         }
         if let Some(Pending::Restart { username, .. }) = &self.pending
             && !readiness.username.trim().is_empty()
@@ -379,20 +360,14 @@ impl Lifecycle {
             };
             if can_begin {
                 let pending = self.pending.take().unwrap();
-                let (request, source, attempt) = match pending {
-                    Pending::Queue(entry) => (entry.request, Source::Queue, Attempt::Initial),
+                let (request, source) = match pending {
+                    Pending::Queue(entry) => (entry.request, Source::Queue),
                     Pending::Restart {
                         request, source, ..
-                    } => (request, source, Attempt::Restart),
+                    } => (request, source),
                 };
-                if let Err(error) = self.begin(
-                    request,
-                    source,
-                    attempt,
-                    readiness,
-                    now,
-                    &mut result.effects,
-                ) {
+                if let Err(error) = self.begin(request, source, readiness, now, &mut result.effects)
+                {
                     result.rejection = Some(error);
                     if source == Source::Queue {
                         let actions = self
@@ -433,7 +408,6 @@ impl Lifecycle {
         &mut self,
         request: Request,
         source: Source,
-        attempt: Attempt,
         readiness: &Readiness,
         now: u64,
         effects: &mut Vec<Effect>,
@@ -445,7 +419,6 @@ impl Lifecycle {
             request,
             username: readiness.username.trim().to_lowercase(),
             source,
-            attempt,
         };
         let deadline = now.saturating_add(10_000);
         self.state = State::Waiting { run, deadline };

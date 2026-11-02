@@ -152,12 +152,22 @@ fn a_run_that_never_started_ends_without_safe_stop() {
             Outcome::Stopped(StopReason::PlayerReplaced),
         ),
     ];
-    for ready in [Readiness::default(), readiness()] {
+    let unready = Readiness {
+        can_act: false,
+        ..readiness()
+    };
+    for waiting in [Readiness::default(), unready] {
         for (event, now, outcome) in endings.clone() {
             let mut machine = Lifecycle::new(binding());
-            machine.advance(Event::Command(Command::Start(request())), &ready, &opts, 0);
+            machine.advance(
+                Event::Command(Command::Start(request())),
+                &waiting,
+                &opts,
+                0,
+            );
             assert_eq!(machine.status().active.unwrap().run, RunId(1));
-            let ended = machine.advance(event, &ready, &opts, now);
+            assert_eq!(machine.status().active.unwrap().phase, RunPhase::Waiting);
+            let ended = machine.advance(event, &waiting, &opts, now);
             assert_eq!(terminals(&ended), vec![outcome]);
             assert!(!runs_game_work(&ended), "{:?}", ended.effects);
             assert!(machine.status().active.is_none());
@@ -167,7 +177,7 @@ fn a_run_that_never_started_ends_without_safe_stop() {
 }
 
 #[test]
-fn a_waiting_restart_attempt_ends_without_safe_stop() {
+fn a_pending_restart_ends_without_safe_stop() {
     for disable in [false, true] {
         let mut machine = Lifecycle::new(binding());
         let run = start(&mut machine);
@@ -187,44 +197,45 @@ fn a_waiting_restart_attempt_ends_without_safe_stop() {
             &opts,
             12,
         );
+        let unready = Readiness {
+            can_act: false,
+            ..readiness()
+        };
         machine.advance(
             Event::ConnectionRestored(Binding {
                 connection: ConnectionEpoch(2),
                 ..binding()
             }),
-            &readiness(),
+            &unready,
             &opts,
             13,
         );
-        let retry = machine.status().active.unwrap().run;
-        assert_ne!(retry, run);
-        let (event, opts, outcome) = if disable {
+        assert!(machine.status().waiting_to_restart);
+        assert!(machine.status().active.is_none());
+        let (event, opts) = if disable {
             (
                 Event::OptionsChanged,
                 Options {
                     restart_after_reconnect: false,
                     ..opts
                 },
-                "Restart after reconnect disabled",
             )
         } else {
             (
                 Event::Command(Command::Stop {
-                    run: retry,
+                    run,
                     reason: "user".into(),
                 }),
                 opts,
-                "user",
             )
         };
-        let ended = machine.advance(event, &readiness(), &opts, 14);
-        assert_eq!(
-            terminals(&ended),
-            vec![Outcome::Stopped(StopReason::Requested(outcome.into()))]
-        );
+        let ended = machine.advance(event, &unready, &opts, 14);
+        assert!(terminals(&ended).is_empty());
         assert!(!runs_game_work(&ended), "{:?}", ended.effects);
-        assert!(machine.status().active.is_none());
         assert!(!machine.status().waiting_to_restart);
+        let ready = machine.advance(Event::ProjectionChanged, &readiness(), &opts, 15);
+        assert!(!runs_game_work(&ready), "{:?}", ready.effects);
+        assert!(machine.status().active.is_none());
     }
 }
 
