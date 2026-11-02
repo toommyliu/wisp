@@ -310,7 +310,12 @@ pub fn named_threads() -> Vec<String> {
         .filter_map(
             |entry| match std::fs::read_to_string(entry.unwrap().path().join("comm")) {
                 Ok(name) => Some(name),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound
+                        || error.raw_os_error() == Some(libc::ESRCH) =>
+                {
+                    None
+                }
                 Err(error) => panic!("could not read thread name: {error}"),
             },
         )
