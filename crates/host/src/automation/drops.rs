@@ -307,16 +307,29 @@ impl DropPolicy {
         {
             match self.action(flight.attempt.item) {
                 Ok(Action::Reject) => {
-                    match self
-                        .link
-                        .reject_drop_unless_accepting(flight.attempt.item, &self.waker)
-                    {
+                    let waiting_for_accept = matches!(flight.state, Mutation::WaitingForAccept);
+                    let command = if waiting_for_accept {
+                        Command::RefreshLoggedIn {}
+                    } else {
+                        Command::RejectDrop {
+                            selector: ItemSelector::Id(flight.attempt.item as f64),
+                        }
+                    };
+                    match self.link.drop_command_unless_accepting(
+                        flight.attempt.item,
+                        &self.waker,
+                        command,
+                    ) {
                         Ok(pending) => {
                             let deadline = pending.as_ref().map(|_| now + REPLY_TIMEOUT);
                             let state = match pending {
                                 Some(pending) => {
                                     pending.set_waker(self.waker.clone());
-                                    Mutation::Reject(pending)
+                                    if waiting_for_accept {
+                                        Mutation::Login(pending)
+                                    } else {
+                                        Mutation::Reject(pending)
+                                    }
                                 }
                                 None => Mutation::WaitingForAccept,
                             };

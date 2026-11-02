@@ -963,3 +963,58 @@ fn an_accept_prepared_before_issuance_protects_its_resolved_item() {
             .unwrap()
     );
 }
+
+#[test]
+fn login_is_refreshed_after_a_blocking_accept_settles() {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(
+        &host,
+        movie(true)
+            .accepting_drop(Duration::ZERO, packet(json!({"cmd":"unrelated"})))
+            .responding(
+                "auth.isLoggedIn",
+                [
+                    (json!(true), vec![]),
+                    (json!(true), vec![]),
+                    (json!(true), vec![]),
+                    (json!(false), vec![]),
+                ],
+            ),
+    );
+    common::log_in(&link);
+    reject_else(&link);
+    drops(&link, &[(70, "Unwanted")]);
+    link.operate(Operation::AcceptDrop {
+        selector: ItemSelector::Id(70.0),
+    })
+    .unwrap();
+    common::await_event(&link, "onProbeAccept", None);
+    let mut policy = lucent_host::automation::DropPolicy::new(
+        session
+            .attach(lucent_host::automation::DropPolicy::INTERESTS)
+            .unwrap(),
+        Waker::from(Arc::new(Unpark(thread::current()))),
+    );
+    let mut now = Instant::now();
+    assert_eq!(settle_policy(&mut policy, &mut now), None);
+    emit(
+        &link,
+        "onExtensionResponse",
+        packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":false})),
+    );
+    let until = Instant::now() + TIMEOUT;
+    let mut retried = false;
+    loop {
+        match settle_policy(&mut policy, &mut now) {
+            Some(at) => {
+                retried = true;
+                now = at;
+            }
+            None if retried || remaining(&link).is_empty() => break,
+            None => thread::park_timeout(until.saturating_duration_since(Instant::now())),
+        }
+        assert!(Instant::now() < until, "login retry did not settle");
+    }
+    assert_eq!(remaining(&link), [70]);
+    assert_eq!(drain_rejects(&link), []);
+}
