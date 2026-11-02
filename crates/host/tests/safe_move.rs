@@ -942,3 +942,52 @@ fn logged_out_safe_stop_makes_no_game_calls() {
     assert_eq!(probe_calls(&events, "flash.callGameFunction0"), 0);
     assert!(calls.is_empty(), "{calls:?}");
 }
+
+#[test]
+fn disconnected_safe_stop_ignores_a_stale_logged_in_client() {
+    let (mut session, observer, mut supervisor) = setup(false);
+    supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
+    wait_for(&session, || session.script_dialog().is_some());
+    let (calls, observed) = std::sync::mpsc::channel();
+    session.set_safe_move_probe(move |issued| {
+        let _ = calls.send(issued);
+    });
+    options(&session, true);
+    let (entered, arrived) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let _hold = session.read_projection(move |_| {
+        let _ = entered.send(());
+        let _ = held.recv();
+    });
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    let disconnected = observer.call_loader(
+        "probe.emit",
+        vec![
+            Value::String("onConnection".into()),
+            Value::String("OnConnectionLost".into()),
+        ],
+    );
+    let credentials = observer.command(lucent_protocol::command::Command::RefreshCredentials {});
+    let logged_in = observer.command(lucent_protocol::command::Command::RefreshLoggedIn {});
+    drop(release);
+    disconnected.recv_timeout(TIMEOUT).unwrap();
+    credentials.recv_timeout(TIMEOUT).unwrap();
+    logged_in.recv_timeout(TIMEOUT).unwrap();
+    assert!(observer.read(|p| p.auth.logged_in).unwrap());
+    let issued = observed.recv_timeout(TIMEOUT).unwrap();
+    assert!(
+        issued.is_empty(),
+        "disconnected cleanup called the game: {issued:?}"
+    );
+    wait_for(&session, || {
+        session.script_status().phase == ScriptPhase::Idle
+    });
+    assert!(observed.try_iter().flatten().next().is_none());
+    assert!(
+        session
+            .script_status()
+            .last_end
+            .unwrap()
+            .contains("Connection lost")
+    );
+}
