@@ -161,6 +161,7 @@ fn credential(answer: Value) -> Result<Option<String>, Error> {
 
 pub(crate) fn refresh_credentials(
     projection: &mut Projection,
+    read_epoch: u64,
     username: Value,
     password: Value,
 ) -> Result<CredentialsSnapshot, Error> {
@@ -170,11 +171,13 @@ pub(crate) fn refresh_credentials(
     let password = credential(password)?.filter(|value| !value.is_empty());
     if let Some(username) = username {
         projection.auth.username = username;
+        if read_epoch == projection.receipts.epoch() {
+            projection.auth.credentials_epoch = Some(read_epoch);
+        }
     }
     if let Some(password) = password {
         projection.auth.password = password;
     }
-    projection.auth.credentials_epoch = Some(projection.receipts.epoch());
     Ok(projection.auth.credentials())
 }
 
@@ -278,7 +281,9 @@ mod tests {
         );
         assert!(refresh_accepted_quests(&mut projection, json!([10, "bad"])).is_err());
         assert_eq!(projection.quests.accepted_ids(), Vec::<f64>::new());
-        assert!(refresh_credentials(&mut projection, json!("\"new-name\""), json!("{}")).is_err());
+        assert!(
+            refresh_credentials(&mut projection, 0, json!("\"new-name\""), json!("{}")).is_err()
+        );
         assert_eq!(projection.auth.username, "");
         assert_eq!(projection.auth.password, "");
         assert!(
@@ -294,5 +299,25 @@ mod tests {
             refresh_equipped_consumable(&mut projection, json!({"itemId": "2"})),
             Ok(Some(2))
         );
+    }
+
+    #[test]
+    fn only_a_named_read_on_one_connection_marks_the_account_current() {
+        let mut projection = Projection::default();
+        projection.auth.username = "player-a".into();
+        let epoch = projection.receipts.epoch();
+        for missing in [json!("null"), json!("\"\""), json!("\" \\t\"")] {
+            let credentials =
+                refresh_credentials(&mut projection, epoch, missing, json!("null")).unwrap();
+            assert_eq!(credentials.username, "player-a");
+            assert_eq!(projection.auth.credentials_epoch, None);
+        }
+        projection.receipts.reset();
+        refresh_credentials(&mut projection, epoch, json!("\"player-a\""), json!("null")).unwrap();
+        assert_eq!(projection.auth.credentials_epoch, None);
+        let epoch = projection.receipts.epoch();
+        refresh_credentials(&mut projection, epoch, json!("\"player-b\""), json!("null")).unwrap();
+        assert_eq!(projection.auth.username, "player-b");
+        assert_eq!(projection.auth.credentials_epoch, Some(epoch));
     }
 }

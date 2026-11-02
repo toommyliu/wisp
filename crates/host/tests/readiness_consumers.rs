@@ -32,17 +32,18 @@ fn login(link: &ScriptLink) {
 }
 
 fn facts(link: &ScriptLink) {
-    for data in [
+    for data in baseline("player-a") {
+        emit(link, "onExtensionResponse", data);
+    }
+}
+
+fn baseline(name: &str) -> [String; 2] {
+    [
         json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
         json!({"cmd":"moveToArea","areaId":1,"areaName":"battleon-1",
-            "uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100}]}),
-    ] {
-        emit(
-            link,
-            "onExtensionResponse",
-            json!({"type":"json","dataObj":data}).to_string(),
-        );
-    }
+            "uoBranch":[{"entID":7,"uoName":name,"intHP":100,"intHPMax":100}]}),
+    ]
+    .map(|data| json!({"type":"json","dataObj":data}).to_string())
 }
 
 fn next(link: &ScriptLink, deadline: std::time::Instant) -> ScriptEvent {
@@ -604,6 +605,150 @@ fn cancelled_readiness_waiters_never_boot_or_move_after_login() {
     }
 }
 
+fn wait_to_restart(
+    session: &mut lucent_host::Session,
+    observer: &ScriptLink,
+    logs: &common::logs::Logs,
+) {
+    session
+        .update_script_options(lucent_protocol::script_options::ScriptOptionsPatch {
+            restart_after_reconnect: Some(true),
+            safe_start_stop: Some(false),
+            ..Default::default()
+        })
+        .unwrap();
+    session.supervise(None).unwrap();
+    login(observer);
+    session
+        .start_script(loose(&[(
+            "restart.js",
+            r#"
+        import * as script from "lucent/script";
+        export default function* () { console.log("restart body"); yield* script.sleep("1 hour"); }
+    "#,
+        )]))
+        .unwrap();
+    logs.wait_for(tracing::Level::INFO, "restart body");
+    emit(observer, "onConnection", "OnConnectionLost");
+    wait_session(session, || {
+        let status = session.script_lifecycle();
+        status.waiting_to_restart && status.active.is_none()
+    });
+}
+
+fn credential_reads_without_a_boot(
+    session: &lucent_host::Session,
+    observer: &ScriptLink,
+    reads: usize,
+) {
+    use std::{
+        sync::Arc,
+        task::{Wake, Waker},
+    };
+    struct Unpark(std::thread::Thread);
+    impl Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+    session.watch(waker.clone());
+    observer.set_waker(waker);
+    let deadline = std::time::Instant::now() + TIMEOUT;
+    let mut seen = 0;
+    loop {
+        while let Some(event) = observer.try_event().unwrap() {
+            if let ScriptEvent::Loader { event, .. } = event
+                && event.name == "onProbeCall"
+                && event.args.first() == Some(&Value::String("flash.getGameObjectS".into()))
+            {
+                seen += 1;
+            }
+        }
+        let status = session.script_lifecycle();
+        assert!(
+            status.active.is_none(),
+            "the restart started without a fresh account read: {status:?}"
+        );
+        if seen >= reads {
+            return;
+        }
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        assert!(!remaining.is_zero(), "the account was read {seen} times");
+        std::thread::park_timeout(remaining);
+    }
+}
+
+#[test]
+fn a_missing_account_read_cannot_authorize_cached_credentials() {
+    let logs = common::logs::Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        counted_movie().responding(
+            "flash.getGameObjectS",
+            [
+                (json!("\"player-a\""), vec![]),
+                (json!("\"password-a\""), vec![]),
+                (json!("null"), vec![]),
+            ],
+        ),
+    );
+    wait_to_restart(&mut session, &observer, &logs);
+    emit(&observer, "onConnection", "OnConnection");
+    for data in baseline("player-b") {
+        emit(&observer, "onExtensionResponse", data);
+    }
+    testing::wait_until_ready(&observer);
+    calls(&observer);
+    credential_reads_without_a_boot(&session, &observer, 5);
+    let status = session.script_lifecycle();
+    assert!(status.waiting_to_restart);
+    assert_eq!(status.latest.unwrap().run, lucent_host::lifecycle::RunId(1));
+}
+
+#[test]
+fn a_connection_change_during_the_account_read_discards_the_old_name() {
+    let logs = common::logs::Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let [inventory, area] = baseline("player-b");
+    let (mut session, observer) = testing::start_probe(
+        &host,
+        counted_movie().responding(
+            "flash.getGameObjectS",
+            [
+                (json!("\"player-a\""), vec![]),
+                (json!("\"password-a\""), vec![]),
+                (
+                    json!("\"player-a\""),
+                    vec![
+                        ("onConnection".into(), "OnConnection".into()),
+                        ("onExtensionResponse".into(), inventory),
+                        ("onExtensionResponse".into(), area),
+                    ],
+                ),
+                (json!("\"player-b\""), vec![]),
+            ],
+        ),
+    );
+    wait_to_restart(&mut session, &observer, &logs);
+    emit(&observer, "onConnection", "OnConnection");
+    for data in baseline("player-b") {
+        emit(&observer, "onExtensionResponse", data);
+    }
+    wait_session(&session, || !session.script_lifecycle().waiting_to_restart);
+    let status = session.script_lifecycle();
+    assert!(
+        status.active.is_none(),
+        "a read that crossed a connection change started the restart: {status:?}"
+    );
+    assert_eq!(status.latest.unwrap().run, lucent_host::lifecycle::RunId(1));
+}
+
 #[test]
 fn a_reconnect_restart_waits_for_the_new_connections_account() {
     let logs = common::logs::Logs::default();
@@ -621,30 +766,7 @@ fn a_reconnect_restart_waits_for_the_new_connections_account() {
             ],
         ),
     );
-    session
-        .update_script_options(lucent_protocol::script_options::ScriptOptionsPatch {
-            restart_after_reconnect: Some(true),
-            safe_start_stop: Some(false),
-            ..Default::default()
-        })
-        .unwrap();
-    session.supervise(None).unwrap();
-    login(&observer);
-    session
-        .start_script(loose(&[(
-            "restart.js",
-            r#"
-        import * as script from "lucent/script";
-        export default function* () { console.log("restart body"); yield* script.sleep("1 hour"); }
-    "#,
-        )]))
-        .unwrap();
-    logs.wait_for(tracing::Level::INFO, "restart body");
-    emit(&observer, "onConnection", "OnConnectionLost");
-    wait_session(&session, || {
-        let status = session.script_lifecycle();
-        status.waiting_to_restart && status.active.is_none()
-    });
+    wait_to_restart(&mut session, &observer, &logs);
     login(&observer);
     wait_session(&session, || {
         let status = session.script_lifecycle();

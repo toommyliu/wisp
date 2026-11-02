@@ -290,13 +290,8 @@ impl Running {
                 result.map(|_| output)
             }
             Command::RefreshCredentials {} => {
-                if !self
-                    .projection
-                    .read()
-                    .current_readiness()
-                    .missing
-                    .is_empty()
-                {
+                let readiness = self.projection.read().current_readiness();
+                if !readiness.missing.is_empty() {
                     return Ok(
                         serde_json::to_string(&self.projection.read().auth.credentials()).unwrap(),
                     );
@@ -310,7 +305,7 @@ impl Running {
                     vec![Value::String("loginInfo.strPassword".into())],
                 )?;
                 self.commit_command(|projection| {
-                    commands::refresh_credentials(projection, username, password)
+                    commands::refresh_credentials(projection, readiness.epoch, username, password)
                 })
             }
             Command::RefreshServers {} => {
