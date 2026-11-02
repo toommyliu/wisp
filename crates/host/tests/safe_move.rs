@@ -1,12 +1,16 @@
 mod common;
 use common::*;
-use lucent_host::{Session, Supervisor, bridge::Value, testing};
+use lucent_host::{
+    Session, Supervisor,
+    bridge::{EventInterests, ScriptEvent, Value},
+    testing,
+};
 use lucent_protocol::script::ScriptPhase;
 use serde_json::json;
 use std::{
     sync::Arc,
     task::{Wake, Waker},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tracing_subscriber::prelude::*;
 
@@ -207,17 +211,29 @@ fn safe_start_moves_before_the_first_script_line() {
             )]),
         )
         .unwrap();
-    assert_eq!(
-        await_event(&observer, "onDebug", None).args,
-        vec![Value::String("safe destination".into())]
-    );
-    assert_eq!(
-        await_event(&observer, "onDebug", None).args,
-        vec![Value::String("started".into())]
-    );
     wait_for(&session, || {
-        session.script_status().phase == ScriptPhase::Idle
+        session.script_status().last_end.is_some()
+            && session.script_status().phase == ScriptPhase::Idle
     });
+    let events = drain(&observer);
+    let order: Vec<_> = events
+        .iter()
+        .filter_map(|(name, args)| match (name.as_str(), args.first()) {
+            ("onProbeCall", Some(Value::String(method))) if method == "flash.callGameFunction0" => {
+                Some("house read")
+            }
+            ("onDebug", Some(Value::String(text))) if text == "safe destination" => Some("move"),
+            ("onDebug", Some(Value::String(text))) if text == "started" => Some("first line"),
+            _ => None,
+        })
+        .collect();
+    let moved = order.iter().position(|event| *event == "move").unwrap();
+    let first = order
+        .iter()
+        .position(|event| *event == "first line")
+        .unwrap();
+    assert!(moved < first, "{order:?}");
+    assert!(order[moved..first].contains(&"house read"), "{order:?}");
 }
 #[test]
 fn replacing_the_player_during_safe_stop_suppresses_logout() {
@@ -237,6 +253,12 @@ fn replacing_the_player_during_safe_stop_suppresses_logout() {
     supervisor
         .restart_player(&mut session, testing::headless_surface())
         .unwrap();
+    let fresh = session.attach(EventInterests::ALL).unwrap();
+    session.send(lucent_host::ViewEvent::Resized(
+        lucent_host::Viewport::new(100.0, 100.0, 1.0).unwrap(),
+    ));
+    testing::wait_loaded(&fresh);
+    log_in(&fresh);
     wait_for(&session, || {
         session.script_status().phase == ScriptPhase::Idle
     });
@@ -248,6 +270,10 @@ fn replacing_the_player_during_safe_stop_suppresses_logout() {
             );
         }
     }
+    let fresh_events = drain(&fresh);
+    assert_eq!(probe_calls(&fresh_events, "auth.logout"), 0);
+    assert_eq!(probe_calls(&fresh_events, "flash.callGameFunction0"), 0);
+    assert_eq!(probe_calls(&fresh_events, "flash.callGameFunction"), 0);
 }
 
 #[test]
@@ -593,4 +619,294 @@ fn failed_native_joins_retry_before_safe_start_finishes() {
         }
     }
     assert_eq!(joins, 3);
+}
+
+#[test]
+fn changing_accounts_withholds_saved_return_info_from_the_new_account() {
+    let logs = common::logs::Logs::default();
+    let dispatch = logs.dispatch();
+    let _dispatch = tracing::dispatcher::set_default(&dispatch);
+    let (mut session, observer, mut supervisor) = setup_with(false, restoring_movie);
+    options(&session, true);
+    let controls = supervisor
+        .start_script(
+            &mut session,
+            loose(&[(
+                "x.js",
+                "export default function* () { throw new Error('must not boot'); }",
+            )]),
+        )
+        .unwrap();
+    assert_eq!(
+        await_event(&observer, "onDebug", None).args,
+        vec![Value::String("safe destination".into())]
+    );
+    let (entered, arrived) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let _hold = session.read_projection(move |_| {
+        let _ = entered.send(());
+        let _ = held.recv();
+    });
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    let refreshed = observer.command(lucent_protocol::command::Command::RefreshCredentials {});
+    controls.stop();
+    drop(release);
+    refreshed.recv_timeout(TIMEOUT).unwrap();
+    wait_for(&session, || {
+        session.script_status().last_end.is_some()
+            && session.script_status().phase == ScriptPhase::Idle
+    });
+    let events = drain(&observer);
+    eprintln!(
+        "end={:?} restored={} setGameObject calls={} warns={:?}",
+        session.script_status().last_end,
+        debug(&events, "restored"),
+        probe_calls(&events, "flash.setGameObject"),
+        logs.messages(tracing::Level::WARN)
+    );
+    assert_eq!(debug(&events, "safe destination"), 0);
+    assert_eq!(debug(&events, "restored"), 0);
+}
+
+#[test]
+fn cancelling_safe_start_issues_no_further_game_calls() {
+    let (mut session, observer, mut supervisor) = setup_with(false, |movie| {
+        movie
+            .recording("world.isLoaded")
+            .recording("player.isLoaded")
+            .responding(
+                "flash.callGameFunction",
+                std::iter::repeat_n((json!(null), vec![]), 16),
+            )
+    });
+    options(&session, true);
+    let controls = supervisor
+        .start_script(
+            &mut session,
+            loose(&[(
+                "x.js",
+                "export default function* () { throw new Error('must not boot'); }",
+            )]),
+        )
+        .unwrap();
+    loop {
+        let event = await_event(&observer, "onProbeCall", None);
+        if event.args.first() == Some(&Value::String("flash.callGameFunction".into())) {
+            break;
+        }
+    }
+    let (entered, arrived) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let _hold = session.read_projection(move |_| {
+        let _ = entered.send(());
+        let _ = held.recv();
+    });
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    while let Ok(Some(_)) = observer.try_event() {}
+    options(&session, false);
+    controls.stop();
+    let stopped = Instant::now();
+    wait_for(&session, || session.script_status().last_end.is_some());
+    drop(release);
+    session.watch(Waker::from(Arc::new(Unpark(std::thread::current()))));
+    let deadline = Instant::now() + std::time::Duration::from_secs(30);
+    while session.script_status().phase != ScriptPhase::Idle {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "did not settle");
+        std::thread::park_timeout(remaining);
+    }
+    let events = drain(&observer);
+    let calls: Vec<_> = events
+        .iter()
+        .filter(|(name, _)| name == "onProbeCall")
+        .map(|(_, args)| format!("{:?}", args.first()))
+        .collect();
+    eprintln!(
+        "idle {:?} after stop; game calls after cancellation: {calls:?}",
+        stopped.elapsed()
+    );
+    assert!(calls.is_empty(), "{calls:?}");
+}
+
+fn drain(link: &lucent_host::ScriptLink) -> Vec<(String, Vec<Value>)> {
+    link.call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    let mut events = Vec::new();
+    while let Ok(Some(event)) = link.try_event() {
+        if let ScriptEvent::Loader { event, .. } = event {
+            events.push((event.name, event.args));
+        }
+    }
+    events
+}
+
+fn probe_calls(events: &[(String, Vec<Value>)], method: &str) -> usize {
+    events
+        .iter()
+        .filter(|(name, args)| {
+            name == "onProbeCall" && args.first() == Some(&Value::String(method.into()))
+        })
+        .count()
+}
+
+fn debug(events: &[(String, Vec<Value>)], text: &str) -> usize {
+    events
+        .iter()
+        .filter(|(name, args)| {
+            name == "onDebug" && args.first() == Some(&Value::String(text.into()))
+        })
+        .count()
+}
+
+fn restoring_movie(movie: testing::ProbeMovie) -> testing::ProbeMovie {
+    movie
+        .constant("flash.isNull", json!(false))
+        .constant("flash.getGameObject", json!("{\"map\":\"old\"}"))
+        .responding(
+            "flash.setGameObject",
+            [
+                (json!(null), vec![]),
+                (json!(null), vec![("onDebug".into(), "restored".into())]),
+            ],
+        )
+        .responding(
+            "flash.getGameObjectS",
+            [
+                (json!("\"player-a\""), vec![]),
+                (json!("\"player-b\""), vec![]),
+            ],
+        )
+}
+
+#[test]
+fn unconfirmed_house_arrival_retries_with_backoff_before_boot() {
+    let (mut session, observer, mut supervisor) = setup_with(false, |movie| {
+        movie
+            .responding(
+                "flash.callGameFunction0",
+                std::iter::repeat_n((json!("false"), vec![]), 512),
+            )
+            .responding(
+                "flash.callGameFunction",
+                std::iter::repeat_n((json!(null), vec![]), 16),
+            )
+    });
+    options(&session, true);
+    supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('booted'); }")])).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    observer.set_waker(Waker::from(Arc::new(Unpark(std::thread::current()))));
+    session.watch(Waker::from(Arc::new(Unpark(std::thread::current()))));
+    let mut attempts = Vec::new();
+    loop {
+        while let Some(event) = observer.try_event().unwrap() {
+            if let ScriptEvent::Loader { event, .. } = event
+                && event.name == "onProbeCall"
+                && event.args.first() == Some(&Value::String("flash.callGameFunction".into()))
+            {
+                assert!(format!("{:?}", event.args).contains("%xt%zm%house%1%player-a%"));
+                attempts.push(Instant::now());
+            }
+        }
+        if session.script_dialog().is_some() {
+            break;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "did not boot after house retries");
+        std::thread::park_timeout(remaining);
+    }
+    options(&session, false);
+    session.respond_dialog(
+        session.script_dialog().unwrap().id,
+        lucent_protocol::script::ScriptDialogResponse::Dismissed,
+    );
+    wait_for(&session, || {
+        session.script_status().phase == ScriptPhase::Idle
+    });
+    assert_eq!(attempts.len(), 3, "the house move must make three attempts");
+    assert!(attempts[1].duration_since(attempts[0]) >= Duration::from_millis(5800));
+    assert!(attempts[2].duration_since(attempts[1]) >= Duration::from_millis(6800));
+}
+
+#[test]
+fn changing_accounts_while_running_never_moves_the_new_account() {
+    let (mut session, observer, mut supervisor) = setup_with(false, |movie| {
+        movie
+            .responding(
+                "flash.getGameObjectS",
+                [
+                    (json!("\"player-a\""), vec![]),
+                    (json!("\"player-b\""), vec![]),
+                ],
+            )
+            .responding(
+                "flash.callGameFunction",
+                std::iter::repeat_n((json!(null), vec![]), 16),
+            )
+    });
+    supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
+    wait_for(&session, || session.script_dialog().is_some());
+    options(&session, true);
+    drain(&observer);
+    observer
+        .command(lucent_protocol::command::Command::RefreshCredentials {})
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    wait_for(&session, || {
+        session.script_status().phase == ScriptPhase::Idle
+    });
+    assert!(
+        session
+            .script_status()
+            .last_end
+            .unwrap()
+            .contains("Account changed")
+    );
+    let events = drain(&observer);
+    assert_eq!(
+        probe_calls(&events, "flash.callGameFunction"),
+        0,
+        "{events:?}"
+    );
+    assert_eq!(
+        probe_calls(&events, "flash.callGameFunction0"),
+        0,
+        "{events:?}"
+    );
+}
+
+#[test]
+fn logged_out_safe_stop_makes_no_game_calls() {
+    let (mut session, observer, mut supervisor) = setup_with(false, |movie| {
+        movie
+            .responding(
+                "auth.isLoggedIn",
+                std::iter::once((json!(true), vec![]))
+                    .chain(std::iter::repeat_n((json!(false), vec![]), 64)),
+            )
+            .recording("world.isLoaded")
+            .recording("player.isLoaded")
+    });
+    supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
+    wait_for(&session, || session.script_dialog().is_some());
+    options(&session, true);
+    observer
+        .command(lucent_protocol::command::Command::RefreshLoggedIn {})
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    drain(&observer);
+    session.respond_dialog(
+        session.script_dialog().unwrap().id,
+        lucent_protocol::script::ScriptDialogResponse::Dismissed,
+    );
+    wait_for(&session, || {
+        session.script_status().phase == ScriptPhase::Idle
+    });
+    let events = drain(&observer);
+    assert!(!observer.read(|p| p.auth.logged_in).unwrap());
+    let calls: Vec<_> = events
+        .iter()
+        .filter(|(name, _)| name == "onProbeCall")
+        .collect();
+    assert!(calls.is_empty(), "{calls:?}");
 }
