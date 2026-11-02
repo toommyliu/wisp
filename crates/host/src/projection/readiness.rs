@@ -1,5 +1,32 @@
 use std::collections::BTreeMap;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Avatar {
+    #[default]
+    Unknown,
+    Loading,
+    Loaded,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlayerReadiness {
+    pub epoch: u64,
+    pub connected: bool,
+    pub(crate) logged_out: bool,
+    pub facts: bool,
+    pub avatar: Avatar,
+}
+
+impl PlayerReadiness {
+    pub fn can_act(self) -> bool {
+        self.connected && self.facts && self.avatar == Avatar::Loaded
+    }
+
+    pub(crate) fn needs_confirmation(self) -> bool {
+        self.connected && self.facts && self.avatar != Avatar::Loaded
+    }
+}
+
 pub use lucent_protocol::readiness::{ReadinessFlags, ReadinessKey, ReadinessSnapshot};
 
 #[derive(Debug, Default)]
@@ -53,6 +80,7 @@ impl ReadinessReceipts {
             .collect();
         ReadinessSnapshot {
             epoch: self.epoch,
+            can_act: false,
             failures: self.failures.clone(),
             missing,
             state,

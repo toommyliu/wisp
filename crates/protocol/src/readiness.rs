@@ -42,6 +42,8 @@ impl ReadinessFlags {
 #[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
 pub struct ReadinessSnapshot {
     pub epoch: u64,
+    #[serde(rename = "canAct")]
+    pub can_act: bool,
     pub failures: BTreeMap<ReadinessKey, String>,
     pub missing: Vec<ReadinessKey>,
     pub state: ReadinessFlags,
