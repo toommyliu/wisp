@@ -411,6 +411,9 @@ fn a_specific_buyhouse_move_finishes_before_boot() {
 
 #[test]
 fn the_next_run_waits_for_safe_stop_and_reaping() {
+    let (layer, gate) = common::hold::hold("script worker joining", Some("lucent-reaper"), true);
+    let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(layer));
+    let _dispatch = tracing::dispatcher::set_default(&dispatch);
     let (mut session, observer, mut supervisor) = setup_with(false, |movie| {
         movie.responding(
             "flash.callGameFunction0",
@@ -420,21 +423,15 @@ fn the_next_run_waits_for_safe_stop_and_reaping() {
     });
     let controls = supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
     wait_for(&session, || session.script_dialog().is_some());
-    let (entered, arrived) = std::sync::mpsc::channel();
-    let (release, held) = std::sync::mpsc::channel::<()>();
-    lucent_host::reap(move || {
-        let _ = entered.send(());
-        let _ = held.recv();
-    });
-    arrived.recv_timeout(TIMEOUT).unwrap();
     options(&session, true);
     controls.kill();
+    gate.wait();
     let destination = await_event(&observer, "onDebug", None);
     let result = supervisor.start_script(
         &mut session,
         loose(&[("next.js", "export default function* () {}")]),
     );
-    drop(release);
+    gate.open();
     assert_eq!(
         destination.args,
         vec![Value::String("safe destination".into())]
