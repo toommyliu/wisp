@@ -159,28 +159,25 @@ impl ScriptLink {
     }
 
     pub fn call_loader(&self, name: impl Into<String>, args: Vec<Value>) -> PendingCall {
-        self.call_loader_owned(name.into(), args, false)
+        let name = name.into();
+        if super::actions::Action::parse(&name, &args).is_some() {
+            self.call_loader_scoped(name, args)
+        } else {
+            self.inbox.call_loader(name, args)
+        }
     }
     pub(crate) fn call_loader_scoped(
         &self,
         name: impl Into<String>,
         args: Vec<Value>,
     ) -> PendingCall {
-        self.call_loader_owned(name.into(), args, true)
-    }
-    fn call_loader_owned(
-        &self,
-        name: String,
-        args: Vec<Value>,
-        cancel_on_drop: bool,
-    ) -> PendingCall {
+        let name = name.into();
         let guard = super::operations::Guard::new(
             self.packets.clone(),
             super::claims::Owner::script(self.attachment),
             self.detached.clone(),
             &name,
             &args,
-            cancel_on_drop,
         );
         self.inbox.call_loader_guarded(name, args, Box::new(guard))
     }

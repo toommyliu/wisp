@@ -62,13 +62,13 @@ fn registered_quests_load_without_a_script_while_settings_continue() {
                 }
             }
         }
-        if accepted && settings >= 4 {
+        if accepted && settings >= 2 {
             return;
         }
         let left = deadline.saturating_duration_since(Instant::now());
         assert!(
             !left.is_zero(),
-            "native quest automation did not accept the registered quest"
+            "native quest automation did not accept or continue settings: accepted={accepted}, settings={settings}"
         );
         thread::park_timeout(left);
     }

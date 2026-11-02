@@ -49,7 +49,6 @@ pub(crate) struct Guard {
     action: Option<super::actions::Action>,
     claim: Option<u64>,
     issued: Option<(super::actions::Resource, u64)>,
-    cancel_on_drop: bool,
 }
 impl Guard {
     pub(crate) fn new(
@@ -58,7 +57,6 @@ impl Guard {
         detached: Arc<AtomicBool>,
         name: &str,
         args: &[Value],
-        cancel_on_drop: bool,
     ) -> Self {
         let action = super::actions::Action::parse(name, args);
         let state = packets.0.lock();
@@ -73,7 +71,6 @@ impl Guard {
             action,
             claim,
             issued: None,
-            cancel_on_drop,
         }
     }
     fn finish(&mut self, result: &Result<Value, Error>) {
@@ -91,12 +88,11 @@ impl crate::bridge::CallGuard for Guard {
         let mut state = self.packets.0.lock();
         if state.stopped
             || self.detached.load(Ordering::Acquire)
-            || (self.cancel_on_drop && !pending.load(Ordering::Acquire))
+            || !pending.load(Ordering::Acquire)
         {
             return Err(Error::Stopped);
         }
-        if (self.cancel_on_drop || self.action.is_some()) && state.claims.binding() != self.binding
-        {
+        if state.claims.binding() != self.binding {
             return Err(Error::CommandFailed {
                 operation: "loader call".into(),
                 reason: "the connection changed before dispatch".into(),
