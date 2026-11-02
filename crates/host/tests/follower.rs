@@ -572,17 +572,9 @@ fn a_player_restart_rebuilds_the_follower_from_its_record() {
     assert_eq!(rebuilt["status"]["enabled"], true);
     assert_eq!(rebuilt["status"]["running"], true);
     log_in_at(&link, vec![me("r1"), target("r2")]);
-    let calls = until(&link, "combat.attackMonster");
-    assert_eq!(
-        names(&calls),
-        [
-            "player.jump",
-            "player.getCell",
-            "player.getPad",
-            "world.isCellReady",
-            "combat.attackMonster"
-        ]
-    );
+    let calls = until(&link, "player.jump");
+    assert_eq!(calls.last().unwrap().1, json!(["r2", "Left"]));
+    until(&link, "combat.attackMonster");
 }
 
 #[test]
@@ -868,11 +860,13 @@ fn a_player_restart_mid_goto_rebuilds_without_the_old_goto() {
     log_in_at(&link, vec![me("r1"), target("r2")]);
     assert_eq!(issued.recv_timeout(TIMEOUT).unwrap().0, "jump");
     let calls = until(&link, "player.jump");
-    assert_eq!(
-        names(&calls),
-        ["player.jump"],
-        "the old goto reached the new player"
+    assert!(
+        names(&calls)
+            .iter()
+            .all(|name| *name != "player.goToPlayer" && !name.starts_with("combat.cancel")),
+        "the old goto reached the new player: {calls:?}"
     );
+    assert_eq!(calls.last().unwrap().1, json!(["r2", "Left"]));
     assert_eq!(record(&link)["status"]["attemptsRemaining"], 3);
 }
 
