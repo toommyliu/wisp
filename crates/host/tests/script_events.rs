@@ -13,6 +13,15 @@ use serde_json::json;
 use common::TIMEOUT;
 
 fn become_ready(link: &ScriptLink) {
+    link.call_loader(
+        "probe.emit",
+        vec![
+            Value::String("onConnection".into()),
+            Value::String("OnConnection".into()),
+        ],
+    )
+    .recv_timeout(TIMEOUT)
+    .unwrap();
     for packet in [
         json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
         json!({"cmd":"moveToArea","areaId":1,"areaName":"battleon-1",

@@ -265,6 +265,7 @@ impl Drop for Supervisor {
 fn attach(session: &mut Session) -> Option<Player> {
     Some(Player {
         watch: session.attach(bridge::EventInterests::new(&[
+            bridge::EventKind::Readiness,
             bridge::EventKind::Connection,
             bridge::EventKind::Invalidated,
             bridge::EventKind::Login,

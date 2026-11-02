@@ -4,11 +4,6 @@ use std::cell::{Cell, RefCell};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Boundary {
-    Read,
-    Login,
-    Cached,
-    World,
-    Player,
     Full,
     Actions,
 }
@@ -17,12 +12,10 @@ enum Fault {
     Error,
     Panic,
     Json(String),
-    Value(Value),
     Hold,
 }
 struct Host {
     ready: Cell<bool>,
-    cached: Cell<bool>,
     faults: RefCell<Vec<(Boundary, Fault)>>,
     applied: RefCell<Vec<bool>>,
     held: RefCell<Vec<crate::bridge::Reply<String>>>,
@@ -31,7 +24,6 @@ impl Default for Host {
     fn default() -> Self {
         Self {
             ready: Cell::new(true),
-            cached: Cell::new(true),
             faults: RefCell::default(),
             applied: RefCell::default(),
             held: RefCell::default(),
@@ -48,30 +40,8 @@ impl Host {
     }
 }
 impl SettingsHost for Host {
-    fn ready(&self) -> Pending<bool> {
-        let (reply, pending) = Pending::channel();
-        reply
-            .send(match self.fault(Boundary::Read) {
-                Some(Fault::Error) => Err(Error::ReadPanicked),
-                Some(Fault::Panic) => panic!("broken native boundary"),
-                _ => Ok(self.ready.get()),
-            })
-            .unwrap();
-        pending
-    }
-    fn cached_logged_in(&self) -> Pending<bool> {
-        let (reply, pending) = Pending::channel();
-        reply
-            .send(match self.fault(Boundary::Cached) {
-                Some(Fault::Error) => Err(Error::ReadPanicked),
-                _ => Ok(self.cached.get()),
-            })
-            .unwrap();
-        pending
-    }
     fn command(&self, command: Command) -> Pending<String> {
         let (boundary, value) = match command {
-            Command::RefreshLoggedIn {} => (Boundary::Login, "true"),
             Command::ReapplySettings { actions_only } => {
                 self.applied.borrow_mut().push(actions_only);
                 (
@@ -88,6 +58,7 @@ impl SettingsHost for Host {
         let (reply, pending) = Pending::channel();
         let result = match self.fault(boundary) {
             Some(Fault::Error) => Err(Error::Unavailable("temporary host failure".into())),
+            Some(Fault::Panic) => panic!("broken native boundary"),
             Some(Fault::Json(json)) => Ok(json),
             Some(Fault::Hold) => {
                 self.held.borrow_mut().push(reply);
@@ -98,26 +69,12 @@ impl SettingsHost for Host {
         reply.send(result).unwrap();
         pending
     }
-    fn call(&self, method: &'static str) -> Pending<Value> {
-        let boundary = match method {
-            "world.isLoaded" => Boundary::World,
-            "player.isLoaded" => Boundary::Player,
-            _ => unreachable!(),
-        };
-        let (reply, pending) = Pending::channel();
-        reply
-            .send(match self.fault(boundary) {
-                Some(Fault::Error) => Err(Error::Unavailable("temporary host failure".into())),
-                Some(Fault::Value(value)) => Ok(value),
-                _ => Ok(Value::Bool(true)),
-            })
-            .unwrap();
-        pending
-    }
 }
 
 fn advance(settings: &mut Settings, host: &Host, now: Instant) -> Instant {
-    settings.advance(host, Waker::noop(), now)
+    settings
+        .advance(host, host.ready.get(), Waker::noop(), now)
+        .unwrap_or(now + Kind::Actions.interval())
 }
 
 fn retries(boundary: Boundary, fault: Fault) {
@@ -126,11 +83,6 @@ fn retries(boundary: Boundary, fault: Fault) {
     let _guard = tracing::dispatcher::set_default(&dispatch);
     let host = Host::default();
     host.faults.borrow_mut().push((boundary, fault.clone()));
-    if boundary == Boundary::Cached {
-        host.faults
-            .borrow_mut()
-            .push((Boundary::Login, Fault::Error));
-    }
     let mut now = Instant::now();
     let mut settings = Settings::new(now);
     for _ in 0..7 {
@@ -146,9 +98,6 @@ fn retries(boundary: Boundary, fault: Fault) {
     assert_eq!(logs.count("settings policy recovered"), 0);
     let cause = logs.cause("settings policy tick failed: ");
     match (&fault, boundary) {
-        (Fault::Error, Boundary::Read | Boundary::Cached) => {
-            assert_eq!(cause, Error::ReadPanicked.to_string())
-        }
         (Fault::Error, _) => assert!(cause.contains("temporary host failure"), "{cause}"),
         (Fault::Panic, _) => assert!(cause.contains("broken native boundary"), "{cause}"),
         _ => assert!(!cause.is_empty()),
@@ -162,11 +111,6 @@ fn retries(boundary: Boundary, fault: Fault) {
     assert!(host.applied.borrow().contains(&false));
     assert!(host.applied.borrow().contains(&true));
     host.faults.borrow_mut().push((boundary, Fault::Error));
-    if boundary == Boundary::Cached {
-        host.faults
-            .borrow_mut()
-            .push((Boundary::Login, Fault::Error));
-    }
     for _ in 0..3 {
         now = advance(&mut settings, &host, now);
     }
@@ -175,35 +119,17 @@ fn retries(boundary: Boundary, fault: Fault) {
 
 #[test]
 fn failed_settings_ticks_warn_and_retry() {
-    for boundary in [
-        Boundary::Read,
-        Boundary::Cached,
-        Boundary::World,
-        Boundary::Player,
-        Boundary::Full,
-        Boundary::Actions,
-    ] {
+    for boundary in [Boundary::Full, Boundary::Actions] {
         retries(boundary, Fault::Error);
     }
 }
 #[test]
 fn settings_policy_code_errors_warn_once_and_retry() {
-    retries(Boundary::Read, Fault::Panic);
+    retries(Boundary::Full, Fault::Panic);
 }
 #[test]
 fn settings_policy_malformed_host_replies_warn_once_and_retry() {
     retries(Boundary::Full, Fault::Json("not json".into()));
-    for boundary in [Boundary::World, Boundary::Player] {
-        retries(boundary, Fault::Value(Value::String("true".into())));
-    }
-}
-#[test]
-fn settings_policy_missing_loader_booleans_warn_once_and_retry() {
-    for boundary in [Boundary::World, Boundary::Player] {
-        for value in [Value::Undefined, Value::Null] {
-            retries(boundary, Fault::Value(value));
-        }
-    }
 }
 #[test]
 fn settings_policy_invalid_reapply_reply_warns_once_and_retries() {
@@ -215,39 +141,24 @@ fn settings_policy_invalid_reapply_reply_warns_once_and_retries() {
 }
 #[test]
 fn settings_policy_uses_player_readiness() {
-    for boundary in [
-        Boundary::Read,
-        Boundary::Login,
-        Boundary::World,
-        Boundary::Player,
-    ] {
-        let host = Host::default();
-        match boundary {
-            Boundary::Read => host.ready.set(false),
-            Boundary::Login => host
-                .faults
-                .borrow_mut()
-                .push((boundary, Fault::Json("false".into()))),
-            _ => host
-                .faults
-                .borrow_mut()
-                .push((boundary, Fault::Value(Value::Bool(false)))),
-        }
-        let mut now = Instant::now();
-        let mut settings = Settings::new(now);
-        for _ in 0..7 {
-            now = advance(&mut settings, &host, now);
-        }
-        assert!(host.applied.borrow().is_empty());
-        assert!(settings.failing.is_empty());
-        host.ready.set(true);
-        host.faults.borrow_mut().clear();
-        for _ in 0..4 {
-            now = advance(&mut settings, &host, now);
-        }
-        assert!(host.applied.borrow().contains(&false));
-        assert!(host.applied.borrow().contains(&true));
-    }
+    let host = Host::default();
+    let now = Instant::now();
+    let mut settings = Settings::new(now);
+    host.ready.set(false);
+    assert_eq!(settings.advance(&host, false, Waker::noop(), now), None);
+    assert!(host.applied.borrow().is_empty());
+    assert!(settings.failing.is_empty());
+    host.ready.set(true);
+    advance(&mut settings, &host, now);
+    assert_eq!(*host.applied.borrow(), [false, true]);
+    host.ready.set(false);
+    assert_eq!(settings.advance(&host, false, Waker::noop(), now), None);
+    host.applied.borrow_mut().clear();
+    advance(&mut settings, &host, now);
+    assert!(host.applied.borrow().is_empty());
+    host.ready.set(true);
+    advance(&mut settings, &host, now);
+    assert_eq!(*host.applied.borrow(), [false, true]);
 }
 #[test]
 fn settings_policy_recovery_waits_for_every_failing_loop() {
@@ -319,14 +230,14 @@ fn independent_settings_policies_keep_separate_failure_streaks() {
     first
         .faults
         .borrow_mut()
-        .push((Boundary::World, Fault::Error));
+        .push((Boundary::Full, Fault::Error));
     advance(&mut one, &first, now);
     advance(&mut two, &second, now);
     assert_eq!(logs.count("tick failed"), 1);
     second
         .faults
         .borrow_mut()
-        .push((Boundary::World, Fault::Error));
+        .push((Boundary::Full, Fault::Error));
     advance(&mut two, &second, now + Duration::from_secs(1));
     assert_eq!(logs.count("tick failed"), 2);
     first.faults.borrow_mut().clear();
@@ -336,45 +247,26 @@ fn independent_settings_policies_keep_separate_failure_streaks() {
 }
 
 #[test]
-fn readiness_errors_are_reported_when_another_check_is_false() {
-    let host = Host::default();
-    *host.faults.borrow_mut() = vec![
-        (Boundary::Login, Fault::Json("false".into())),
-        (Boundary::Player, Fault::Value(Value::Null)),
-    ];
-    let now = Instant::now();
-    let mut settings = Settings::new(now);
-    advance(&mut settings, &host, now);
+fn settings_before_the_first_viewport_skip_without_warning() {
+    let logs = Logs::default();
+    let _guard = logs.enter();
+    let host = crate::testing::headless_host();
+    let (_session, link) =
+        crate::testing::start_probe_without_viewport(&host, crate::testing::ProbeMovie::new());
+    let mut policy = SettingsPolicy::new(&link, Waker::noop().clone());
+    policy.advance(Instant::now());
     assert_eq!(
-        settings.failing,
-        BTreeSet::from([Kind::Full, Kind::Actions])
+        link.command(Command::ReapplySettings {
+            actions_only: false
+        })
+        .recv_timeout(REPLY_TIMEOUT),
+        Err(Error::NotReady)
     );
-    assert!(host.applied.borrow().is_empty());
-}
-
-#[test]
-fn failed_login_refreshes_use_the_cached_login_state() {
-    for fault in [
-        Fault::Error,
-        Fault::Json("not json".into()),
-        Fault::Json("{}".into()),
-        Fault::Json("\"true\"".into()),
-    ] {
-        for cached in [false, true] {
-            let host = Host::default();
-            host.cached.set(cached);
-            host.faults
-                .borrow_mut()
-                .push((Boundary::Login, fault.clone()));
-            let now = Instant::now();
-            let mut settings = Settings::new(now);
-            advance(&mut settings, &host, now);
-            if cached {
-                assert_eq!(*host.applied.borrow(), [false, true]);
-            } else {
-                assert!(host.applied.borrow().is_empty());
-            }
-            assert!(settings.failing.is_empty());
-        }
-    }
+    policy.advance(Instant::now());
+    assert_eq!(
+        logs.count("settings policy tick failed"),
+        0,
+        "{:?}",
+        logs.messages()
+    );
 }

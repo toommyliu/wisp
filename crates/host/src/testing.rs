@@ -35,6 +35,7 @@ pub type ProbeReply = (serde_json::Value, Vec<(String, String)>);
 
 #[derive(Default)]
 pub struct ProbeMovie {
+    frame_rate: Option<f32>,
     constants: Vec<(String, serde_json::Value)>,
     game_objects: Vec<(String, serde_json::Value)>,
     raises: Vec<(String, String, String, u16)>,
@@ -47,6 +48,11 @@ pub struct ProbeMovie {
 }
 
 impl ProbeMovie {
+    pub fn frame_rate(mut self, rate: f32) -> Self {
+        self.frame_rate = Some(rate);
+        self
+    }
+
     pub fn game_object(mut self, path: &str, value: serde_json::Value) -> Self {
         self.game_objects.retain(|(key, _)| key != path);
         self.game_objects.push((path.into(), value));
@@ -686,7 +692,7 @@ fn fixture_swf(movie: &ProbeMovie) -> Vec<u8> {
             y_min: Twips::ZERO,
             y_max: Twips::from_pixels(100.0),
         },
-        frame_rate: swf::Fixed8::from_f32(24.0),
+        frame_rate: swf::Fixed8::from_f32(movie.frame_rate.unwrap_or(24.0)),
         num_frames: 1,
     };
     let mut output = Vec::new();

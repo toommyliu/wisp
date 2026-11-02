@@ -118,6 +118,15 @@ pub fn ready(runtime: &Runtime) {
 }
 
 pub fn log_in(link: &lucent_host::ScriptLink) {
+    link.call_loader(
+        "probe.emit",
+        vec![
+            lucent_protocol::bridge::Value::String("onConnection".into()),
+            lucent_protocol::bridge::Value::String("OnConnection".into()),
+        ],
+    )
+    .recv_timeout(TIMEOUT)
+    .unwrap();
     use lucent_protocol::bridge::Value;
     for packet in [
         json!({"type":"json","dataObj":{"cmd":"loadInventoryBig",
@@ -301,7 +310,12 @@ pub fn named_threads() -> Vec<String> {
         .filter_map(
             |entry| match std::fs::read_to_string(entry.unwrap().path().join("comm")) {
                 Ok(name) => Some(name),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound
+                        || error.raw_os_error() == Some(libc::ESRCH) =>
+                {
+                    None
+                }
                 Err(error) => panic!("could not read thread name: {error}"),
             },
         )
