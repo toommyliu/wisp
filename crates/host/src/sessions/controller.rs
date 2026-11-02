@@ -153,7 +153,13 @@ impl Supervisor {
         let machine = Lifecycle::new(binding);
         let active = session.lifecycle_status.clone();
         let reapers = session.host.shared.reapers.clone();
-        let reaper = reapers.start(session.id)?;
+        let reaper = reapers.start(session.id).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                RuntimeError::AlreadySupervised
+            } else {
+                error.into()
+            }
+        })?;
         let supervision = Supervision {
             reaper,
             status: session.script_status.clone(),
@@ -289,6 +295,15 @@ struct Worker {
     id: RunId,
     run: ScriptRun,
     revoke: Option<Box<dyn FnOnce() + Send>>,
+}
+struct Reaped {
+    inbox: mpsc::Sender<Msg>,
+    run: RunId,
+}
+impl Drop for Reaped {
+    fn drop(&mut self) {
+        let _ = self.inbox.send(Msg::Event(lc::Event::Reaped(self.run)));
+    }
 }
 struct ReadyRead {
     run: RunId,
@@ -791,8 +806,8 @@ impl Supervision {
                         let worker = self.worker.take().unwrap();
                         let inbox = self.notify.inbox.clone();
                         self.reaper.reap(move || {
+                            let _reaped = Reaped { inbox, run };
                             drop(worker);
-                            let _ = inbox.send(Msg::Event(lc::Event::Reaped(run)));
                         });
                     } else {
                         answer = Some(lc::Event::Reaped(run));

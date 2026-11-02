@@ -524,12 +524,6 @@ impl Drop for Session {
     }
 }
 
-impl Drop for Shared {
-    fn drop(&mut self) {
-        self.reapers.shutdown();
-    }
-}
-
 #[cfg(feature = "testing")]
 impl Session {
     pub fn wait_for_script_reaping(&self, timeout: std::time::Duration) -> bool {
