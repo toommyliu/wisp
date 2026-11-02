@@ -86,6 +86,36 @@ fn stop_and_kill_reach_the_run_from_the_controls() {
 }
 
 #[test]
+fn a_missed_event_reports_the_run_logs_and_the_player_state() {
+    let logs = Logs::default();
+    let dispatch = logs.dispatch();
+    let _guard = tracing::dispatcher::set_default(&dispatch);
+    let host = testing::headless_host();
+    let (mut session, observer) = testing::start_probe(&host, ready_movie());
+    let (request, _controls) = ScriptRequest::new(loose(&[("wait.js", WAIT)]));
+    let _supervisor = Supervisor::start(&mut session, Some(request)).unwrap();
+    logs.wait_for(INFO, "session 1: wait.js is waiting for login");
+    let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        await_event_for(
+            &observer,
+            "onDebug",
+            None,
+            std::time::Duration::from_millis(100),
+        )
+    }))
+    .unwrap_err();
+    let report = report.downcast_ref::<String>().unwrap();
+    for part in [
+        "did not receive onDebug within 100ms; run: see logs;",
+        "player echo: Ok(());",
+        "connected: false",
+        "\"INFO session 1: wait.js is waiting for login\"",
+    ] {
+        assert!(report.contains(part), "{part:?} is missing from {report}");
+    }
+}
+
+#[test]
 fn a_restart_ends_the_run_and_does_not_rerun() {
     let logs = Logs::default();
     let dispatch = logs.dispatch();

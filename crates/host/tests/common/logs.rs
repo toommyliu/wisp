@@ -69,6 +69,20 @@ impl Logs {
         tracing::Dispatch::new(tracing_subscriber::registry().with(self.clone()))
     }
 
+    pub fn current() -> Option<Logs> {
+        tracing::dispatcher::get_default(|dispatch| dispatch.downcast_ref::<Logs>().cloned())
+    }
+
+    pub fn lines(&self) -> Vec<String> {
+        self.0
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(level, text)| format!("{level} {text}"))
+            .collect()
+    }
+
     pub fn messages(&self, level: tracing::Level) -> Vec<String> {
         self.0
             .entries
