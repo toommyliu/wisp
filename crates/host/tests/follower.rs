@@ -116,8 +116,19 @@ fn setup_with(
         )
         .unwrap();
     let supervisor = Supervisor::start(&mut session, None).unwrap();
+    await_ready(&link);
     drain(&link);
     (session, link, supervisor)
+}
+fn await_ready(link: &ScriptLink) {
+    let deadline = Instant::now() + TIMEOUT;
+    while !link
+        .read(|projection| projection.readiness.can_act())
+        .unwrap()
+    {
+        assert!(Instant::now() < deadline, "the player never became ready");
+        std::thread::yield_now();
+    }
 }
 
 fn config(overrides: Json) -> Json {
@@ -412,13 +423,24 @@ fn a_readiness_edge_wakes_a_waiting_follower_without_readiness_calls() {
         at - started < Duration::from_secs(4),
         "the follower waited for its watchdog instead of the readiness edge"
     );
-    until(&link, "combat.attackMonster");
-    let calls = drain(&link);
+    for _ in 0..3 {
+        until(&link, "combat.attackMonster");
+    }
+    drain(&link);
+    let mut window = Vec::new();
+    for _ in 0..6 {
+        window.extend(
+            names(&until(&link, "combat.attackMonster"))
+                .into_iter()
+                .map(String::from),
+        );
+    }
+    window.extend(drain(&link));
     assert!(
-        calls
+        window
             .iter()
             .all(|name| name != "world.isLoaded" && name != "auth.isLoggedIn"),
-        "{calls:?}"
+        "{window:?}"
     );
 }
 
