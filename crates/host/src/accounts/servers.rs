@@ -100,7 +100,7 @@ impl Ping {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PingStatus {
-    Ok { latency_ms: u32 },
+    Ok { one_way_ms: u32 },
     Offline,
     Timeout,
     Unreachable,
@@ -376,7 +376,7 @@ async fn ping(network: &dyn Network, target: &Target) -> PingStatus {
     };
     match tokio::time::timeout(PING_TIMEOUT, round_trip(network, host, port)).await {
         Ok(Ok(round_trip)) => PingStatus::Ok {
-            latency_ms: (round_trip.as_secs_f64() * 1000.0).round() as u32,
+            one_way_ms: ((round_trip.as_secs_f64() * 1000.0).round() as u32).div_ceil(2),
         },
         Ok(Err(_)) => PingStatus::Unreachable,
         Err(_) => PingStatus::Timeout,

@@ -359,7 +359,7 @@ async fn reports_offline_success_invalid_refused_and_deadlines_in_input_order() 
         &*pending.await.unwrap(),
         [
             ping("Offline", PingStatus::Offline),
-            ping("Connected", PingStatus::Ok { latency_ms: 10 }),
+            ping("Connected", PingStatus::Ok { one_way_ms: 5 }),
             ping("Invalid", PingStatus::Unreachable),
             ping("Refused", PingStatus::Unreachable),
             ping("Timed out", PingStatus::Timeout),
@@ -385,12 +385,12 @@ async fn ping_one(script: Vec<Step>) -> (PingStatus, Duration) {
 }
 
 #[tokio::test(start_paused = true)]
-async fn reports_the_median_round_trip_after_the_connect_and_a_warm_up() {
+async fn reports_half_the_median_round_trip_rounded_up_like_the_game() {
     assert_eq!(
-        ping_one(replies([400, 60, 75, 50])).await,
+        ping_one(replies([400, 61, 75, 50])).await,
         (
-            PingStatus::Ok { latency_ms: 60 },
-            Duration::from_millis(685)
+            PingStatus::Ok { one_way_ms: 31 },
+            Duration::from_millis(686)
         )
     );
 }
@@ -399,11 +399,11 @@ async fn reports_the_median_round_trip_after_the_connect_and_a_warm_up() {
 async fn one_six_second_deadline_covers_the_connect_warm_up_and_samples() {
     assert_eq!(
         ping_one(replies([1300, 650, 650, 650])).await.0,
-        PingStatus::Ok { latency_ms: 650 }
+        PingStatus::Ok { one_way_ms: 325 }
     );
     assert_eq!(
         ping_one(replies([5700, 60, 60, 60])).await.0,
-        PingStatus::Ok { latency_ms: 60 }
+        PingStatus::Ok { one_way_ms: 30 }
     );
     assert_eq!(
         ping_one(replies([5750, 60, 60, 60])).await,
@@ -468,8 +468,8 @@ async fn shares_ping_loads_and_keeps_them_until_a_refresh_refetches_the_list() {
     assert_eq!(
         &*first,
         [
-            ping("Artix", PingStatus::Ok { latency_ms: 10 }),
-            ping("Yorumi", PingStatus::Ok { latency_ms: 10 }),
+            ping("Artix", PingStatus::Ok { one_way_ms: 5 }),
+            ping("Yorumi", PingStatus::Ok { one_way_ms: 5 }),
         ]
     );
     advance(Duration::from_secs(31)).await;
@@ -484,7 +484,7 @@ async fn shares_ping_loads_and_keeps_them_until_a_refresh_refetches_the_list() {
         &*refreshed.await.unwrap(),
         [
             ping("Artix", PingStatus::Offline),
-            ping("Yorumi", PingStatus::Ok { latency_ms: 10 }),
+            ping("Yorumi", PingStatus::Ok { one_way_ms: 5 }),
         ]
     );
     servers.refresh().await.unwrap();
