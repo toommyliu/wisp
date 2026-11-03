@@ -145,6 +145,7 @@ impl Host {
                         crate::data::AppData::start(app_data, real_app_data)
                             .map_err(HostError::AppData)?,
                     ),
+                    servers: crate::accounts::LoginServers::start(net.handle()),
                 },
                 http: crate::scripting::http::Http::new(net.handle().clone())
                     .map_err(HostError::Http)?,

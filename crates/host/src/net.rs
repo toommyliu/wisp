@@ -1,7 +1,7 @@
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use url::{Host, Url};
 
-const USER_AGENT: &str = if cfg!(target_os = "macos") {
+pub(crate) const USER_AGENT: &str = if cfg!(target_os = "macos") {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_16_0) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36"
 } else if cfg!(target_os = "windows") {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36"
@@ -9,6 +9,7 @@ const USER_AGENT: &str = if cfg!(target_os = "macos") {
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36"
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct GameHost(String);
 
 impl GameHost {
