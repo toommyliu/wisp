@@ -175,7 +175,7 @@ pub(super) fn owner_only(dir: &Dir) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let file = dir.try_clone()?.into_std_file();
+        let file = dir.open(".")?.into_std();
         if file.metadata()?.permissions().mode() & 0o077 != 0 {
             file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
         }
@@ -187,7 +187,7 @@ pub(super) fn owner_only(dir: &Dir) -> io::Result<()> {
 
 pub(super) fn sync_directory(dir: &Dir) -> io::Result<()> {
     #[cfg(unix)]
-    return dir.try_clone()?.into_std_file().sync_all();
+    return dir.open(".")?.into_std().sync_all();
     #[cfg(not(unix))]
     {
         let _ = dir;
