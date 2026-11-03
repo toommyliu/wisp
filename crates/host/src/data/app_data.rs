@@ -18,7 +18,7 @@ use crate::sessions::Changes;
 type Probe = Arc<dyn Fn() + Send + Sync>;
 
 pub(crate) struct AppData {
-    sender: Option<mpsc::SyncSender<Request>>,
+    sender: Option<mpsc::Sender<Request>>,
     thread: Mutex<Option<thread::JoinHandle<()>>>,
     pub(crate) changes: Arc<Changes>,
     #[cfg(feature = "testing")]
@@ -32,20 +32,9 @@ pub(crate) enum Request {
     UpdateSettings(String, ScriptOptionsPatch, Answer<ScriptOptions>),
 }
 
-impl Request {
-    fn reject(self, error: AccountsError) {
-        match self {
-            Request::Snapshot(answer) | Request::Edit(_, answer) => answer.send(Err(error)),
-            Request::Settings(_, answer) | Request::UpdateSettings(_, _, answer) => {
-                answer.send(Err(error))
-            }
-        }
-    }
-}
-
 impl AppData {
     pub(crate) fn start(root: PathBuf, real: PathBuf) -> io::Result<Self> {
-        let (sender, requests) = mpsc::sync_channel::<Request>(64);
+        let (sender, requests) = mpsc::channel::<Request>();
         let changes = Arc::new(Changes::default());
         #[cfg(feature = "testing")]
         let probe: Arc<Mutex<Option<Probe>>> = Arc::default();
@@ -78,12 +67,7 @@ impl AppData {
     }
 
     pub(crate) fn submit(&self, request: Request) {
-        if let Err(error) = self.sender.as_ref().unwrap().try_send(request) {
-            match error {
-                mpsc::TrySendError::Full(request) => request.reject(AccountsError::Busy),
-                mpsc::TrySendError::Disconnected(request) => request.reject(AccountsError::Stopped),
-            }
-        }
+        let _ = self.sender.as_ref().unwrap().send(request);
     }
 
     #[cfg(feature = "testing")]

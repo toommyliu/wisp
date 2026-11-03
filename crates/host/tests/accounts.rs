@@ -725,6 +725,31 @@ fn a_dropped_edit_still_commits() {
 }
 
 #[test]
+fn queues_every_request_behind_a_held_save() {
+    let workspace = Workspace::new();
+    let host = workspace.host();
+    let (entered, rename) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let released = Mutex::new(released);
+    host.set_app_data_probe(move || {
+        entered.send(()).unwrap();
+        released.lock().unwrap().recv().unwrap();
+    });
+    let accounts = host.accounts();
+    let held = accounts.edit(create("First"));
+    rename.recv_timeout(TIMEOUT).unwrap();
+    let reads: Vec<_> = (0..200).map(|_| accounts.snapshot()).collect();
+    let edit = accounts.edit(create("Second"));
+    release.send(()).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(usernames(&wait(held).unwrap()), ["First"]);
+    for read in reads {
+        assert_eq!(usernames(&wait(read).unwrap()), ["First"]);
+    }
+    assert_eq!(usernames(&wait(edit).unwrap()), ["First", "Second"]);
+}
+
+#[test]
 fn equivalent_edits_neither_write_nor_wake() {
     let workspace = Workspace::new();
     let host = workspace.host();

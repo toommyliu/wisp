@@ -152,8 +152,6 @@ pub enum AccountsError {
     InvalidUsername,
     #[error("{0}")]
     File(FileError),
-    #[error("the account data service is busy")]
-    Busy,
     #[error("the account data service has stopped")]
     Stopped,
 }
