@@ -171,6 +171,20 @@ pub(super) fn write_atomic(
     result
 }
 
+pub(super) fn owner_only(dir: &Dir) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let file = dir.try_clone()?.into_std_file();
+        if file.metadata()?.permissions().mode() & 0o077 != 0 {
+            file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
+}
+
 pub(super) fn sync_directory(dir: &Dir) -> io::Result<()> {
     #[cfg(unix)]
     return dir.try_clone()?.into_std_file().sync_all();

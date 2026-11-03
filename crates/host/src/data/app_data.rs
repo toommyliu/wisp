@@ -237,6 +237,9 @@ impl Store {
         let Some(root) = fs::open_root(&self.real, create)? else {
             return Ok(None);
         };
+        if create {
+            owner_only(document, &root);
+        }
         let Some(name) = document.directory() else {
             return Ok(Some(root));
         };
@@ -244,7 +247,12 @@ impl Store {
             fs::create_directory(&root, name)?;
         }
         match Dir::open_ambient_dir(self.real.join(name), cap_std::ambient_authority()) {
-            Ok(dir) => Ok(Some(dir)),
+            Ok(dir) => {
+                if create {
+                    owner_only(document, &dir);
+                }
+                Ok(Some(dir))
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound && !create => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -305,6 +313,16 @@ impl Store {
             path,
             too_large: matches!(failure, Failure::TooLarge),
         })
+    }
+}
+
+fn owner_only(document: Document, dir: &Dir) {
+    if let Err(error) = fs::owner_only(dir) {
+        tracing::warn!(
+            path = document.log_path(),
+            %error,
+            "couldn't make the app data folder private before a save"
+        );
     }
 }
 

@@ -1221,6 +1221,20 @@ fn app_data_files_are_owner_only() {
     let host = workspace.host();
     wait(host.accounts().edit(create("Hero"))).unwrap();
     assert_eq!(mode(workspace.path("accounts.json")), 0o600);
+
+    let workspace = Workspace::new();
+    fs::create_dir_all(workspace.path("account-settings")).unwrap();
+    set_mode(&workspace.app_data(), 0o755);
+    set_mode(&workspace.path("account-settings"), 0o755);
+    let host = workspace.host();
+    wait(host.accounts().edit(create("Hero"))).unwrap();
+    assert_eq!(mode(workspace.app_data()), 0o700);
+    wait(
+        host.accounts()
+            .update_settings("Hero", ScriptOptionsPatch::default()),
+    )
+    .unwrap();
+    assert_eq!(mode(workspace.path("account-settings")), 0o700);
 }
 
 fn settings_file(scripts: Value) -> String {
