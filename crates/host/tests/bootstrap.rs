@@ -504,3 +504,146 @@ fn a_supervised_stop_while_the_module_loads_issues_no_game_call() {
     wait_last_end(&session, "load.js was stopped");
     only_the_next_run_reaches_the_player(&mut session, &observer);
 }
+
+fn debug_messages(observer: &ScriptLink) -> Vec<Vec<Value>> {
+    let mut messages = Vec::new();
+    while let Some(event) = observer.try_event().unwrap() {
+        if let ScriptEvent::Loader { event, .. } = event
+            && event.name == "onDebug"
+        {
+            messages.push(event.args);
+        }
+    }
+    messages
+}
+
+fn queued_event(observer: &ScriptLink) {
+    observer
+        .call_loader(
+            "probe.emit",
+            vec![
+                Value::String("onDebug".into()),
+                Value::String("queued event".into()),
+            ],
+        )
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+}
+
+#[test]
+fn a_stop_queued_behind_an_event_while_the_module_loads_issues_no_game_call() {
+    let (gate, _guard) = held("module loading");
+    let (_host, mut session, _runtime) = ready_runtime();
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let run = start(
+        &mut session,
+        loose(&[("load.js", LOADING)]),
+        Default::default(),
+    );
+    gate.wait();
+    queued_event(&observer);
+    run.stop_script();
+    gate.open();
+    assert_eq!(
+        run.wait(TIMEOUT).unwrap(),
+        ScriptOutcome::Stopped { reason: None }
+    );
+    drop(run);
+    assert_eq!(
+        debug_messages(&observer),
+        vec![vec![Value::String("queued event".into())]]
+    );
+}
+
+#[test]
+fn a_supervised_stop_queued_behind_an_event_while_the_module_loads_issues_no_game_call() {
+    let (gate, _guard) = held("module loading");
+    let logs = Logs::current().unwrap();
+    let (_host, mut session, observer) = supervised_session();
+    session
+        .start_script(loose(&[("load.js", LOADING)]))
+        .unwrap();
+    gate.wait();
+    queued_event(&observer);
+    session.stop_script();
+    logs.wait_for(tracing::Level::INFO, "session 1: stopping load.js");
+    gate.open();
+    wait_last_end(&session, "load.js was stopped");
+    assert_eq!(
+        debug_messages(&observer),
+        vec![vec![Value::String("queued event".into())]]
+    );
+}
+
+fn stopped_with(session: &mut Session, source: &str) -> String {
+    let outcome = start(session, loose(&[("timers.js", source)]), Default::default())
+        .wait(TIMEOUT)
+        .unwrap();
+    let ScriptOutcome::StoppedByScript {
+        reason: Some(reason),
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    reason
+}
+
+#[test]
+fn a_due_module_timer_runs_before_main() {
+    let (_host, mut session, _runtime) = ready_runtime();
+    let reason = stopped_with(
+        &mut session,
+        r#"
+        import * as script from "lucent/script";
+        let initialized = false;
+        setTimeout(() => { initialized = true; }, 0);
+        export default function* () {
+            yield* script.stop(String(initialized));
+        }
+    "#,
+    );
+    assert_eq!(reason, "true");
+}
+
+#[test]
+fn module_timers_run_before_main_and_the_timers_they_schedule_after_it() {
+    let (_host, mut session, _runtime) = ready_runtime();
+    let reason = stopped_with(
+        &mut session,
+        r#"
+        import { Effect } from "effect";
+        import * as script from "lucent/script";
+        const order = [];
+        const top = new Promise((resolve) => setTimeout(() => {
+            order.push("top-first");
+            setTimeout(() => { order.push("top-nested"); resolve(); }, 0);
+        }, 0));
+        setTimeout(() => order.push("top-second"), 0);
+        clearTimeout(setTimeout(() => order.push("cancelled"), 0));
+        export default function* () {
+            order.push("main");
+            yield* Effect.tryPromise(() => top);
+            const after = new Promise((resolve) => setTimeout(() => {
+                order.push("after-first");
+                resolve();
+            }, 0));
+            yield* Effect.sleep(0);
+            order.push("after-sleep");
+            yield* Effect.tryPromise(() => after);
+            yield* script.stop(JSON.stringify(order));
+        }
+    "#,
+    );
+    let order: Vec<String> = serde_json::from_str(&reason).unwrap();
+    assert_eq!(
+        order,
+        [
+            "top-first",
+            "top-second",
+            "main",
+            "top-nested",
+            "after-first",
+            "after-sleep"
+        ]
+    );
+}
