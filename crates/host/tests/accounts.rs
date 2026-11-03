@@ -892,6 +892,7 @@ fn credentials_stay_out_of_logs_errors_and_debug() {
 
     for source in [
         format!(r#"{{"accounts":[{{"label":"Hero","username":"Hero","password":{CANARY}}}]}}"#),
+        format!(r#"{{"accounts":[{{"label":"Hero","username":"Hero","password":"{CANARY}\q"}}]}}"#),
         format!(
             r#"{{"accounts":[{{"label":"Hero","username":"Hero","password":"{CANARY}"}},{{"label":1,"username":"Alt","password":"{CANARY}"}}],"groups":{{"Raiders":["{CANARY}"]}}}}"#
         ),

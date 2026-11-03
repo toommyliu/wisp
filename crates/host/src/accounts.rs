@@ -21,7 +21,7 @@ impl Accounts {
     }
 
     pub fn edit(&self, edit: AccountEdit) -> Reply<AccountsSnapshot> {
-        todo!()
+        self.ask(|answer| Request::Edit(edit, answer))
     }
 
     pub fn settings(&self, username: &str) -> Reply<ScriptOptions> {
@@ -37,7 +37,7 @@ impl Accounts {
     }
 
     pub fn watch(&self, waker: Waker) {
-        todo!()
+        self.app_data.changes.watch(waker);
     }
 
     fn ask<T>(&self, request: impl FnOnce(Answer<T>) -> Request) -> Reply<T> {

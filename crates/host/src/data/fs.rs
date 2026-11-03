@@ -163,3 +163,13 @@ pub(super) fn write_atomic(
     }
     result
 }
+
+pub(super) fn sync_directory(dir: &Dir) -> io::Result<()> {
+    #[cfg(unix)]
+    return dir.try_clone()?.into_std_file().sync_all();
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        Ok(())
+    }
+}

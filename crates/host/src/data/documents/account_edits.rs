@@ -1,11 +1,205 @@
-use super::accounts::AccountsDocument;
-use crate::accounts::{AccountEdit, AccountsError};
+use std::collections::HashSet;
+
+use super::accounts::{AccountsDocument, normalize};
+use super::json::JsMap;
+use super::trim;
+use crate::accounts::{Account, AccountEdit, AccountsError};
 
 pub(in crate::data) fn apply<'a>(
     edit: AccountEdit,
     stored: impl FnOnce() -> Result<&'a AccountsDocument, AccountsError>,
 ) -> Result<AccountsDocument, AccountsError> {
-    todo!()
+    let next = match edit {
+        AccountEdit::CreateAccount {
+            label,
+            username,
+            password,
+        } => {
+            let stored = stored()?;
+            let username = required(&username, "username")?;
+            let password = password
+                .trimmed()
+                .ok_or(AccountsError::Required("password"))?;
+            let label = label.as_deref().map(trim).filter(|label| !label.is_empty());
+            let label = label.map_or_else(|| username.clone(), str::to_owned);
+            if has_username(&stored.accounts, &username, None) {
+                return Err(AccountsError::UsernameTaken);
+            }
+            let mut next = stored.clone();
+            next.accounts.push(Account {
+                label,
+                username,
+                password,
+            });
+            next
+        }
+        AccountEdit::UpdateAccount {
+            username,
+            label,
+            new_username,
+            password,
+        } => {
+            let current = required(&username, "username")?;
+            let label = label.map(|label| required(&label, "label")).transpose()?;
+            let new_username = new_username
+                .map(|username| required(&username, "username"))
+                .transpose()?;
+            let password = password
+                .map(|password| {
+                    password
+                        .trimmed()
+                        .ok_or(AccountsError::Required("password"))
+                })
+                .transpose()?;
+            let stored = stored()?;
+            let new_username = new_username.unwrap_or_else(|| current.clone());
+            if has_username(&stored.accounts, &new_username, Some(&current)) {
+                return Err(AccountsError::UsernameTaken);
+            }
+            let mut next = stored.clone();
+            let account = next
+                .accounts
+                .iter_mut()
+                .find(|account| account.username == current);
+            let account = account.ok_or(AccountsError::AccountNotFound)?;
+            account.username = new_username.clone();
+            account.label = label.unwrap_or_else(|| account.label.clone());
+            account.password = password.unwrap_or_else(|| account.password.clone());
+            if current != new_username {
+                for members in next.groups.values_mut() {
+                    let mut seen = HashSet::new();
+                    let renamed = members.drain(..).map(|member| {
+                        if member == current {
+                            new_username.clone()
+                        } else {
+                            member
+                        }
+                    });
+                    *members = renamed
+                        .filter(|member| seen.insert(member.to_lowercase()))
+                        .collect();
+                }
+            }
+            next
+        }
+        AccountEdit::DeleteAccounts { usernames } => {
+            let requested = usernames
+                .iter()
+                .map(|username| required(username, "username"));
+            let requested = requested.collect::<Result<HashSet<_>, _>>()?;
+            let stored = stored()?;
+            let mut next = stored.clone();
+            next.accounts
+                .retain(|account| !requested.contains(&account.username));
+            if stored.accounts.len() - next.accounts.len() != requested.len() {
+                return Err(AccountsError::AccountsNotFound);
+            }
+            for members in next.groups.values_mut() {
+                members.retain(|member| !requested.contains(member));
+            }
+            next
+        }
+        AccountEdit::CreateGroup { name, usernames } => {
+            let stored = stored()?;
+            let name = required(&name, "group name")?;
+            let members = group_members(&usernames, &stored.accounts)?;
+            if has_group(&stored.groups, &name, None) {
+                return Err(AccountsError::GroupNameTaken);
+            }
+            let mut next = stored.clone();
+            next.groups.insert(name, members);
+            next
+        }
+        AccountEdit::UpdateGroup {
+            name,
+            new_name,
+            usernames,
+        } => {
+            let stored = stored()?;
+            let current = required(&name, "group name")?;
+            let existing =
+                find_group(&stored.groups, &current).ok_or(AccountsError::GroupNotFound)?;
+            let new_name = new_name
+                .map(|name| required(&name, "group name"))
+                .transpose()?;
+            let mut members = usernames
+                .map(|usernames| group_members(&usernames, &stored.accounts))
+                .transpose()?;
+            let new_name = new_name.unwrap_or_else(|| existing.to_owned());
+            if has_group(&stored.groups, &new_name, Some(existing)) {
+                return Err(AccountsError::GroupNameTaken);
+            }
+            let groups = stored.groups.iter().map(|(name, group)| {
+                if name == existing {
+                    let group = members.take().unwrap_or_else(|| group.clone());
+                    (new_name.clone(), group)
+                } else {
+                    (name.to_owned(), group.clone())
+                }
+            });
+            AccountsDocument {
+                accounts: stored.accounts.clone(),
+                groups: groups.collect(),
+            }
+        }
+        AccountEdit::DeleteGroup { name } => {
+            let stored = stored()?;
+            let name = required(&name, "group name")?;
+            let existing = find_group(&stored.groups, &name).ok_or(AccountsError::GroupNotFound)?;
+            let groups = stored.groups.iter().filter(|(name, _)| *name != existing);
+            AccountsDocument {
+                accounts: stored.accounts.clone(),
+                groups: groups
+                    .map(|(name, group)| (name.to_owned(), group.clone()))
+                    .collect(),
+            }
+        }
+    };
+    Ok(normalize(next))
+}
+
+fn required(value: &str, field: &'static str) -> Result<String, AccountsError> {
+    let value = trim(value);
+    if value.is_empty() {
+        return Err(AccountsError::Required(field));
+    }
+    Ok(value.to_owned())
+}
+
+fn has_username(accounts: &[Account], username: &str, except: Option<&str>) -> bool {
+    let key = username.to_lowercase();
+    let except = except.map(str::to_lowercase);
+    accounts.iter().any(|account| {
+        let other = account.username.to_lowercase();
+        other == key && Some(&other) != except.as_ref()
+    })
+}
+
+fn find_group<'a>(groups: &'a JsMap<Vec<String>>, name: &str) -> Option<&'a str> {
+    let key = name.to_lowercase();
+    let mut names = groups.iter().map(|(name, _)| name);
+    names.find(|name| name.to_lowercase() == key)
+}
+
+fn has_group(groups: &JsMap<Vec<String>>, name: &str, except: Option<&str>) -> bool {
+    let key = name.to_lowercase();
+    except.is_none_or(|except| except.to_lowercase() != key)
+        && groups.iter().any(|(name, _)| name.to_lowercase() == key)
+}
+
+fn group_members(usernames: &[String], accounts: &[Account]) -> Result<Vec<String>, AccountsError> {
+    let mut seen = HashSet::new();
+    let members = usernames.iter().map(|username| {
+        let username = required(username, "group username")?;
+        if !accounts.iter().any(|account| account.username == username) {
+            return Err(AccountsError::MemberNotFound(username));
+        }
+        if !seen.insert(username.to_lowercase()) {
+            return Err(AccountsError::DuplicateMember(username));
+        }
+        Ok(username)
+    });
+    members.collect()
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-mod account_edits;
+pub(super) mod account_edits;
 mod account_settings;
 pub(crate) mod accounts;
 mod json;

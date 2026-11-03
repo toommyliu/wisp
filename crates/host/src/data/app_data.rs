@@ -6,9 +6,9 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 
 use super::documents::accounts::{self, AccountsDocument};
-use super::documents::{Decoded, Issues, Loaded, Unreadable};
-use super::fs::{self, Failure};
-use crate::accounts::{AccountsError, AccountsSnapshot, Answer};
+use super::documents::{Decoded, Issues, Loaded, Unreadable, account_edits};
+use super::fs::{self, Failure, WriteFailure};
+use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, Answer};
 use crate::sessions::Changes;
 
 #[cfg(feature = "testing")]
@@ -24,12 +24,13 @@ pub(crate) struct AppData {
 
 pub(crate) enum Request {
     Snapshot(Answer<AccountsSnapshot>),
+    Edit(AccountEdit, Answer<AccountsSnapshot>),
 }
 
 impl Request {
     fn reject(self, error: AccountsError) {
         match self {
-            Request::Snapshot(answer) => answer.send(Err(error)),
+            Request::Snapshot(answer) | Request::Edit(_, answer) => answer.send(Err(error)),
         }
     }
 }
@@ -100,20 +101,43 @@ struct Worker {
 impl Worker {
     fn handle(&mut self, request: Request) {
         match request {
-            Request::Snapshot(answer) => answer.send(self.snapshot()),
+            Request::Snapshot(answer) => {
+                answer.send(self.accounts(true).map(AccountsDocument::snapshot))
+            }
+            Request::Edit(edit, answer) => answer.send(self.edit(edit)),
         }
     }
 
-    fn snapshot(&mut self) -> Result<AccountsSnapshot, AccountsError> {
-        let accounts = match &mut self.accounts {
+    fn accounts(&mut self, diagnostics: bool) -> Result<&AccountsDocument, AccountsError> {
+        Ok(match &mut self.accounts {
             Some(accounts) => accounts,
             cold @ None => cold.insert(self.store.load(
                 Document::Accounts,
                 accounts::decode,
-                true,
+                diagnostics,
             )?),
-        };
-        Ok(accounts.snapshot())
+        })
+    }
+
+    fn edit(&mut self, edit: AccountEdit) -> Result<AccountsSnapshot, AccountsError> {
+        let cold = self.accounts.is_none();
+        let committed = self.commit(edit);
+        if cold && committed.is_err() {
+            self.accounts = None;
+        }
+        committed
+    }
+
+    fn commit(&mut self, edit: AccountEdit) -> Result<AccountsSnapshot, AccountsError> {
+        let next = account_edits::apply(edit, || self.accounts(false))?;
+        let snapshot = next.snapshot();
+        if self.accounts.as_ref() != Some(&next) {
+            self.store
+                .write(Document::Accounts, &accounts::encode(&next))?;
+            self.accounts = Some(next);
+            self.changes.notify();
+        }
+        Ok(snapshot)
     }
 }
 
@@ -197,6 +221,43 @@ impl Store {
             }
         }
         fs::read(&dir, document.name()).map_err(failed)
+    }
+
+    fn write(&self, document: Document, contents: &[u8]) -> Result<(), AccountsError> {
+        let failed = |operation| move |failure| self.failure(operation, document, failure);
+        if contents.len() as u64 > fs::MAX_BYTES {
+            return Err(failed("write")(Failure::TooLarge));
+        }
+        let missing = || failed("mkdir")(Failure::Io(io::ErrorKind::NotFound.into()));
+        let mut dir = fs::open_root(&self.root, true)
+            .map_err(failed("mkdir"))?
+            .ok_or_else(missing)?;
+        if let Some(name) = document.directory() {
+            dir = fs::directory(&dir, name, true)
+                .map_err(failed("mkdir"))?
+                .ok_or_else(missing)?;
+        }
+        let renamed = fs::write_atomic(&dir, document.name(), contents, true, || {
+            #[cfg(feature = "testing")]
+            {
+                let probe = self.probe.lock().clone();
+                if let Some(probe) = probe {
+                    probe();
+                }
+            }
+        });
+        renamed.map_err(|failure| match failure {
+            WriteFailure::Write(failure) => failed("write")(failure),
+            WriteFailure::Rename(failure) => failed("rename")(failure),
+        })?;
+        if let Err(error) = fs::sync_directory(&dir) {
+            tracing::warn!(
+                path = document.log_path(),
+                %error,
+                "couldn't flush the app data folder after a save"
+            );
+        }
+        Ok(())
     }
 
     fn failure(

@@ -17,6 +17,11 @@ impl Password {
     pub fn reveal_for_editor(&self) -> &str {
         &self.0
     }
+
+    pub(super) fn trimmed(&self) -> Option<Password> {
+        let text = trim(&self.0);
+        (!text.is_empty()).then(|| Password(text.to_owned()))
+    }
 }
 
 impl fmt::Debug for Password {
@@ -25,7 +30,7 @@ impl fmt::Debug for Password {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub(in crate::data) struct AccountsDocument {
     pub(super) accounts: Vec<Account>,
     pub(super) groups: JsMap<Vec<String>>,
@@ -48,7 +53,18 @@ pub(in crate::data) fn decode(file: Option<&[u8]>) -> Loaded<AccountsDocument> {
     decode_document(file, from_object)
 }
 
-pub(super) fn encode(document: &AccountsDocument) -> Vec<u8> {
+pub(super) fn normalize(document: AccountsDocument) -> AccountsDocument {
+    let AccountsDocument { accounts, groups } = document;
+    let accounts = first_per_username(accounts);
+    let groups = groups.iter();
+    let groups = normalize_groups(
+        groups.map(|(name, members)| (name, members.iter().map(String::as_str).collect())),
+        &accounts,
+    );
+    AccountsDocument { accounts, groups }
+}
+
+pub(in crate::data) fn encode(document: &AccountsDocument) -> Vec<u8> {
     let accounts = first_per_username(&document.accounts);
     let groups = document.groups.iter();
     let groups = normalize_groups(
