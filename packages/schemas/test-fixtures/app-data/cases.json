@@ -493,6 +493,32 @@
     }
   },
   {
+    "name": "places a bad escape of a Latin-1 character",
+    "document": "accounts",
+    "input": "accounts/escaped-latin-1-character.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 15
+    }
+  },
+  {
+    "name": "gives no position for a bad escape of a character above Latin-1",
+    "document": "accounts",
+    "input": "accounts/escaped-character-above-latin-1.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "gives no position for a bad escape of invalid UTF-8",
+    "document": "accounts",
+    "input": "accounts/escaped-invalid-utf-8.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
     "name": "reads lone surrogate escapes",
     "document": "accounts",
     "input": "accounts/lone-surrogates.in",

@@ -129,6 +129,8 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Json, ParseError> {
     })
 }
 
+const LAST_LATIN_1_LEAD_BYTE: u8 = 0xC3;
+
 #[derive(Clone, Copy)]
 enum Failure {
     At(usize),
@@ -316,7 +318,8 @@ impl Parser<'_> {
                 text.extend(decoded.map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)));
                 return Ok(());
             }
-            _ => return Err(Failure::At(self.at - 1)),
+            ..=LAST_LATIN_1_LEAD_BYTE => return Err(Failure::At(self.at - 1)),
+            _ => return Err(Failure::Unplaced),
         };
         text.push(unescaped);
         Ok(())
