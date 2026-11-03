@@ -674,6 +674,47 @@ fn an_event_queued_while_the_module_loads_keeps_the_module_timer_order() {
     assert_timer_order(&reason);
 }
 
+#[test]
+fn a_timer_set_in_main_fires_before_a_zero_sleep_while_events_arrive() {
+    let (gate, _guard) = held("main waiting");
+    let (_host, mut session, _runtime) = ready_runtime();
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let run = start(
+        &mut session,
+        loose(&[(
+            "events.js",
+            r#"
+            import { Effect } from "effect";
+            import * as script from "lucent/script";
+            export default function* () {
+                const order = [];
+                const resumed = new Promise((resolve) => setTimeout(resolve, 0));
+                console.log("main waiting");
+                yield* Effect.tryPromise(() => resumed);
+                const timer = new Promise((resolve) => setTimeout(() => {
+                    order.push("timer");
+                    resolve();
+                }, 0));
+                yield* Effect.sleep(0);
+                order.push("sleep");
+                yield* Effect.tryPromise(() => timer);
+                yield* script.stop(JSON.stringify(order));
+            }
+        "#,
+        )]),
+        Default::default(),
+    );
+    gate.wait();
+    queued_event(&observer);
+    gate.open();
+    assert_eq!(
+        run.wait(TIMEOUT).unwrap(),
+        ScriptOutcome::StoppedByScript {
+            reason: Some(r#"["timer","sleep"]"#.into())
+        }
+    );
+}
+
 const TIMER_BEFORE_MAIN: &str = r#"
     import * as api from "lucent/api";
     setTimeout(() => console.log("module timer"), 0);
