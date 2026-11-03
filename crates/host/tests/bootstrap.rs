@@ -605,36 +605,33 @@ fn a_due_module_timer_runs_before_main() {
     assert_eq!(reason, "true");
 }
 
-#[test]
-fn module_timers_run_before_main_and_the_timers_they_schedule_after_it() {
-    let (_host, mut session, _runtime) = ready_runtime();
-    let reason = stopped_with(
-        &mut session,
-        r#"
-        import { Effect } from "effect";
-        import * as script from "lucent/script";
-        const order = [];
-        const top = new Promise((resolve) => setTimeout(() => {
-            order.push("top-first");
-            setTimeout(() => { order.push("top-nested"); resolve(); }, 0);
+const TIMER_ORDER: &str = r#"
+    import { Effect } from "effect";
+    import * as script from "lucent/script";
+    const order = [];
+    const top = new Promise((resolve) => setTimeout(() => {
+        order.push("top-first");
+        setTimeout(() => { order.push("top-nested"); resolve(); }, 0);
+    }, 0));
+    setTimeout(() => order.push("top-second"), 0);
+    clearTimeout(setTimeout(() => order.push("cancelled"), 0));
+    console.log("module loaded");
+    export default function* () {
+        order.push("main");
+        yield* Effect.tryPromise(() => top);
+        const after = new Promise((resolve) => setTimeout(() => {
+            order.push("after-first");
+            resolve();
         }, 0));
-        setTimeout(() => order.push("top-second"), 0);
-        clearTimeout(setTimeout(() => order.push("cancelled"), 0));
-        export default function* () {
-            order.push("main");
-            yield* Effect.tryPromise(() => top);
-            const after = new Promise((resolve) => setTimeout(() => {
-                order.push("after-first");
-                resolve();
-            }, 0));
-            yield* Effect.sleep(0);
-            order.push("after-sleep");
-            yield* Effect.tryPromise(() => after);
-            yield* script.stop(JSON.stringify(order));
-        }
-    "#,
-    );
-    let order: Vec<String> = serde_json::from_str(&reason).unwrap();
+        yield* Effect.sleep(0);
+        order.push("after-sleep");
+        yield* Effect.tryPromise(() => after);
+        yield* script.stop(JSON.stringify(order));
+    }
+"#;
+
+fn assert_timer_order(reason: &str) {
+    let order: Vec<String> = serde_json::from_str(reason).unwrap();
     assert_eq!(
         order,
         [
@@ -646,4 +643,126 @@ fn module_timers_run_before_main_and_the_timers_they_schedule_after_it() {
             "after-sleep"
         ]
     );
+}
+
+#[test]
+fn module_timers_run_before_main_and_the_timers_they_schedule_after_it() {
+    let (_host, mut session, _runtime) = ready_runtime();
+    assert_timer_order(&stopped_with(&mut session, TIMER_ORDER));
+}
+
+#[test]
+fn an_event_queued_while_the_module_loads_keeps_the_module_timer_order() {
+    let (gate, _guard) = held("module loaded");
+    let (_host, mut session, _runtime) = ready_runtime();
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let run = start(
+        &mut session,
+        loose(&[("timers.js", TIMER_ORDER)]),
+        Default::default(),
+    );
+    gate.wait();
+    queued_event(&observer);
+    gate.open();
+    let outcome = run.wait(TIMEOUT).unwrap();
+    let ScriptOutcome::StoppedByScript {
+        reason: Some(reason),
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_timer_order(&reason);
+}
+
+const TIMER_BEFORE_MAIN: &str = r#"
+    import * as api from "lucent/api";
+    setTimeout(() => console.log("module timer"), 0);
+    export default function* () {
+        yield* api.packet.sendToClient("started");
+    }
+"#;
+
+#[test]
+fn a_stop_while_a_module_timer_runs_before_main_issues_no_game_call() {
+    let (gate, _guard) = held("module timer");
+    let (_host, mut session, _runtime) = ready_runtime();
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let run = start(
+        &mut session,
+        loose(&[("timer.js", TIMER_BEFORE_MAIN)]),
+        Default::default(),
+    );
+    gate.wait();
+    run.stop_script();
+    gate.open();
+    assert_eq!(
+        run.wait(TIMEOUT).unwrap(),
+        ScriptOutcome::Stopped { reason: None }
+    );
+    drop(run);
+    only_the_next_run_reaches_the_player(&mut session, &observer);
+}
+
+#[test]
+fn a_kill_while_a_module_timer_runs_before_main_issues_no_game_call() {
+    let (gate, _guard) = held("module timer");
+    let (_host, mut session, _runtime) = ready_runtime();
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let run = start(
+        &mut session,
+        loose(&[("timer.js", TIMER_BEFORE_MAIN)]),
+        Default::default(),
+    );
+    gate.wait();
+    run.kill();
+    gate.open();
+    let outcome = run.wait(TIMEOUT);
+    assert!(
+        matches!(outcome, Err(RuntimeError::Killed(Kill::Requested))),
+        "{outcome:?}"
+    );
+    drop(run);
+    only_the_next_run_reaches_the_player(&mut session, &observer);
+}
+
+#[test]
+fn a_player_restart_while_a_module_timer_runs_before_main_issues_no_game_call() {
+    let (gate, _guard) = held("module timer");
+    let (_host, mut session, _observer) = supervised_session();
+    session
+        .start_script(loose(&[("timer.js", TIMER_BEFORE_MAIN)]))
+        .unwrap();
+    gate.wait();
+    session.restart_player(testing::headless_surface()).unwrap();
+    gate.open();
+    wait_last_end(&session, "timer.js ended because its player stopped");
+    let observer = replacement_link(&mut session);
+    only_the_next_run_reaches_the_player(&mut session, &observer);
+}
+
+#[test]
+fn a_watchdog_in_a_module_timer_before_main_issues_no_game_call() {
+    let (_host, mut session, _runtime) = ready_runtime();
+    let observer = session.attach(EventInterests::ALL).unwrap();
+    let run = start(
+        &mut session,
+        loose(&[(
+            "spin.js",
+            r#"
+            import * as api from "lucent/api";
+            setTimeout(() => { while (true) {} }, 0);
+            export default function* () {
+                yield* api.packet.sendToClient("started");
+            }
+        "#,
+        )]),
+        Default::default(),
+    );
+    let outcome = run.wait(TIMEOUT);
+    assert!(
+        matches!(outcome, Err(RuntimeError::Killed(Kill::Watchdog))),
+        "{outcome:?}"
+    );
+    drop(run);
+    only_the_next_run_reaches_the_player(&mut session, &observer);
 }
