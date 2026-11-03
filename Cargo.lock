@@ -4164,6 +4164,7 @@ dependencies = [
  "ruffle_frontend_utils",
  "ruffle_render",
  "ruffle_render_wgpu",
+ "same-file",
  "serde",
  "serde_json",
  "swf 0.3.0 (git+https://github.com/toommyliu/ruffle?rev=b22a3560baeddbfb92001f54b47561997563a032)",

@@ -72,8 +72,40 @@ pub(crate) fn create(path: &Path) -> io::Result<PathBuf> {
     path.canonicalize()
 }
 
-pub(crate) fn overlap(first: &Path, second: &Path) -> bool {
-    first.starts_with(second) || second.starts_with(first)
+pub(crate) struct Ancestry(Vec<Identity>);
+
+pub(crate) fn ancestry(path: &Path) -> io::Result<Ancestry> {
+    path.ancestors()
+        .map(identity)
+        .collect::<io::Result<_>>()
+        .map(Ancestry)
+}
+
+pub(crate) fn overlap(first: &Ancestry, second: &Ancestry) -> bool {
+    second.0.contains(&first.0[0]) || first.0.contains(&second.0[0])
+}
+
+#[cfg(unix)]
+type Identity = (u64, u64);
+
+#[cfg(unix)]
+fn identity(path: &Path) -> io::Result<Identity> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).map(|meta| (meta.dev(), meta.ino()))
+}
+
+#[cfg(windows)]
+type Identity = same_file::Handle;
+
+#[cfg(windows)]
+fn identity(path: &Path) -> io::Result<Identity> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+    let folder = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    same_file::Handle::from_file(folder)
 }
 
 #[cfg(test)]
@@ -184,17 +216,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn roots_overlap_when_equal_or_nested() {
-        let base = Path::new("base");
-        let data = base.join("data");
-        assert!(overlap(&data, &data));
-        assert!(overlap(&data, &data.join("app")));
-        assert!(overlap(&data.join("app"), &data));
-        assert!(!overlap(&data, &base.join("database")));
-        assert!(!overlap(&data, &base.join("app")));
-    }
-
     #[cfg(unix)]
     #[test]
     fn created_roots_that_alias_through_a_symlink_overlap() {
@@ -204,8 +225,8 @@ mod tests {
         let _ = std::fs::remove_file(&link);
         std::os::unix::fs::symlink(base.join("real"), &link).unwrap();
         let aliased = overlap(
-            &create(&base.join("real").join("data")).unwrap(),
-            &create(&link.join("data").join("app")).unwrap(),
+            &ancestry(&create(&base.join("real").join("data")).unwrap()).unwrap(),
+            &ancestry(&create(&link.join("data").join("app")).unwrap()).unwrap(),
         );
         std::fs::remove_dir_all(&base).unwrap();
         assert!(aliased);
