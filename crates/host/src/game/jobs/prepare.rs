@@ -149,7 +149,7 @@ impl Preparing {
             State::New => {
                 let profile = request.executor.profile();
                 let uses_consumable = uses_consumable(profile);
-                let class_names = if matches!(request.kind, JobKind::AutoAttack(_)) {
+                let class_names = if request.kind.session() {
                     profile.class_names.clone().unwrap_or_default()
                 } else {
                     Vec::new()

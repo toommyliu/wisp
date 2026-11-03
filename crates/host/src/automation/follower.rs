@@ -1,7 +1,7 @@
-#![allow(dead_code, reason = "The pure follower core has no driver yet.")]
-
+mod driver;
 mod movement;
 mod types;
+pub use driver::FollowerPolicy;
 pub(crate) use types::*;
 #[cfg(test)]
 mod tests;
@@ -81,6 +81,17 @@ impl Follower {
     pub fn status(&self) -> &Status {
         &self.status
     }
+    pub fn target_name(&self) -> &str {
+        &self.config.target_name
+    }
+    pub fn restore(&mut self, status: Status) {
+        if !self.status.running {
+            self.status = Status {
+                running: false,
+                ..status
+            };
+        }
+    }
     pub fn configure(&mut self, mut config: Config) -> bool {
         if self.status.running {
             return false;
@@ -110,9 +121,8 @@ impl Follower {
     }
     fn stop(&mut self, reason: &str, error: Option<String>, effects: &mut Vec<Effect>) {
         self.cancel_pending(effects);
-        effects.push(Effect::StopCombat {
-            id: self.combat.take(),
-        });
+        self.combat = None;
+        effects.push(Effect::StopCombat);
         self.engaged = false;
         self.status.enabled = false;
         self.status.running = false;
@@ -298,6 +308,24 @@ impl Follower {
             }
         }
     }
+    fn joined_own_fallback(&self, snapshot: &Snapshot) -> bool {
+        let (Stage::Pending {
+            kind: Pending::Join { index },
+            ..
+        }
+        | Stage::LateRoomFull { index, .. }) = self.stage
+        else {
+            return false;
+        };
+        let Some(map) = self.config.locked_zone_fallbacks.get(index) else {
+            return false;
+        };
+        let destination = fallback_map(map, &self.config.locked_zone_room_override);
+        snapshot
+            .me
+            .as_ref()
+            .is_some_and(|me| travel::map_name(&destination).eq_ignore_ascii_case(&me.location.map))
+    }
     fn deadline(&self, now: u64) -> Option<u64> {
         if !self.status.running {
             return None;
@@ -356,19 +384,15 @@ impl Follower {
                     actions: effects,
                 };
             }
-            Event::Stop | Event::Reset => {
+            Event::Stop => {
                 if self.status.running {
                     self.stop("Stopped by user", None, &mut effects);
                 }
-                if matches!(event, Event::Reset) {
-                    self.status = Status::default();
-                } else {
-                    self.status.attempts_remaining = 3;
-                    self.status.last_error = None;
-                    self.status.phase = Phase::Stopped;
-                    self.status.stopped_reason = Some("Stopped by user".into());
-                    self.status.warnings.clear();
-                }
+                self.status.attempts_remaining = 3;
+                self.status.last_error = None;
+                self.status.phase = Phase::Stopped;
+                self.status.stopped_reason = Some("Stopped by user".into());
+                self.status.warnings.clear();
                 return Effects {
                     actions: effects,
                     next_deadline: None,
@@ -398,11 +422,6 @@ impl Follower {
                 if self.combat == Some(id) {
                     match event {
                         CombatEvent::Attacking if self.engaged => self.status.phase = Phase::Combat,
-                        CombatEvent::Attacked => self.status.last_error = None,
-                        CombatEvent::AsyncFailure(message) => {
-                            self.status.last_error =
-                                Some(nonempty(message, "Message trigger failed"))
-                        }
                         CombatEvent::Failed(message) => self.stop(
                             "Combat profile failed",
                             Some(nonempty(message, "Combat profile failed")),
@@ -430,14 +449,19 @@ impl Follower {
             }
             Event::OwnMapJoined | Event::ConnectionChanged => {
                 self.movement = Movement::default();
-                self.wake(&mut effects);
+                if matches!(event, Event::ConnectionChanged) || !self.joined_own_fallback(snapshot)
+                {
+                    self.wake(&mut effects);
+                }
             }
             Event::PlayersChanged => {
-                if self.target_present != snapshot.target.is_some() || !self.traveling() {
+                let present = snapshot.target.is_some();
+                if self.target_present != present || !self.traveling() {
                     self.wake(&mut effects);
                 } else {
                     self.wake_deferred = true;
                 }
+                self.target_present = present;
             }
             Event::ReadinessChanged => {
                 if self.traveling() {
@@ -451,7 +475,6 @@ impl Follower {
             }
             _ => {}
         }
-        self.target_present = snapshot.target.is_some();
         for _ in 0..8 {
             let stage = std::mem::replace(&mut self.stage, Stage::Dormant);
             match stage {

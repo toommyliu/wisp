@@ -47,10 +47,10 @@ const MAX_MESSAGES: usize = 16;
 mod owner;
 pub(crate) mod safe_move;
 pub(crate) mod travel;
+use owner::JobRequest;
 #[cfg(feature = "testing")]
 pub(crate) use owner::{ActionProbe, ObservationProbe, SafeMoveProbe, TravelObservationProbe};
-pub(crate) use owner::{JobGate, JobRequests, ScriptJobs};
-use owner::{JobKind, JobRequest};
+pub(crate) use owner::{JobGate, JobKind, JobRequests, ScriptJobs};
 
 #[derive(Clone, Copy)]
 pub(crate) struct JobClock {
@@ -607,6 +607,16 @@ impl Job {
             self.cancel();
             return;
         }
+        if let JobKind::Follower(shared) = &self.request.kind {
+            if !self.request.player.stopped.load(Ordering::Acquire) {
+                shared.report(
+                    self.request.id,
+                    crate::automation::follower::CombatEvent::Failed(error),
+                );
+            }
+            self.cancel();
+            return;
+        }
         inbox.post(Msg::OperationAnswer(
             self.request.owner.attachment,
             ScriptEvent::JobFailed {
@@ -628,6 +638,16 @@ impl Job {
                 .unwrap_or_default();
             records.status.warnings = self.request.executor.warnings().to_vec();
             shared.changes.set(&shared.records, records);
+            self.prepared = true;
+            return;
+        }
+        if let JobKind::Follower(shared) = &self.request.kind {
+            shared.report(
+                self.request.id,
+                crate::automation::follower::CombatEvent::Warnings(
+                    self.request.executor.warnings().to_vec(),
+                ),
+            );
             self.prepared = true;
             return;
         }
@@ -963,6 +983,14 @@ impl Job {
                     ));
                     let recovery = state.recovery;
                     drop(state);
+                    if let (Action::Attack(_), Some(_), JobKind::Follower(shared)) =
+                        (action, cycle, &self.request.kind)
+                    {
+                        shared.report(
+                            self.request.id,
+                            crate::automation::follower::CombatEvent::Attacking,
+                        );
+                    }
                     self.waiting = Waiting::Action {
                         pending,
                         command,

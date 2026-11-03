@@ -232,6 +232,8 @@ const answer = (state: FakeHostState, query: Query): unknown => {
       throw new Error("Environment state requires the native host");
     case "autoAttack":
       throw new Error("Auto attack requires the native host");
+    case "follower":
+      throw new Error("The follower requires the native host");
     case "combatState":
       throw new Error("Combat state requires the native host");
     case "autoRelogin":
@@ -332,6 +334,9 @@ const run = (state: FakeHostState, loader: Loader, command: Command) => {
       throw new Error("Combat state hydration requires the native host");
     case "enableAutoAttack":
     case "disableAutoAttack":
+    case "configureFollower":
+    case "startFollower":
+    case "stopFollower":
     case "setAutoReloginEnabled":
     case "setAutoReloginDelay":
     case "setAutoReloginServer":

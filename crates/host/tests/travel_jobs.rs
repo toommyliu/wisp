@@ -61,7 +61,7 @@ fn await_no_travel(session: &lucent_host::Session) {
 
 fn await_dialog(
     session: &lucent_host::Session,
-    run: &lucent_host::scripting::ScriptRun,
+    run: Option<&lucent_host::scripting::ScriptRun>,
     timeout: Duration,
 ) -> ScriptDialog {
     struct Unpark(std::thread::Thread);
@@ -76,8 +76,10 @@ fn await_dialog(
         if let Some(dialog) = session.script_dialog() {
             return dialog;
         }
-        let outcome = run.wait(Duration::ZERO);
-        assert!(matches!(outcome, Err(RuntimeError::Timeout)), "{outcome:?}");
+        if let Some(run) = run {
+            let outcome = run.wait(Duration::ZERO);
+            assert!(matches!(outcome, Err(RuntimeError::Timeout)), "{outcome:?}");
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         assert!(
             !remaining.is_zero(),
@@ -153,7 +155,7 @@ fn an_unanswered_travel_action_returns_false_near_five_seconds() {
         )]),
         Default::default(),
     );
-    let ready = await_dialog(&session, &run, TIMEOUT);
+    let ready = await_dialog(&session, Some(&run), TIMEOUT);
     assert_eq!(ready.message, "ready");
     let (entered, arrived) = mpsc::channel();
     let (release, held) = mpsc::channel::<()>();
@@ -164,7 +166,7 @@ fn an_unanswered_travel_action_returns_false_near_five_seconds() {
     arrived.recv_timeout(TIMEOUT).unwrap();
     let began = Instant::now();
     session.respond_dialog(ready.id, ScriptDialogResponse::Dismissed);
-    let result = await_dialog(&session, &run, Duration::from_secs(8));
+    let result = await_dialog(&session, Some(&run), Duration::from_secs(8));
     let elapsed = began.elapsed();
     drop(release);
     assert_eq!(result.message, "false");
@@ -204,7 +206,7 @@ fn a_travel_completion_reaches_its_script_while_the_player_is_held() {
     let release_player = release;
     arrived.recv_timeout(TIMEOUT).unwrap();
     await_no_travel(&session);
-    let result = await_dialog(&session, &run, TIMEOUT);
+    let result = await_dialog(&session, Some(&run), TIMEOUT);
     drop(release_player);
     assert_eq!(result.message, "false");
     session.respond_dialog(result.id, ScriptDialogResponse::Dismissed);
@@ -467,7 +469,7 @@ fn a_fiber_timeout_cancels_travel_while_its_run_continues() {
         .recv_timeout(TIMEOUT)
         .unwrap();
     await_no_travel(&session);
-    let dialog = await_dialog(&session, &run, TIMEOUT);
+    let dialog = await_dialog(&session, Some(&run), TIMEOUT);
     assert_eq!(dialog.message, "continue");
     let outcome = run.wait(std::time::Duration::ZERO);
     assert!(matches!(outcome, Err(RuntimeError::Timeout)), "{outcome:?}");
@@ -509,4 +511,198 @@ fn oversized_travel_input_returns_false_without_a_loader_call() {
         );
     }
     await_no_travel(&session);
+}
+
+#[test]
+fn a_script_jump_queued_before_connection_loss_is_never_issued() {
+    let (mut session, observer, _supervisor) = setup();
+    let run = start(
+        &mut session,
+        loose(&[(
+            "lost.js",
+            r#"
+        import * as api from "lucent/api";
+        import * as script from "lucent/script";
+        export default function* () {
+            yield* script.alert("ready");
+            yield* api.player.jumpToCell("r2", "Left");
+        }
+    "#,
+        )]),
+        Default::default(),
+    );
+    let ready = await_dialog(&session, Some(&run), TIMEOUT);
+    let (reached, queued) = mpsc::channel();
+    let (release_controller, waits) = mpsc::channel::<()>();
+    let probe = Mutex::new(Some((reached, waits)));
+    session.set_queued_call_probe(move |name| {
+        if name == "player.jump"
+            && let Some((reached, waits)) = probe.lock().unwrap().take()
+        {
+            let _ = reached.send(());
+            let _ = waits.recv_timeout(TIMEOUT);
+        }
+    });
+    let (entered, arrived) = mpsc::channel();
+    let (release_player, held) = mpsc::channel::<()>();
+    let _hold = session.read_projection(move |_| {
+        let _ = entered.send(());
+        let _ = held.recv_timeout(TIMEOUT);
+    });
+    arrived.recv_timeout(TIMEOUT).unwrap();
+    let lost = observer.call_loader(
+        "probe.emit",
+        vec![
+            Value::String("onConnection".into()),
+            Value::String("OnConnectionLost".into()),
+        ],
+    );
+    session.respond_dialog(ready.id, ScriptDialogResponse::Dismissed);
+    queued.recv_timeout(TIMEOUT).unwrap();
+    drop(release_player);
+    lost.recv_timeout(TIMEOUT).unwrap();
+    observer
+        .call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    let mut calls = Vec::new();
+    while let Some(event) = observer.try_event().unwrap() {
+        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event
+            && event.name == "onProbeCall"
+        {
+            calls.push(event.args[0].clone());
+        }
+    }
+    drop(release_controller);
+    assert!(
+        !calls.contains(&Value::String("player.jump".into())),
+        "{calls:?}"
+    );
+    run.wait(TIMEOUT).unwrap();
+    await_no_travel(&session);
+}
+
+fn result_after_a_connection_change(
+    session: &mut lucent_host::Session,
+    observer: &lucent_host::ScriptLink,
+    supervisor: &mut Supervisor,
+    travel: &str,
+    trigger: Reads,
+) -> (String, Vec<String>) {
+    while observer.try_event().unwrap().is_some() {}
+    let epoch = observer.read(|p| p.receipts.epoch()).unwrap();
+    let emitting = Mutex::new(
+        session
+            .attach(lucent_host::bridge::EventInterests::ALL)
+            .unwrap(),
+    );
+    let steps = Arc::new(Mutex::new(Vec::new()));
+    let changes = Arc::new(Mutex::new(Vec::new()));
+    let (log, changed) = (steps.clone(), changes.clone());
+    let armed = std::sync::atomic::AtomicBool::new(true);
+    session.set_travel_observation_probe(move |reads, _| {
+        log.lock().unwrap().push("observation".to_owned());
+        if reads.contains(trigger) && armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            log.lock().unwrap().push("connection".to_owned());
+            changed
+                .lock()
+                .unwrap()
+                .push(emitting.lock().unwrap().call_loader(
+                    "probe.emit",
+                    vec![
+                        Value::String("onConnection".into()),
+                        Value::String("OnConnection".into()),
+                    ],
+                ));
+        }
+    });
+    let log = steps.clone();
+    session.set_queued_call_probe(move |name| log.lock().unwrap().push(name.to_owned()));
+    let source = format!(
+        r#"
+        import * as api from "lucent/api";
+        import * as script from "lucent/script";
+        export default function* () {{ yield* script.alert(String(yield* {travel})); }}
+    "#
+    );
+    let controls = supervisor
+        .start_script(session, loose(&[("obsolete.js", &source)]))
+        .unwrap();
+    let dialog = await_dialog(session, None, TIMEOUT);
+    for change in changes.lock().unwrap().drain(..) {
+        change.recv_timeout(TIMEOUT).unwrap();
+    }
+    assert_eq!(observer.read(|p| p.receipts.epoch()).unwrap(), epoch + 1);
+    assert_eq!(
+        session.script_status().phase,
+        lucent_protocol::script::ScriptPhase::Running
+    );
+    observer
+        .call_loader("probe.echo", vec![])
+        .recv_timeout(TIMEOUT)
+        .unwrap();
+    let mut connected = false;
+    while let Some(event) = observer.try_event().unwrap() {
+        if let lucent_host::bridge::ScriptEvent::Loader { event, .. } = event {
+            connected |= event.name == "onConnection";
+            assert!(
+                !(connected && event.name == "onProbeCall"),
+                "{travel} reached the game after the connection changed: {:?}",
+                event.args
+            );
+        }
+    }
+    assert!(connected);
+    controls.stop();
+    let steps = steps.lock().unwrap().clone();
+    let after = steps
+        .split(|step| step == "connection")
+        .nth(1)
+        .unwrap_or_else(|| panic!("{travel} never observed {trigger:?}: {steps:?}"))
+        .to_vec();
+    (dialog.message, after)
+}
+
+#[test]
+fn a_supervised_script_never_observes_exit_success_from_an_obsolete_connection() {
+    let (mut session, observer, mut supervisor) =
+        setup_with(|movie| movie.responding("world.getCells", [(json!(["r1", "r2"]), vec![])]));
+    observer.call_loader("probe.emit", vec![Value::String("onExtensionResponse".into()), Value::String(json!({"type":"json","dataObj":{"cmd":"uotls","unm":"player-a","o":{"intState":2,"strFrame":"r1","strPad":"Left"}}}).to_string())]).recv_timeout(TIMEOUT).unwrap();
+    let (result, after) = result_after_a_connection_change(
+        &mut session,
+        &observer,
+        &mut supervisor,
+        "api.combat.exit()",
+        Reads::EXIT,
+    );
+    assert_eq!(result, "false");
+    assert_eq!(after, ["combat.cancelAutoAttack"]);
+}
+
+#[test]
+fn a_join_on_an_obsolete_connection_fails_at_its_next_poll() {
+    let (mut session, observer, mut supervisor) = setup();
+    let (result, after) = result_after_a_connection_change(
+        &mut session,
+        &observer,
+        &mut supervisor,
+        "api.player.joinMap(\"doom\")",
+        Reads::LOAD,
+    );
+    assert_eq!(result, "false");
+    assert_eq!(after, ["observation"]);
+}
+
+#[test]
+fn a_jump_on_an_obsolete_connection_fails_at_its_cell_check() {
+    let (mut session, observer, mut supervisor) = setup();
+    let (result, after) = result_after_a_connection_change(
+        &mut session,
+        &observer,
+        &mut supervisor,
+        "api.player.jumpToCell(\"r2\", \"Left\")",
+        Reads::LIVE,
+    );
+    assert_eq!(result, "false");
+    assert_eq!(after, ["world.isCellReady"]);
 }

@@ -249,6 +249,10 @@ pub enum ScriptEvent {
         area: u64,
         key: crate::game::profile::TargetKey,
     },
+    ServerMessage {
+        command: String,
+        message: String,
+    },
     OperationResponsibility {
         id: u64,
         responsible: bool,

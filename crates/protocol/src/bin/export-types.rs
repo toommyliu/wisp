@@ -2,9 +2,9 @@ use std::{env, fs, path::PathBuf};
 
 use lucent_protocol::{
     aura::*, auth::*, auto_attack::*, auto_relogin::*, auto_zone::*, combat_profile::*,
-    combat_state::*, command::*, environment::*, event::*, hydration::*, item::*, monster_drop::*,
-    operation::*, packet::*, query::*, quest::*, readiness::*, script::*, script_options::*,
-    settings::*, shop::*, world::*,
+    combat_state::*, command::*, environment::*, event::*, follower::*, hydration::*, item::*,
+    monster_drop::*, operation::*, packet::*, query::*, quest::*, readiness::*, script::*,
+    script_options::*, settings::*, shop::*, world::*,
 };
 use ts_rs::{Config, TS};
 
@@ -43,6 +43,11 @@ fn declarations(config: &Config) -> String {
         AutoAttackConfig,
         AutoAttackStatus,
         AutoAttackRecords,
+        FollowerAttackTarget,
+        FollowerConfig,
+        FollowerPhase,
+        FollowerStatus,
+        FollowerRecords,
         AutoReloginConfig,
         AutoReloginPhase,
         AutoReloginStatus,
