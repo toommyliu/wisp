@@ -3,6 +3,7 @@ import type { ScriptInputValues } from "@lucent/schemas/scriptInputs";
 import type * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import type * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 
 import { makeApi } from "../game/flash/api/Api";
 import { makeBridge } from "../game/flash/bridge/Bridge";
@@ -115,7 +116,7 @@ const run = (
     yield* Effect.callback<void>((resume) => {
       requestEnter(() => resume(Effect.void));
     });
-    const exit = yield* Effect.exit(
+    const script = yield* Effect.forkChild(
       Effect.gen(function* () {
         return yield* main() as Generator<
           Effect.Effect<any, any, never>,
@@ -123,6 +124,10 @@ const run = (
           any
         >;
       }),
+      { startImmediately: true },
+    );
+    const exit = yield* Fiber.await(script).pipe(
+      Effect.onInterrupt(() => Fiber.interrupt(script)),
     );
     end({ kind: "finished", exit });
   }).pipe(Effect.scoped);

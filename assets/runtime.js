@@ -3347,6 +3347,12 @@ ${prefix}}`;
     annotations.set(InterruptorStackTrace.key, fiber2.cache.stackFrame);
     return makeUnsafe(annotations);
   }, "fiberStackAnnotations");
+  var fiberInterruptChildren = /* @__PURE__ */ __name((fiber2) => {
+    if (fiber2._children === void 0 || fiber2._children.size === 0) {
+      return void 0;
+    }
+    return fiberInterruptAll(fiber2._children);
+  }, "fiberInterruptChildren");
   var fiberAwait = /* @__PURE__ */ __name((self) => {
     const impl = self;
     if (impl._exit) return succeed3(impl._exit);
@@ -4344,6 +4350,10 @@ ${prefix}}`;
       }
     }
   });
+  var forkChild = /* @__PURE__ */ dual((args2) => isEffect(args2[0]), (self, options) => withFiber((fiber2) => {
+    interruptChildrenPatch();
+    return succeed3(forkUnsafe(fiber2, self, options?.startImmediately, false, options?.uninterruptible ?? false));
+  }));
   var forkUnsafe = /* @__PURE__ */ __name((parent, effect, immediate = false, daemon = false, uninterruptible3 = false) => {
     const parentRuntime = parent;
     const interruptible2 = uninterruptible3 === "inherit" ? parentRuntime.interruptible : !uninterruptible3;
@@ -4892,6 +4902,10 @@ ${prefix}}`;
     }
     span.event(toStringUnknown(Array.isArray(message2) && message2.length === 1 ? message2[0] : message2), clock.currentTimeNanosUnsafe(), attributes);
   });
+  function interruptChildrenPatch() {
+    fiberMiddleware.interruptChildren ??= fiberInterruptChildren;
+  }
+  __name(interruptChildrenPatch, "interruptChildrenPatch");
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Exit.js
   var succeed4 = exitSucceed;
@@ -5336,6 +5350,7 @@ ${prefix}}`;
   var uninterruptible2 = uninterruptible;
   var forever3 = forever;
   var repeat2 = repeat;
+  var forkChild2 = forkChild;
   var forkIn2 = forkIn;
   var forkScoped2 = forkScoped;
   var runForkWith2 = runForkWith;
@@ -5692,6 +5707,12 @@ ${prefix}}`;
     Reflect.deleteProperty(globalThis, "__lucent");
     Reflect.deleteProperty(window, "swf");
   }, "hideInternals");
+
+  // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Fiber.js
+  var await_ = fiberAwait;
+  var join = fiberJoin;
+  var interrupt4 = fiberInterrupt;
+  var runIn = fiberRunIn;
 
   // packages/game/src/model.ts
   var normalizeGameText = /* @__PURE__ */ __name((value) => value.trim().toLowerCase(), "normalizeGameText");
@@ -11784,11 +11805,6 @@ ${prefix}}`;
       toggleUi
     };
   });
-
-  // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Fiber.js
-  var join = fiberJoin;
-  var interrupt4 = fiberInterrupt;
-  var runIn = fiberRunIn;
 
   // node_modules/.pnpm/effect@4.0.3/node_modules/effect/dist/Latch.js
   var makeUnsafe5 = makeLatchUnsafe;
@@ -18827,10 +18843,14 @@ ${prefix}}`;
     yield* callback2((resume) => {
       requestEnter(() => resume(void_3));
     });
-    const exit3 = yield* exit2(
+    const script = yield* forkChild2(
       gen2(function* () {
         return yield* main();
-      })
+      }),
+      { startImmediately: true }
+    );
+    const exit3 = yield* await_(script).pipe(
+      onInterrupt2(() => interrupt4(script))
     );
     end2({ kind: "finished", exit: exit3 });
   }).pipe(scoped2), "run");
