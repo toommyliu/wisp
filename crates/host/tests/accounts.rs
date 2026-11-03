@@ -1075,6 +1075,60 @@ fn roots_that_nest_are_refused() {
     assert!(testing::headless_host_with_roots(base.join("data"), base.join("database")).is_ok());
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn roots_spelled_through_the_data_volume_are_refused() {
+    let workspace = Workspace::new();
+    let scripts = workspace.scripts().canonicalize().unwrap();
+    let data_volume =
+        PathBuf::from("/System/Volumes/Data").join(scripts.strip_prefix("/").unwrap());
+    assert!(data_volume.is_dir());
+    for (scripts, app_data) in [
+        (scripts.clone(), data_volume.join("app")),
+        (data_volume.clone(), scripts.join("app")),
+    ] {
+        assert!(
+            matches!(
+                testing::headless_host_with_roots(scripts.clone(), app_data.clone()),
+                Err(HostError::OverlappingRoots)
+            ),
+            "{scripts:?} {app_data:?}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn roots_spelled_through_an_administrative_share_are_refused() {
+    use std::path::{Component, Prefix};
+    let workspace = Workspace::new();
+    let scripts = workspace.scripts().canonicalize().unwrap();
+    let mut components = scripts.components();
+    let (Some(Component::Prefix(prefix)), Some(Component::RootDir)) =
+        (components.next(), components.next())
+    else {
+        panic!("{scripts:?}");
+    };
+    let Prefix::VerbatimDisk(drive) = prefix.kind() else {
+        panic!("{scripts:?}");
+    };
+    let share =
+        PathBuf::from(format!(r"\\localhost\{}$\", char::from(drive))).join(components.as_path());
+    assert!(share.is_dir(), "{share:?}");
+    for (scripts, app_data) in [
+        (scripts.clone(), share.join("app")),
+        (share.clone(), scripts.join("app")),
+    ] {
+        assert!(
+            matches!(
+                testing::headless_host_with_roots(scripts.clone(), app_data.clone()),
+                Err(HostError::OverlappingRoots)
+            ),
+            "{scripts:?} {app_data:?}"
+        );
+    }
+}
+
 #[test]
 fn roots_that_differ_only_in_case_or_normalization_are_refused() {
     let workspace = Workspace::new();
