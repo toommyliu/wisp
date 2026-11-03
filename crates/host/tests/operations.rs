@@ -21,6 +21,31 @@ fn emit(link: &ScriptLink, name: &str, payload: String) {
     .recv_timeout(WAIT)
     .unwrap();
 }
+fn ready_probe(host: &lucent_host::Host, movie: ProbeMovie) -> (lucent_host::Session, ScriptLink) {
+    let (session, link) =
+        testing::start_probe(host, movie.constant("player.isLoaded", json!(true)));
+    ready(&link);
+    (session, link)
+}
+fn ready(link: &ScriptLink) {
+    emit(link, "onConnection", "OnConnection".into());
+    for data in [
+        json!({"cmd":"loadInventoryBig","items":[],"hitems":[]}),
+        json!({"cmd":"moveToArea","areaId":1,"areaName":"battleon-1",
+            "uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100}]}),
+    ] {
+        emit(
+            link,
+            "onExtensionResponse",
+            json!({"type":"json","dataObj":data}).to_string(),
+        );
+    }
+    testing::wait_until_ready(link);
+    link.call_loader("probe.echo", vec![])
+        .recv_timeout(WAIT)
+        .unwrap();
+    while link.try_event().unwrap().is_some() {}
+}
 fn drop_item(link: &ScriptLink, category: &str, house: bool) {
     emit(
         link,
@@ -96,7 +121,7 @@ fn packet(data: serde_json::Value) -> String {
 #[test]
 fn accepts_run_one_at_a_time() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -139,7 +164,7 @@ fn accepts_run_one_at_a_time() {
 #[test]
 fn operation_answers_do_not_overflow_another_links_full_queue() {
     let host = testing::headless_host();
-    let (mut session, first) = testing::start_probe(
+    let (mut session, first) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -196,7 +221,7 @@ fn operation_answers_do_not_overflow_another_links_full_queue() {
 #[test]
 fn a_missing_packet_times_out_and_frees_the_resource() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -231,7 +256,7 @@ fn accepts_choose_the_container_and_verify_the_projected_quantity() {
             .unwrap()
             .extend(flags.as_object().unwrap().clone());
         let host = testing::headless_host();
-        let (_session, link) = testing::start_probe(
+        let (_session, link) = ready_probe(
             &host,
             ProbeMovie::new()
                 .constant("auth.isLoggedIn", json!(true))
@@ -262,7 +287,7 @@ fn accepts_choose_the_container_and_verify_the_projected_quantity() {
 #[test]
 fn a_disconnect_and_an_unavailable_loader_free_the_resource() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -290,7 +315,7 @@ fn a_disconnect_and_an_unavailable_loader_free_the_resource() {
     assert!(!answer(&link, first));
     assert!(disconnected.elapsed() < Duration::from_secs(1));
     assert!(!answer(&link, second));
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new().constant("auth.isLoggedIn", json!(true)),
     );
@@ -314,7 +339,7 @@ fn a_disconnect_and_an_unavailable_loader_free_the_resource() {
 #[test]
 fn a_player_restart_ends_its_accept_and_the_session_worker_accepts_on_the_new_player() {
     let host = testing::headless_host();
-    let (mut session, old) = testing::start_probe(
+    let (mut session, old) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -340,6 +365,7 @@ fn a_player_restart_ends_its_accept_and_the_session_worker_accepts_on_the_new_pl
         lucent_host::Viewport::new(100.0, 100.0, 1.0).unwrap(),
     ));
     while !matches!(next(&current),ScriptEvent::Loader{event,..} if event.name=="onLoaded") {}
+    ready(&current);
     drop_item(&current, "Item", false);
     let deadline = Instant::now() + Duration::from_secs(2);
     let id = accept(&current);
@@ -362,7 +388,7 @@ fn a_player_restart_ends_its_accept_and_the_session_worker_accepts_on_the_new_pl
 #[test]
 fn malformed_and_unrelated_responses_do_not_end_an_accept() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -398,7 +424,7 @@ fn malformed_and_unrelated_responses_do_not_end_an_accept() {
 #[test]
 fn dropping_a_session_does_not_add_an_operation_timeout_to_the_player_stop() {
     let host = testing::headless_host();
-    let (session, link) = testing::start_probe(
+    let (session, link) = ready_probe(
         &host,
         ProbeMovie::new().constant("auth.isLoggedIn", json!(true)),
     );
@@ -426,7 +452,7 @@ fn dropping_a_session_does_not_add_an_operation_timeout_to_the_player_stop() {
 #[test]
 fn a_drop_accept_propagates_a_throwing_loader_callback() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -446,21 +472,17 @@ fn a_drop_accept_propagates_a_throwing_loader_callback() {
 }
 
 #[test]
-fn drop_accepts_propagate_readiness_failures() {
+fn an_accept_answers_false_without_a_loader_call_until_the_avatar_can_act() {
     let host = testing::headless_host();
     let (_session, link) = testing::start_probe(
         &host,
-        ProbeMovie::new().throwing("auth.isLoggedIn", "login boom"),
+        ProbeMovie::new()
+            .throwing("auth.isLoggedIn", "login boom")
+            .throwing("drops.accept", "accept boom"),
     );
     drop_item(&link, "Item", false);
     let id = accept(&link);
-    assert_eq!(
-        operation_result(&link, id),
-        Err(lucent_host::bridge::Error::LoaderThrew {
-            callback: "auth.isLoggedIn".into(),
-            message: "login boom".into(),
-        })
-    );
+    assert_eq!(operation_result(&link, id), Ok(false));
 }
 
 #[test]
@@ -476,7 +498,7 @@ fn a_drop_accept_rejects_a_malformed_reply_but_keeps_a_decline_as_false() {
             }),
         ),
     ] {
-        let (_session, link) = testing::start_probe(
+        let (_session, link) = ready_probe(
             &host,
             ProbeMovie::new()
                 .constant("auth.isLoggedIn", json!(true))
@@ -489,27 +511,26 @@ fn a_drop_accept_rejects_a_malformed_reply_but_keeps_a_decline_as_false() {
 }
 
 #[test]
-fn a_drop_accept_propagates_a_malformed_logged_in_reply() {
+fn an_accept_on_a_ready_avatar_does_not_refresh_the_login() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
-        ProbeMovie::new().constant("auth.isLoggedIn", json!("yes")),
+        ProbeMovie::new()
+            .throwing("auth.isLoggedIn", "login boom")
+            .accepting_drop(
+                Duration::ZERO,
+                packet(json!({"cmd":"getDrop","ItemID":70,"bSuccess":true,"iQtyNow":2})),
+            ),
     );
     drop_item(&link, "Item", false);
     let id = accept(&link);
-    assert_eq!(
-        operation_result(&link, id),
-        Err(lucent_host::bridge::Error::CommandDecode {
-            callback: "auth.isLoggedIn".into(),
-            reason: "invalid type: string \"yes\", expected a boolean".into(),
-        })
-    );
+    assert_eq!(operation_result(&link, id), Ok(true));
 }
 
 #[test]
 fn cancelling_queued_handles_immediately_frees_fifo_capacity() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -570,7 +591,7 @@ fn cancelling_queued_handles_immediately_frees_fifo_capacity() {
 #[test]
 fn cancelling_an_issued_handle_suppresses_its_answer_until_the_next_operation() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -622,7 +643,7 @@ fn equip_result(link: &ScriptLink, id: u64) -> Result<bool, lucent_host::bridge:
 #[test]
 fn malformed_claim_handles_are_invalid_requests() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(&host, ProbeMovie::new());
+    let (_session, link) = ready_probe(&host, ProbeMovie::new());
     let id = link
         .operate(Operation::PrepareConsumableClaim {
             claim: "invalid".into(),
@@ -636,7 +657,7 @@ fn malformed_claim_handles_are_invalid_requests() {
 #[test]
 fn ready_claims_recheck_the_slot_before_authorizing_a_shared_holder() {
     let host = testing::headless_host();
-    let (mut session, link) = testing::start_probe(
+    let (mut session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("auth.isLoggedIn", json!(true))
@@ -697,7 +718,7 @@ fn ready_claims_recheck_the_slot_before_authorizing_a_shared_holder() {
 #[test]
 fn claimed_equipment_reports_combat_as_the_reason_for_rejection() {
     let host = testing::headless_host();
-    let (_session, link) = testing::start_probe(
+    let (_session, link) = ready_probe(
         &host,
         ProbeMovie::new()
             .constant("combat.getConsumableSkillItem", json!({"itemId":101}))

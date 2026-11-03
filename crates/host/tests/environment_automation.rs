@@ -33,9 +33,6 @@ fn registered_quests_load_without_a_script_while_settings_continue() {
             .recording("settings.setWalkSpeed"),
     );
     become_ready(&link);
-    link.command(serde_json::from_value(json!({"kind":"refreshLoggedIn"})).unwrap())
-        .recv_timeout(TIMEOUT)
-        .unwrap();
     link.command(serde_json::from_value(json!({"kind":"updateEnvironment", "edit":{"kind":"addQuest","questId":802,"rewardItemId":5586}})).unwrap()).recv_timeout(TIMEOUT).unwrap();
     link.set_waker(Waker::from(Arc::new(Notify(thread::current()))));
     let _supervisor = Supervisor::start(&mut session, None).unwrap();
@@ -120,9 +117,6 @@ fn native_quest_turn_in_excludes_a_script_and_registers_late_targets() {
             .responding("quests.complete", [(json!(null), vec![])]),
     );
     become_ready(&link);
-    link.command(serde_json::from_value(json!({"kind":"refreshLoggedIn"})).unwrap())
-        .recv_timeout(TIMEOUT)
-        .unwrap();
     edit(
         &link,
         json!({"kind":"setQuestAutoRegister","requirements":true,"rewards":true}),
@@ -189,9 +183,7 @@ fn native_quest_turn_in_excludes_a_script_and_registers_late_targets() {
     .recv_timeout(TIMEOUT)
     .unwrap();
     assert!(link.read(|p| p.quests.all().is_empty()).unwrap());
-    link.command(serde_json::from_value(json!({"kind":"refreshLoggedIn"})).unwrap())
-        .recv_timeout(TIMEOUT)
-        .unwrap();
+    become_ready(&link);
     next_call(&link, "quests.getMultiple");
     next_call(&link, "quests.complete");
     supervisor
@@ -218,10 +210,6 @@ fn native_quest_turn_in_excludes_a_script_and_registers_late_targets() {
     assert_eq!(state["questIds"], json!([802.]));
     assert_eq!(state["itemNames"], json!(["Elders Blood"]));
     become_ready(&current);
-    current
-        .command(serde_json::from_value(json!({"kind":"refreshLoggedIn"})).unwrap())
-        .recv_timeout(TIMEOUT)
-        .unwrap();
     next_call(&current, "quests.getMultiple");
     next_call(&current, "quests.complete");
 }
@@ -359,9 +347,6 @@ fn registered_boosts_use_the_first_inactive_inventory_boost_without_a_script() {
             .responding("inventory.use", [(json!(true), vec![])]),
     );
     become_ready(&link);
-    link.command(serde_json::from_value(json!({"kind":"refreshLoggedIn"})).unwrap())
-        .recv_timeout(TIMEOUT)
-        .unwrap();
     emit(
         &link,
         json!({"cmd":"loadInventoryBig","items":[
