@@ -1,6 +1,10 @@
-#[cfg(test)]
-mod documents;
+mod app_data;
+pub(crate) mod documents;
 mod path;
+mod roots;
+
+pub(crate) use app_data::AppData;
+pub use documents::accounts::Password;
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, DirBuilder, Metadata, OpenOptions};

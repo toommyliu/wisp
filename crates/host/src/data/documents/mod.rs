@@ -1,5 +1,6 @@
+mod account_edits;
 mod account_settings;
-mod accounts;
+pub(crate) mod accounts;
 mod json;
 #[cfg(test)]
 mod tests;

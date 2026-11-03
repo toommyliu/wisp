@@ -1,18 +1,33 @@
 use std::borrow::Borrow;
 use std::collections::HashSet;
+use std::fmt;
 
 use super::json::{self, JsMap, Json, Output};
 use super::{Decoded, Issues, Loaded, decode_document, trim};
+use crate::accounts::Account;
 
-pub(super) struct AccountsDocument {
-    pub(super) accounts: Vec<StoredAccount>,
-    pub(super) groups: JsMap<Vec<String>>,
+#[derive(Clone, PartialEq, Eq)]
+pub struct Password(String);
+
+impl Password {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    pub fn reveal_for_editor(&self) -> &str {
+        &self.0
+    }
 }
 
-pub(super) struct StoredAccount {
-    pub(super) label: String,
-    pub(super) username: String,
-    pub(super) password: String,
+impl fmt::Debug for Password {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Password(..)")
+    }
+}
+
+pub(super) struct AccountsDocument {
+    pub(super) accounts: Vec<Account>,
+    pub(super) groups: JsMap<Vec<String>>,
 }
 
 pub(super) fn decode(file: Option<&[u8]>) -> Loaded<AccountsDocument> {
@@ -30,7 +45,7 @@ pub(super) fn encode(document: &AccountsDocument) -> Vec<u8> {
         Output::Object(vec![
             ("label", Output::String(&account.label)),
             ("username", Output::String(&account.username)),
-            ("password", Output::String(&account.password)),
+            ("password", Output::String(&account.password.0)),
         ])
     });
     let groups = groups.iter().map(|(name, members)| {
@@ -70,7 +85,7 @@ fn from_object(raw: &JsMap<Json>) -> Decoded<AccountsDocument> {
         issues.reset.push("groups");
     }
 
-    let accounts = first_per_username(raw_accounts.iter().filter_map(stored_account));
+    let accounts = first_per_username(raw_accounts.iter().filter_map(account));
     let groups = normalize_groups(
         raw_groups
             .iter()
@@ -100,7 +115,7 @@ fn from_object(raw: &JsMap<Json>) -> Decoded<AccountsDocument> {
     }
 }
 
-fn stored_account(entry: &Json) -> Option<StoredAccount> {
+fn account(entry: &Json) -> Option<Account> {
     let Json::Object(fields) = entry else {
         return None;
     };
@@ -108,10 +123,10 @@ fn stored_account(entry: &Json) -> Option<StoredAccount> {
         Some(Json::String(text)) => Some(text.clone()),
         _ => None,
     };
-    Some(StoredAccount {
+    Some(Account {
         label: text("label")?,
         username: text("username")?,
-        password: text("password")?,
+        password: Password(text("password")?),
     })
 }
 
@@ -126,7 +141,7 @@ fn strings(members: &Json) -> Vec<&str> {
     strings.collect()
 }
 
-fn first_per_username<A: Borrow<StoredAccount>>(accounts: impl IntoIterator<Item = A>) -> Vec<A> {
+fn first_per_username<A: Borrow<Account>>(accounts: impl IntoIterator<Item = A>) -> Vec<A> {
     let mut seen = HashSet::new();
     let accounts = accounts.into_iter();
     accounts
@@ -136,7 +151,7 @@ fn first_per_username<A: Borrow<StoredAccount>>(accounts: impl IntoIterator<Item
 
 fn normalize_groups<'a>(
     groups: impl IntoIterator<Item = (&'a str, Vec<&'a str>)>,
-    accounts: &[impl Borrow<StoredAccount>],
+    accounts: &[impl Borrow<Account>],
 ) -> JsMap<Vec<String>> {
     let usernames: HashSet<&str> = accounts
         .iter()

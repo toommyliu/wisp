@@ -1,0 +1,223 @@
+use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
+use parking_lot::Mutex;
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
+
+pub use crate::data::Password;
+
+#[derive(Clone)]
+pub struct Accounts {
+    app_data: Arc<crate::data::AppData>,
+}
+
+impl Accounts {
+    pub(crate) fn new(app_data: Arc<crate::data::AppData>) -> Self {
+        Self { app_data }
+    }
+
+    pub fn snapshot(&self) -> Reply<AccountsSnapshot> {
+        todo!()
+    }
+
+    pub fn edit(&self, edit: AccountEdit) -> Reply<AccountsSnapshot> {
+        todo!()
+    }
+
+    pub fn settings(&self, username: &str) -> Reply<ScriptOptions> {
+        todo!()
+    }
+
+    pub fn update_settings(
+        &self,
+        username: &str,
+        patch: ScriptOptionsPatch,
+    ) -> Reply<ScriptOptions> {
+        todo!()
+    }
+
+    pub fn watch(&self, waker: Waker) {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
+pub enum AccountEdit {
+    CreateAccount {
+        label: Option<String>,
+        username: String,
+        password: Password,
+    },
+    UpdateAccount {
+        username: String,
+        label: Option<String>,
+        new_username: Option<String>,
+        password: Option<Password>,
+    },
+    DeleteAccounts {
+        usernames: Vec<String>,
+    },
+    CreateGroup {
+        name: String,
+        usernames: Vec<String>,
+    },
+    UpdateGroup {
+        name: String,
+        new_name: Option<String>,
+        usernames: Option<Vec<String>>,
+    },
+    DeleteGroup {
+        name: String,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AccountsSnapshot {
+    pub(crate) accounts: Vec<Account>,
+    pub(crate) groups: Vec<Group>,
+}
+
+impl AccountsSnapshot {
+    pub fn accounts(&self) -> &[Account] {
+        &self.accounts
+    }
+
+    pub fn groups(&self) -> &[Group] {
+        &self.groups
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Account {
+    pub(crate) label: String,
+    pub(crate) username: String,
+    pub(crate) password: Password,
+}
+
+impl Account {
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    pub fn password(&self) -> &Password {
+        &self.password
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Group {
+    pub(crate) name: String,
+    pub(crate) usernames: Vec<String>,
+}
+
+impl Group {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn usernames(&self) -> &[String] {
+        &self.usernames
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum AccountsError {
+    #[error("{0} is required")]
+    Required(&'static str),
+    #[error("An account with this username already exists")]
+    UsernameTaken,
+    #[error("Account not found")]
+    AccountNotFound,
+    #[error("One or more accounts were not found")]
+    AccountsNotFound,
+    #[error("Account not found: {0}")]
+    MemberNotFound(String),
+    #[error("Duplicate group member: {0}")]
+    DuplicateMember(String),
+    #[error("Group not found")]
+    GroupNotFound,
+    #[error("A group with this name already exists")]
+    GroupNameTaken,
+    #[error("Invalid account username.")]
+    InvalidUsername,
+    #[error(
+        "JSON file {operation} failed at {}.{}",
+        .path.display(),
+        if *.too_large { " The document exceeds the limit of 8388608 bytes." } else { "" }
+    )]
+    File {
+        operation: &'static str,
+        path: PathBuf,
+        too_large: bool,
+    },
+    #[error("the account data service is busy")]
+    Busy,
+    #[error("the account data service has stopped")]
+    Stopped,
+}
+
+pub struct Reply<T>(Arc<Mutex<Slot<T>>>);
+
+enum Slot<T> {
+    Waiting(Option<Waker>),
+    Ready(Result<T, AccountsError>),
+    Taken,
+}
+
+pub(crate) struct Answer<T>(Option<Arc<Mutex<Slot<T>>>>);
+
+pub(crate) fn reply<T>() -> (Answer<T>, Reply<T>) {
+    let slot = Arc::new(Mutex::new(Slot::Waiting(None)));
+    (Answer(Some(slot.clone())), Reply(slot))
+}
+
+impl<T> Reply<T> {
+    pub(crate) fn ready(result: Result<T, AccountsError>) -> Self {
+        Self(Arc::new(Mutex::new(Slot::Ready(result))))
+    }
+}
+
+impl<T> Future for Reply<T> {
+    type Output = Result<T, AccountsError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut slot = self.0.lock();
+        match std::mem::replace(&mut *slot, Slot::Taken) {
+            Slot::Ready(result) => Poll::Ready(result),
+            Slot::Waiting(_) => {
+                *slot = Slot::Waiting(Some(cx.waker().clone()));
+                Poll::Pending
+            }
+            Slot::Taken => panic!("a reply was polled after it completed"),
+        }
+    }
+}
+
+impl<T> Answer<T> {
+    pub(crate) fn send(mut self, result: Result<T, AccountsError>) {
+        if let Some(slot) = self.0.take() {
+            fill(&slot, result);
+        }
+    }
+}
+
+impl<T> Drop for Answer<T> {
+    fn drop(&mut self) {
+        if let Some(slot) = self.0.take() {
+            fill(&slot, Err(AccountsError::Stopped));
+        }
+    }
+}
+
+fn fill<T>(slot: &Mutex<Slot<T>>, result: Result<T, AccountsError>) {
+    let previous = std::mem::replace(&mut *slot.lock(), Slot::Ready(result));
+    if let Slot::Waiting(Some(waker)) = previous {
+        waker.wake();
+    }
+}

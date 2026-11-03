@@ -31,6 +31,13 @@ pub fn headless_host_with_data(root: impl Into<std::path::PathBuf>) -> Host {
     .expect("couldn't start the headless host")
 }
 
+pub fn headless_host_with_roots(
+    scripts: impl Into<std::path::PathBuf>,
+    app_data: impl Into<std::path::PathBuf>,
+) -> Result<Host, crate::HostError> {
+    todo!()
+}
+
 pub type ProbeReply = (serde_json::Value, Vec<(String, String)>);
 
 #[derive(Default)]

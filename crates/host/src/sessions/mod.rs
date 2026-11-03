@@ -87,6 +87,10 @@ pub enum HostError {
     OperationThread(std::io::Error),
     #[error("couldn't start the clipboard thread: {0}")]
     ClipboardThread(std::io::Error),
+    #[error("couldn't start the app data service: {0}")]
+    AppData(std::io::Error),
+    #[error("the app data folder and the script data folder overlap")]
+    OverlappingRoots,
 }
 
 impl Host {
@@ -560,6 +564,15 @@ impl Session {
 impl Host {
     pub fn data_root(&self) -> &std::path::Path {
         self.shared.files.root()
+    }
+
+    pub fn accounts(&self) -> &crate::accounts::Accounts {
+        todo!()
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn set_app_data_probe(&self, probe: impl Fn() + Send + Sync + 'static) {
+        todo!()
     }
 
     #[cfg(feature = "testing")]

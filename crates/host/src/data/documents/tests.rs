@@ -1,9 +1,10 @@
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
-use super::accounts::{AccountsDocument, StoredAccount};
+use super::accounts::AccountsDocument;
 use super::json::JsMap;
 use super::{Issues, Loaded, Unreadable, account_settings, accounts};
+use crate::accounts::{Account, Password};
 
 fn corpus(path: &str) -> Vec<u8> {
     let root =
@@ -126,10 +127,10 @@ fn deep_nesting_reads_without_exhausting_the_stack() {
 
 #[test]
 fn encoding_normalizes_like_the_release_serializer() {
-    let account = |label: &str, username: &str, password: &str| StoredAccount {
+    let account = |label: &str, username: &str, password: &str| Account {
         label: label.into(),
         username: username.into(),
-        password: password.into(),
+        password: Password::new(password),
     };
     let mut groups = JsMap::default();
     let members = |names: &[&str]| names.iter().map(|name| name.to_string()).collect();
