@@ -15,11 +15,29 @@ pub enum RefreshContainer {
 
 macro_rules! commands {
     ($($variant:ident { $($field:ident: $input:ty),* } => $output:ty),* $(,)?) => {
-        #[derive(Debug, serde::Deserialize, ts_rs::TS)]
+        #[derive(serde::Deserialize, ts_rs::TS)]
         #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
         #[ts(optional_fields = nullable)]
         pub enum Command {
             $($variant { $($field: $input),* }),*
+        }
+
+        impl std::fmt::Debug for Command {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(Self::$variant { $($field),* } => {
+                        let mut debug = f.debug_struct(stringify!($variant));
+                        $(
+                            if stringify!($field) == "password" {
+                                debug.field("password", &format_args!(".."));
+                            } else {
+                                debug.field(stringify!($field), $field);
+                            }
+                        )*
+                        debug.finish()
+                    })*
+                }
+            }
         }
 
         pub fn command_outputs(config: &ts_rs::Config) -> String {
