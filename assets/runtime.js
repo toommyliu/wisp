@@ -5568,6 +5568,11 @@ ${prefix}}`;
   var host3 = __host;
   var timers = /* @__PURE__ */ new Map();
   var nextId = 1;
+  var enter;
+  var requestEnter = /* @__PURE__ */ __name((resume) => {
+    enter = resume;
+    host3.requestEnter();
+  }, "requestEnter");
   var schedule = /* @__PURE__ */ __name((callback3, delay3, args2, repeat4) => {
     const ms = Math.max(0, Number(delay3) || 0);
     const timer = {
@@ -5650,6 +5655,7 @@ ${prefix}}`;
       }
       invoke(timer.callback);
     }
+    if (items.some((item) => item.type === "enter")) invoke(() => enter?.());
     return errors;
   }, "turn");
   var wake = /* @__PURE__ */ __name(() => {
@@ -18814,7 +18820,9 @@ ${prefix}}`;
       inputs
     );
     inputValues = values;
-    yield* sleep2(0);
+    yield* callback2((resume) => {
+      requestEnter(() => resume(void_3));
+    });
     const exit3 = yield* exit2(
       gen2(function* () {
         return yield* main();

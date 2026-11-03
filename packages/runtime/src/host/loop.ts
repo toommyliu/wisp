@@ -41,6 +41,7 @@ declare global {
     cancelIo(id: string): void;
     now(): number;
     log(level: "info" | "warn" | "error" | "debug", text: string): void;
+    requestEnter(): void;
   };
   var __lucent: Readonly<{
     start(
@@ -76,6 +77,7 @@ type ScriptEvent =
       projected: ProjectionEvent[];
     }
   | { type: "eventslost" }
+  | { type: "enter" }
   | { type: "autozone"; config: AutoZoneConfig }
   | { type: "invalidated" }
   | {
@@ -96,6 +98,12 @@ const host = __host;
 
 const timers = new Map<number, Timer>();
 let nextId = 1;
+let enter: (() => void) | undefined;
+
+export const requestEnter = (resume: () => void): void => {
+  enter = resume;
+  host.requestEnter();
+};
 
 const schedule = (
   callback: (...args: unknown[]) => void,
@@ -189,6 +197,7 @@ export const turn = (itemsJson: string): string[] => {
     }
     invoke(timer.callback);
   }
+  if (items.some((item) => item.type === "enter")) invoke(() => enter?.());
   return errors;
 };
 

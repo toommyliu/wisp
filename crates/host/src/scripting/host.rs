@@ -142,6 +142,7 @@ pub(crate) enum Item {
         result: Box<serde_json::value::RawValue>,
     },
     EventsLost,
+    Enter,
     JobPrepared {
         id: String,
         label: String,

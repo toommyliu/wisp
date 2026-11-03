@@ -21,6 +21,8 @@ enum Completion {
     Promise(v8::Global<v8::Promise>),
 }
 
+struct EnterRequest(std::task::Waker);
+
 struct Active {
     promise: v8::Global<v8::Promise>,
     reply: EvalReply,
@@ -39,6 +41,7 @@ impl Engine {
         link: ScriptLink,
         interrupt: Arc<Interrupt>,
         wake: std::task::Waker,
+        enter: std::task::Waker,
     ) -> Result<Self, RuntimeError> {
         static PLATFORM: Once = Once::new();
         PLATFORM.call_once(|| {
@@ -63,6 +66,7 @@ impl Engine {
         isolate.set_slot(Instant::now());
         isolate.set_slot(Rejections::new());
         isolate.set_slot(Scripts::default());
+        isolate.set_slot(EnterRequest(enter));
         isolate.set_promise_reject_callback(promise_rejected);
         let context = {
             v8::scope!(let scope, &mut isolate);
@@ -109,6 +113,7 @@ impl Engine {
                 ("takeIoBody", v8::Function::new(scope, host_take_io_body)),
                 ("now", v8::Function::new(scope, host_now)),
                 ("log", v8::Function::new(scope, host_log)),
+                ("requestEnter", v8::Function::new(scope, host_request_enter)),
             ] {
                 let key = v8::String::new(scope, name).unwrap();
                 let function = function.ok_or_else(|| {
@@ -828,6 +833,14 @@ fn host_now(
     mut reply: v8::ReturnValue<v8::Value>,
 ) {
     reply.set_double(scope.get_slot::<Instant>().unwrap().elapsed().as_secs_f64() * 1000.0);
+}
+
+fn host_request_enter(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    _reply: v8::ReturnValue<v8::Value>,
+) {
+    scope.get_slot::<EnterRequest>().unwrap().0.wake_by_ref();
 }
 
 fn host_log(

@@ -31,7 +31,7 @@ import { makeHostDialogs } from "./dialogs";
 import { makeEnvironmentService } from "./environment";
 import { makeFileSystemBridge } from "./filesystem";
 import { makeHttpBridge } from "./http";
-import { hideInternals } from "./loop";
+import { hideInternals, requestEnter } from "./loop";
 import { failedOutcome, scriptOutcome } from "./outcome";
 import { makeScriptOptionsApi } from "./scriptOptions";
 import { unavailableArmy, unavailableEnvironment } from "./services";
@@ -112,8 +112,9 @@ const run = (
       inputs,
     );
     inputValues = values;
-    // The host receives a stop sent while the module loaded before this timer fires.
-    yield* Effect.sleep(0);
+    yield* Effect.callback<void>((resume) => {
+      requestEnter(() => resume(Effect.void));
+    });
     const exit = yield* Effect.exit(
       Effect.gen(function* () {
         return yield* main() as Generator<

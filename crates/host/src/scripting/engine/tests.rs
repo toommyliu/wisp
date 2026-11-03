@@ -37,6 +37,7 @@ fn a_trivial_scripts_first_turn_stays_below_half_the_watchdog_budget() {
             session.attach(crate::bridge::EventInterests::ALL).unwrap(),
             interrupt,
             std::task::Waker::noop().clone(),
+            std::task::Waker::noop().clone(),
         )
         .unwrap();
         let entry = ModulePath::loose("trivial.js").unwrap();
@@ -54,7 +55,7 @@ fn a_trivial_scripts_first_turn_stays_below_half_the_watchdog_budget() {
         let cpu = crate::scripting::cpu_time::ThreadCpu::current().unwrap();
         let began = cpu.elapsed().unwrap();
         engine.start(script, Default::default(), reply);
-        engine.turn("[]").unwrap();
+        engine.turn(r#"[{"type":"enter"}]"#).unwrap();
         let elapsed = cpu.elapsed().unwrap() - began;
         match engine
             .evaluate("observed.js", "globalThis.loaded === true")
