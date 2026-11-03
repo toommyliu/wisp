@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use url::{Host, Url};
+use url::Url;
+
+use crate::net::GameHost;
 
 pub(crate) struct Timeouts {
     pub connect: Duration,
@@ -18,45 +20,6 @@ const TIMEOUTS: Timeouts = Timeouts {
     read: Duration::from_secs(60),
     request: Duration::from_secs(300),
 };
-
-const USER_AGENT: &str = if cfg!(target_os = "macos") {
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_16_0) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36"
-} else if cfg!(target_os = "windows") {
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36"
-} else {
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36"
-};
-
-struct GameHost(String);
-
-impl GameHost {
-    fn parse(host: &str) -> Option<Self> {
-        let Host::Domain(host) = Host::parse(host).ok()? else {
-            return None;
-        };
-        let host = host.strip_suffix('.').unwrap_or(&host);
-        if !host.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        }) {
-            return None;
-        }
-        ["aq.com", "artix.com"]
-            .into_iter()
-            .any(|root| {
-                host == root
-                    || host
-                        .strip_suffix(root)
-                        .is_some_and(|prefix| prefix.ends_with('.'))
-            })
-            .then(|| Self(host.to_owned()))
-    }
-}
 
 pub(crate) struct Net {
     rt: tokio::runtime::Handle,
@@ -201,7 +164,7 @@ impl Net {
         let address = self
             .routes
             .iter()
-            .find(|(name, _)| *name == host.0)
+            .find(|(name, _)| *name == host.as_str())
             .map(|(_, addr)| *addr);
         self.track(self.rt.spawn(async move {
             let connecting = async {
@@ -209,12 +172,12 @@ impl Net {
                 if let Some(address) = address {
                     return tokio::net::TcpStream::connect(address).await;
                 }
-                tokio::net::TcpStream::connect((host.0.as_str(), port)).await
+                crate::net::dial(&host, port).await
             };
             let stream = match tokio::time::timeout(timeout, connecting).await {
                 Ok(Ok(stream)) => stream,
                 Ok(Err(error)) => {
-                    tracing::warn!(host = %host.0, port, %error, "socket connection failed");
+                    tracing::warn!(host = %host.as_str(), port, %error, "socket connection failed");
                     deliver(SocketEvent::Failed);
                     return;
                 }

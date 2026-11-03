@@ -15,10 +15,6 @@ fn http_url(url: &Url) -> Result<(), NetError> {
     }
 }
 
-fn is_game(url: &Url) -> bool {
-    url.host_str().and_then(GameHost::parse).is_some()
-}
-
 fn headers(values: Vec<(String, String)>) -> Result<HeaderMap, NetError> {
     let mut headers = HeaderMap::new();
     for (name, value) in values {
@@ -113,20 +109,14 @@ async fn send(
     let mut headers = headers(values)?;
     for hop in 0..=REDIRECT_LIMIT {
         http_url(&url)?;
-        let game = is_game(&url);
         let mut hop_headers = headers.clone();
-        hop_headers.remove(header::USER_AGENT);
-        hop_headers.remove("artixmode");
-        if game {
-            hop_headers.insert(header::USER_AGENT, HeaderValue::from_static(USER_AGENT));
-            hop_headers.insert("artixmode", HeaderValue::from_static("launcher"));
-            if !hop_headers.contains_key(header::COOKIE)
-                && let Some(value) = cookies.cookies(&url)
-            {
-                hop_headers.insert(header::COOKIE, value);
-            }
-        } else {
+        let game = crate::net::identify(&url, &mut hop_headers);
+        if !game {
             hop_headers.remove(header::COOKIE);
+        } else if !hop_headers.contains_key(header::COOKIE)
+            && let Some(value) = cookies.cookies(&url)
+        {
+            hop_headers.insert(header::COOKIE, value);
         }
         let mut builder = http
             .request(

@@ -4,6 +4,7 @@ pub mod bridge;
 mod data;
 pub mod game;
 pub mod library;
+mod net;
 mod player;
 pub mod projection;
 mod sessions;
