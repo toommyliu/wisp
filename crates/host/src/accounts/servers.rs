@@ -7,7 +7,9 @@ use std::time::{Duration, SystemTime};
 use futures_util::{StreamExt, stream};
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use serde::{Deserialize, Deserializer};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use url::Url;
 
 use super::{AccountsError, Answer, Reply, reply};
@@ -16,11 +18,14 @@ use crate::net::GameHost;
 const SERVERS_URL: &str = "https://game.aq.com/game/api/data/servers";
 const REFRESH_COOLDOWN: Duration = Duration::from_secs(15);
 const LIST_TTL: Duration = Duration::from_secs(5 * 60);
-const PINGS_TTL: Duration = Duration::from_secs(30);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_BODY: usize = 1024 * 1024;
-const PING_TIMEOUT: Duration = Duration::from_secs(2);
+const PING_TIMEOUT: Duration = Duration::from_secs(6);
 const PING_CONCURRENCY: usize = 6;
+const PING_SAMPLES: usize = 3;
+const VERSION_CHECK: &[u8] =
+    b"<msg t='sys'><body action='verChk' r='0'><ver v='157' /></body></msg>\0";
+const MAX_REPLY: usize = 4 * 1024;
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 type Pings = Arc<[Ping]>;
@@ -162,8 +167,12 @@ enum Command {
 
 trait Network: Send + Sync + 'static {
     fn fetch(&self) -> BoxFuture<Result<Arc<Listing>, LoadError>>;
-    fn dial(&self, host: &GameHost, port: u16) -> BoxFuture<io::Result<()>>;
+    fn dial(&self, host: &GameHost, port: u16) -> BoxFuture<io::Result<Box<dyn Connection>>>;
 }
+
+trait Connection: AsyncRead + AsyncWrite + Unpin + Send {}
+
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection for T {}
 
 struct Live {
     url: Url,
@@ -196,9 +205,12 @@ impl Network for Live {
         Box::pin(async move { request(&client?, &url).await.map(Arc::new) })
     }
 
-    fn dial(&self, host: &GameHost, port: u16) -> BoxFuture<io::Result<()>> {
+    fn dial(&self, host: &GameHost, port: u16) -> BoxFuture<io::Result<Box<dyn Connection>>> {
         let host = host.clone();
-        Box::pin(async move { crate::net::dial(&host, port).await.map(drop) })
+        Box::pin(async move {
+            let stream = crate::net::dial(&host, port).await?;
+            Ok(Box::new(stream) as Box<dyn Connection>)
+        })
     }
 }
 
@@ -362,13 +374,44 @@ async fn ping(network: &dyn Network, target: &Target) -> PingStatus {
         Target::Unreachable => return PingStatus::Unreachable,
         Target::Dial(host, port) => (host, *port),
     };
-    let started = tokio::time::Instant::now();
-    match tokio::time::timeout(PING_TIMEOUT, network.dial(host, port)).await {
-        Ok(Ok(())) => PingStatus::Ok {
-            latency_ms: (started.elapsed().as_secs_f64() * 1000.0).round() as u32,
+    match tokio::time::timeout(PING_TIMEOUT, round_trip(network, host, port)).await {
+        Ok(Ok(round_trip)) => PingStatus::Ok {
+            latency_ms: (round_trip.as_secs_f64() * 1000.0).round() as u32,
         },
         Ok(Err(_)) => PingStatus::Unreachable,
         Err(_) => PingStatus::Timeout,
+    }
+}
+
+async fn round_trip(network: &dyn Network, host: &GameHost, port: u16) -> io::Result<Duration> {
+    let mut connection = network.dial(host, port).await?;
+    exchange(&mut *connection).await?;
+    let mut samples = [Duration::ZERO; PING_SAMPLES];
+    for sample in &mut samples {
+        let started = Instant::now();
+        exchange(&mut *connection).await?;
+        *sample = started.elapsed();
+    }
+    samples.sort();
+    Ok(samples[PING_SAMPLES / 2])
+}
+
+async fn exchange(connection: &mut dyn Connection) -> io::Result<()> {
+    connection.write_all(VERSION_CHECK).await?;
+    let mut buffer = [0; 1024];
+    let mut received = 0;
+    loop {
+        let read = connection.read(&mut buffer).await?;
+        if read == 0 {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        if buffer[..read].contains(&0) {
+            return Ok(());
+        }
+        received += read;
+        if received > MAX_REPLY {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
     }
 }
 
@@ -384,7 +427,7 @@ async fn serve(
         tokio::select! {
             Some(command) = commands.recv() => book.command(clock(), command),
             outcome = finish(&mut fetch) => book.fetched(clock(), outcome),
-            pings = finish(&mut wave) => book.pinged(clock(), pings),
+            pings = finish(&mut wave) => book.pinged(pings),
         }
         if book.fetch.is_some() && fetch.is_none() {
             fetch = Some(network.fetch());
@@ -436,7 +479,6 @@ struct Fetch {
 struct Pinged {
     pings: Pings,
     generation: u64,
-    completed_at: SystemTime,
 }
 
 struct Wave {
@@ -498,7 +540,7 @@ impl Book {
         match &self.list {
             Some(list) if elapsed(list.fetched_at, now) < LIST_TTL => {
                 let current = list.current.clone();
-                self.serve(now, &current, waiter)
+                self.serve(&current, waiter)
             }
             _ => self.start_fetch(waiter),
         }
@@ -556,24 +598,23 @@ impl Book {
             fetched_at: now,
         });
         for waiter in waiters {
-            self.serve(now, &current, waiter);
+            self.serve(&current, waiter);
         }
     }
 
-    fn serve(&mut self, now: SystemTime, current: &Current, waiter: Waiter) {
+    fn serve(&mut self, current: &Current, waiter: Waiter) {
         match waiter {
             Waiter::List(answer) => answer.send(Ok(ServerList {
                 listing: current.listing.clone(),
                 refresh_available_at: self.refresh_available_at(),
             })),
-            Waiter::Pings(answer) => self.ping(now, current, answer),
+            Waiter::Pings(answer) => self.ping(current, answer),
         }
     }
 
-    fn ping(&mut self, now: SystemTime, current: &Current, answer: Answer<Pings>) {
+    fn ping(&mut self, current: &Current, answer: Answer<Pings>) {
         if let Some(pinged) = &self.pings
             && pinged.generation == current.generation
-            && elapsed(pinged.completed_at, now) < PINGS_TTL
         {
             return answer.send(Ok(pinged.pings.clone()));
         }
@@ -591,7 +632,7 @@ impl Book {
         }
     }
 
-    fn pinged(&mut self, now: SystemTime, pings: Pings) {
+    fn pinged(&mut self, pings: Pings) {
         let Some(Wave {
             generation,
             waiters,
@@ -608,14 +649,13 @@ impl Book {
             self.pings = Some(Pinged {
                 pings: pings.clone(),
                 generation,
-                completed_at: now,
             });
         }
         for answer in waiters {
             answer.send(Ok(pings.clone()));
         }
         for answer in then {
-            self.ping(now, &current, answer);
+            self.ping(&current, answer);
         }
     }
 }
