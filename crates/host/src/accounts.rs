@@ -25,7 +25,7 @@ impl Accounts {
     }
 
     pub fn settings(&self, username: &str) -> Reply<ScriptOptions> {
-        todo!()
+        self.ask(|answer| Request::Settings(username.to_owned(), answer))
     }
 
     pub fn update_settings(
@@ -33,7 +33,7 @@ impl Accounts {
         username: &str,
         patch: ScriptOptionsPatch,
     ) -> Reply<ScriptOptions> {
-        todo!()
+        self.ask(|answer| Request::UpdateSettings(username.to_owned(), patch, answer))
     }
 
     pub fn watch(&self, waker: Waker) {

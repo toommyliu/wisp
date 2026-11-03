@@ -5,8 +5,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::thread;
 
+use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
+
 use super::documents::accounts::{self, AccountsDocument};
-use super::documents::{Decoded, Issues, Loaded, Unreadable, account_edits};
+use super::documents::{Decoded, Issues, Loaded, Unreadable, account_edits, account_settings};
 use super::fs::{self, Failure, WriteFailure};
 use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, Answer};
 use crate::sessions::Changes;
@@ -25,12 +27,17 @@ pub(crate) struct AppData {
 pub(crate) enum Request {
     Snapshot(Answer<AccountsSnapshot>),
     Edit(AccountEdit, Answer<AccountsSnapshot>),
+    Settings(String, Answer<ScriptOptions>),
+    UpdateSettings(String, ScriptOptionsPatch, Answer<ScriptOptions>),
 }
 
 impl Request {
     fn reject(self, error: AccountsError) {
         match self {
             Request::Snapshot(answer) | Request::Edit(_, answer) => answer.send(Err(error)),
+            Request::Settings(_, answer) | Request::UpdateSettings(_, _, answer) => {
+                answer.send(Err(error))
+            }
         }
     }
 }
@@ -105,7 +112,31 @@ impl Worker {
                 answer.send(self.accounts(true).map(AccountsDocument::snapshot))
             }
             Request::Edit(edit, answer) => answer.send(self.edit(edit)),
+            Request::Settings(username, answer) => answer.send(self.settings(&username)),
+            Request::UpdateSettings(username, patch, answer) => {
+                answer.send(self.update_settings(&username, patch))
+            }
         }
+    }
+
+    fn settings(&self, username: &str) -> Result<ScriptOptions, AccountsError> {
+        let file = account_settings::file_name(username)?;
+        let document = Document::Settings(&file);
+        self.store.load(document, account_settings::decode, true)
+    }
+
+    fn update_settings(
+        &self,
+        username: &str,
+        patch: ScriptOptionsPatch,
+    ) -> Result<ScriptOptions, AccountsError> {
+        let file = account_settings::file_name(username)?;
+        let document = Document::Settings(&file);
+        let current = self.store.load(document, account_settings::decode, false)?;
+        let next = account_settings::apply(current, patch);
+        self.store
+            .write(document, &account_settings::encode(&next))?;
+        Ok(next)
     }
 
     fn accounts(&mut self, diagnostics: bool) -> Result<&AccountsDocument, AccountsError> {
@@ -142,38 +173,44 @@ impl Worker {
 }
 
 #[derive(Clone, Copy)]
-enum Document {
+enum Document<'a> {
     Accounts,
+    Settings(&'a str),
 }
 
-impl Document {
+impl Document<'_> {
     fn directory(self) -> Option<&'static str> {
         match self {
             Document::Accounts => None,
+            Document::Settings(_) => Some("account-settings"),
         }
     }
 
     fn name(&self) -> &str {
         match self {
             Document::Accounts => "accounts.json",
+            Document::Settings(file) => file,
         }
     }
 
     fn kind(self) -> &'static str {
         match self {
             Document::Accounts => "accounts",
+            Document::Settings(_) => "account settings",
         }
     }
 
     fn component(self) -> &'static str {
         match self {
             Document::Accounts => "accounts",
+            Document::Settings(_) => "account-settings",
         }
     }
 
     fn log_path(self) -> &'static str {
         match self {
             Document::Accounts => "accounts.json",
+            Document::Settings(_) => "account-settings/[account].json",
         }
     }
 }
