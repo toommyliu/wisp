@@ -33,6 +33,26 @@ impl Alarm {
     }
 }
 
+// Windows runs a ready thread ahead of a running one only at a higher priority, so a watchdog at
+// the script thread's priority waits behind the runaway it stops whenever every core is busy.
+#[cfg(target_os = "windows")]
+pub(crate) fn outrank_script_threads() {
+    use std::os::windows::io::RawHandle;
+    const THREAD_PRIORITY_HIGHEST: i32 = 2;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentThread() -> RawHandle;
+        fn SetThreadPriority(thread: RawHandle, priority: i32) -> i32;
+    }
+    if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST) } == 0 {
+        let error = io::Error::last_os_error();
+        tracing::warn!(%error, "could not raise the watchdog's thread priority");
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn outrank_script_threads() {}
+
 // A background or App Napped process gets its timers coalesced by up to about 100 ms, condvar
 // timeouts included. A kqueue timer marked critical still fires on time.
 #[cfg(target_os = "macos")]
