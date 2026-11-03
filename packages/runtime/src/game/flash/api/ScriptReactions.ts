@@ -3,11 +3,9 @@ import * as Effect from "effect/Effect";
 import type { GatewayService } from "../bridge/Gateway";
 import type { HostStateService } from "../state/HostState";
 import type { Events } from "./Events";
-import type { AntiCounter } from "./internal/AntiCounter";
 import type { MonsterServices } from "./Monsters";
 
 interface Services {
-  readonly antiCounter: AntiCounter;
   readonly events: Events;
   readonly gateway: GatewayService;
   readonly host: HostStateService;
@@ -15,7 +13,6 @@ interface Services {
 }
 
 export const start = Effect.fnUntraced(function* ({
-  antiCounter,
   events,
   gateway,
   host,
@@ -36,5 +33,5 @@ export const start = Effect.fnUntraced(function* ({
         ),
       ),
   );
-  yield* gateway.start(antiCounter.handleEvent);
+  yield* gateway.start();
 });

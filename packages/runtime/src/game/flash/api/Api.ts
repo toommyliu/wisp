@@ -5,7 +5,6 @@ import type { BridgeService } from "../bridge/Bridge";
 import type { GatewayService } from "../bridge/Gateway";
 import type { HostStateService } from "../state/HostState";
 import { makeAuth } from "./Auth";
-import { makeAntiCounter } from "./internal/AntiCounter";
 import { makeBank } from "./Bank";
 import { makeCombat } from "./Combat";
 import { makeDrops } from "./Drops";
@@ -44,12 +43,10 @@ const makeApiServices = Effect.fnUntraced(function* (
   const player = makePlayer(bridge, host, auth, inventory, map, wait);
   const quests = makeQuests(bridge, host, wait);
   const settings = makeSettings(host);
-  const antiCounter = makeAntiCounter(bridge, settings.isAntiCounterEnabled);
   const shops = makeShops(bridge, host, inventory, wait);
   const tempInventory = makeTempInventory(host);
   const combat = makeCombat(
     bridge,
-    antiCounter,
     host,
     drops,
     events,
@@ -58,7 +55,6 @@ const makeApiServices = Effect.fnUntraced(function* (
     monsterServices.lookup,
     player,
     players,
-    settings,
     tempInventory,
     wait,
   );
@@ -85,7 +81,6 @@ const makeApiServices = Effect.fnUntraced(function* (
       wait,
     },
     scriptReactions: {
-      antiCounter,
       events,
       gateway,
       host,

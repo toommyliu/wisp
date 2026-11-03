@@ -64,7 +64,6 @@ describe("Settings", () => {
         skipCutscenes: true, walkSpeed: 20,
       });
       expect(Object.isFrozen(snapshot)).toBe(true);
-      expect(yield* settings.isAntiCounterEnabled()).toBe(false);
       state.settings.customNameConfigured = false;
       state.settings.customGuildConfigured = false;
       expect(yield* api.get()).toMatchObject({ customName: null, customGuild: null });

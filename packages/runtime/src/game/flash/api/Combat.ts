@@ -33,7 +33,6 @@ import {
 import { packetData } from "../contract/Packet";
 import { decodeCombatActionAcknowledgements } from "../contract/payload/Combat";
 import type { HostStateService } from "../state/HostState";
-import type { AntiCounter } from "./internal/AntiCounter";
 import { getCombatProfileClassWarning } from "./internal/CombatProfileClass";
 import {
   readCombatTarget,
@@ -46,7 +45,6 @@ import type { Map } from "./Map";
 import type { MonsterLookup } from "./Monsters";
 import type { Player } from "./Player";
 import type { Players } from "./Players";
-import type { Settings } from "./Settings";
 import type { TempInventory } from "./TempInventory";
 import type { Wait } from "./Wait";
 
@@ -145,7 +143,6 @@ const normalizeSkillInterval = (
 
 export const makeCombat = (
   bridge: BridgeService,
-  antiCounter: AntiCounter,
   host: HostStateService,
   drops: Drops,
   _events: Events,
@@ -154,7 +151,6 @@ export const makeCombat = (
   monsters: MonsterLookup,
   player: Player,
   _players: Players,
-  settings: Settings,
   temporary: TempInventory,
   wait: Wait,
 ) => {
@@ -346,13 +342,7 @@ export const makeCombat = (
     );
 
   const antiCounterActive = (monsterMapId: number) =>
-    settings
-      .isAntiCounterEnabled()
-      .pipe(
-        Effect.flatMap((enabled) =>
-          enabled ? antiCounter.isActive(monsterMapId) : Effect.succeed(false),
-        ),
-      );
+    host.read({ kind: "attackBlocked", monsterMapId });
 
   const stopCombat = stopCombatControl(bridge);
   const resolveMonsterMapId = (query: MonsterQuery) =>

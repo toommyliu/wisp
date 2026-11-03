@@ -232,6 +232,8 @@ const answer = (state: FakeHostState, query: Query): unknown => {
       throw new Error("Auto attack requires the native host");
     case "combatState":
       throw new Error("Combat state requires the native host");
+    case "attackBlocked":
+      return false;
     case "autoRelogin":
       return { config: { enabled: false, delayMs: 3000, server: null }, status: { phase: { tag: "armed" }, attemptsRemaining: null, lastError: null, username: null, captured: false } };
     case "autoZone":

@@ -10745,132 +10745,6 @@ ${prefix}}`;
   );
   var UnknownRecord = Record(String4, Unknown2);
 
-  // packages/runtime/src/game/flash/api/internal/CombatControl.ts
-  var EntityStatePayload = WireInt.check(
-    isBetween({
-      minimum: EntityState.Dead,
-      maximum: EntityState.InCombat
-    })
-  );
-  var CombatTargetPayload = NullOr(
-    Union2([
-      Struct({
-        cell: String4,
-        hp: WireInt,
-        level: WireInt,
-        maxHp: WireInt,
-        monsterId: WireInt,
-        monsterMapId: WireInt,
-        name: String4,
-        race: String4,
-        state: EntityStatePayload,
-        type: Literal2("monster")
-      }),
-      Struct({
-        afk: WireBoolean,
-        cell: String4,
-        entityId: WireInt,
-        entityType: String4,
-        hp: WireInt,
-        level: WireInt,
-        maxHp: WireInt,
-        maxMp: WireInt,
-        mp: WireInt,
-        name: String4,
-        pad: String4,
-        sp: WireInt,
-        state: EntityStatePayload,
-        type: Literal2("player"),
-        username: String4
-      })
-    ])
-  );
-  var readCombatTarget = /* @__PURE__ */ __name((bridge) => bridge.invoke("combat.getTarget", void 0, CombatTargetPayload).pipe(map5(getOrNull)), "readCombatTarget");
-  var stopCombat = /* @__PURE__ */ __name((bridge) => all2(
-    [
-      bridge.invoke("combat.cancelAutoAttack", void 0, Void2),
-      bridge.invoke("combat.cancelTarget", void 0, Void2)
-    ],
-    { discard: true }
-  ).pipe(asVoid2), "stopCombat");
-
-  // packages/runtime/src/game/flash/api/internal/AntiCounter.ts
-  var SIGNAL_TIMEOUT_MS = 7e3;
-  var resetConnectionStatuses = /* @__PURE__ */ new Set([
-    "OnConnection",
-    "OnConnectionFailed",
-    "OnConnectionLost"
-  ]);
-  var makeAntiCounter = /* @__PURE__ */ __name((bridge, isEnabled) => {
-    const tracked = /* @__PURE__ */ new Map();
-    const isActive = fn2("AntiCounter.isActive")(function* (monsterMapId) {
-      const current = tracked.get(monsterMapId);
-      if (current === void 0) return false;
-      if (current.recoverAtMs > (yield* currentTimeMillis2)) return true;
-      tracked.delete(monsterMapId);
-      return false;
-    });
-    const clear3 = /* @__PURE__ */ __name((monsterMapId) => sync2(() => {
-      if (monsterMapId === void 0) {
-        tracked.clear();
-      } else {
-        tracked.delete(monsterMapId);
-      }
-    }), "clear");
-    const handleStart = fn2("AntiCounter.handleStart")(function* (event) {
-      const now = yield* currentTimeMillis2;
-      const previous = tracked.get(event.monsterMapId);
-      const wasActive = previous !== void 0 && previous.recoverAtMs > now;
-      const durationMs = event.durationMs;
-      const recoverAtMs = now + (durationMs !== void 0 && Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0) + SIGNAL_TIMEOUT_MS;
-      tracked.set(event.monsterMapId, {
-        cancellationIssued: wasActive ? previous.cancellationIssued : false,
-        // A warning for the next cycle must extend protection even if the previous
-        // aura removal was missed, without shortening an existing counter window.
-        recoverAtMs: wasActive ? Math.max(previous.recoverAtMs, recoverAtMs) : recoverAtMs
-      });
-      if (wasActive && previous.cancellationIssued || !(yield* isEnabled())) {
-        return;
-      }
-      const target = yield* readCombatTarget(bridge);
-      if (target?.type !== "monster" || target.monsterMapId !== event.monsterMapId) {
-        return;
-      }
-      yield* stopCombat(bridge);
-      const current = tracked.get(event.monsterMapId);
-      if (current !== void 0) {
-        tracked.set(event.monsterMapId, {
-          ...current,
-          cancellationIssued: true
-        });
-      }
-    });
-    const handleEvent = fn2("AntiCounter.handleEvent")(function* (event) {
-      switch (event.type) {
-        case "counter-attack-start":
-          yield* handleStart(event);
-          return;
-        case "counter-attack-end":
-        case "monster-death":
-        case "monster-respawn":
-          yield* clear3(event.monsterMapId);
-          return;
-        case "join-map":
-          yield* clear3();
-          return;
-        case "connection":
-          if (resetConnectionStatuses.has(event.status)) yield* clear3();
-          return;
-        default:
-          return;
-      }
-    });
-    return {
-      handleEvent,
-      isActive
-    };
-  }, "makeAntiCounter");
-
   // packages/runtime/src/game/flash/contract/Packet.ts
   var PacketDirection = Literals([
     "client",
@@ -11389,6 +11263,55 @@ ${prefix}}`;
     return equipped === "" ? void 0 : `This profile is for ${(classList ??= new Intl.ListFormat("en", { type: "disjunction" })).format(classNames)}, but ${equipped} is equipped.`;
   });
 
+  // packages/runtime/src/game/flash/api/internal/CombatControl.ts
+  var EntityStatePayload = WireInt.check(
+    isBetween({
+      minimum: EntityState.Dead,
+      maximum: EntityState.InCombat
+    })
+  );
+  var CombatTargetPayload = NullOr(
+    Union2([
+      Struct({
+        cell: String4,
+        hp: WireInt,
+        level: WireInt,
+        maxHp: WireInt,
+        monsterId: WireInt,
+        monsterMapId: WireInt,
+        name: String4,
+        race: String4,
+        state: EntityStatePayload,
+        type: Literal2("monster")
+      }),
+      Struct({
+        afk: WireBoolean,
+        cell: String4,
+        entityId: WireInt,
+        entityType: String4,
+        hp: WireInt,
+        level: WireInt,
+        maxHp: WireInt,
+        maxMp: WireInt,
+        mp: WireInt,
+        name: String4,
+        pad: String4,
+        sp: WireInt,
+        state: EntityStatePayload,
+        type: Literal2("player"),
+        username: String4
+      })
+    ])
+  );
+  var readCombatTarget = /* @__PURE__ */ __name((bridge) => bridge.invoke("combat.getTarget", void 0, CombatTargetPayload).pipe(map5(getOrNull)), "readCombatTarget");
+  var stopCombat = /* @__PURE__ */ __name((bridge) => all2(
+    [
+      bridge.invoke("combat.cancelAutoAttack", void 0, Void2),
+      bridge.invoke("combat.cancelTarget", void 0, Void2)
+    ],
+    { discard: true }
+  ).pipe(asVoid2), "stopCombat");
+
   // packages/runtime/src/game/flash/api/Combat.ts
   var CONSUMABLE_CAST_CONFIRMATION_TIMEOUT_MS = 5e3;
   var ConsumableCastDispatchDeadline = Reference("lucent/game/combat/ConsumableCastDispatchDeadline", {
@@ -11426,7 +11349,7 @@ ${prefix}}`;
       }, "onSome")
     });
   }, "normalizeSkillInterval");
-  var makeCombat = /* @__PURE__ */ __name((bridge, antiCounter, host5, drops, _events, inventory, map8, monsters, player, _players, settings, temporary, wait) => {
+  var makeCombat = /* @__PURE__ */ __name((bridge, host5, drops, _events, inventory, map8, monsters, player, _players, temporary, wait) => {
     const consumableCasts = makeUnsafe4(1);
     const targetValue = readCombatTarget(bridge);
     const targetAuras = /* @__PURE__ */ __name((options) => targetValue.pipe(
@@ -11562,11 +11485,7 @@ ${prefix}}`;
       ),
       { interval: "50 millis", timeout: "5 seconds" }
     ), "waitForSkillReady");
-    const antiCounterActive = /* @__PURE__ */ __name((monsterMapId) => settings.isAntiCounterEnabled().pipe(
-      flatMap3(
-        (enabled) => enabled ? antiCounter.isActive(monsterMapId) : succeed7(false)
-      )
-    ), "antiCounterActive");
+    const antiCounterActive = /* @__PURE__ */ __name((monsterMapId) => host5.read({ kind: "attackBlocked", monsterMapId }), "antiCounterActive");
     const stopCombat2 = stopCombat(bridge);
     const resolveMonsterMapId = /* @__PURE__ */ __name((query) => monsters.getAvailable().pipe(
       map5(
@@ -14784,7 +14703,6 @@ ${prefix}}`;
 
   // packages/runtime/src/game/flash/api/ScriptReactions.ts
   var start = fnUntraced2(function* ({
-    antiCounter,
     events,
     gateway,
     host: host5,
@@ -14800,7 +14718,7 @@ ${prefix}}`;
         )
       )
     );
-    yield* gateway.start(antiCounter.handleEvent);
+    yield* gateway.start();
   });
 
   // packages/runtime/src/game/flash/api/Settings.ts
@@ -14818,8 +14736,7 @@ ${prefix}}`;
           return yield* die3(new Error("host rejected settings patch"));
         }
       }), "apply"),
-      get: get3,
-      isAntiCounterEnabled: /* @__PURE__ */ __name(() => get3().pipe(map5((state) => state.antiCounterEnabled)), "isAntiCounterEnabled")
+      get: get3
     };
   }, "makeSettings");
 
@@ -15184,12 +15101,10 @@ ${prefix}}`;
     const player = makePlayer(bridge, host5, auth, inventory, map8, wait);
     const quests = makeQuests(bridge, host5, wait);
     const settings = makeSettings(host5);
-    const antiCounter = makeAntiCounter(bridge, settings.isAntiCounterEnabled);
     const shops = makeShops(bridge, host5, inventory, wait);
     const tempInventory = makeTempInventory(host5);
     const combat = makeCombat(
       bridge,
-      antiCounter,
       host5,
       drops,
       events,
@@ -15198,7 +15113,6 @@ ${prefix}}`;
       monsterServices.lookup,
       player,
       players,
-      settings,
       tempInventory,
       wait
     );
@@ -15224,7 +15138,6 @@ ${prefix}}`;
         wait
       },
       scriptReactions: {
-        antiCounter,
         events,
         gateway,
         host: host5,

@@ -265,15 +265,28 @@ impl Projection {
                             }
                         }
                     }),
-                    attack_blocked: anti_counter_enabled
-                        && self
-                            .combat
-                            .counters
-                            .get(&data.monster_map_id)
-                            .is_some_and(|until| *until > now_ms),
+                    attack_blocked: self.attack_blocked(
+                        data.monster_map_id,
+                        now_ms,
+                        anti_counter_enabled,
+                    ),
                 }
             })
             .collect()
+    }
+
+    pub fn attack_blocked(
+        &self,
+        monster_map_id: i64,
+        now_ms: f64,
+        anti_counter_enabled: bool,
+    ) -> bool {
+        anti_counter_enabled
+            && self
+                .combat
+                .counters
+                .get(&monster_map_id)
+                .is_some_and(|until| *until > now_ms)
     }
 }
 

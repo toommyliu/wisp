@@ -75,6 +75,7 @@ queries! {
     ScriptOptions {} => crate::script_options::ScriptOptions,
     Environment {} => crate::environment::EnvironmentState,
     CombatState { priorities: Vec<MonsterSelector> } => Vec<crate::combat_state::CombatMonsterState>,
+    AttackBlocked { monster_map_id: i64 } => bool,
     AutoAttack {} => crate::auto_attack::AutoAttackRecords,
     AutoRelogin {} => crate::auto_relogin::AutoReloginRecords,
     AutoZone {} => AutoZoneConfig,
