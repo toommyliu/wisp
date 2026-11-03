@@ -47,7 +47,7 @@ impl Running {
                 });
             }
         }
-        let travel = self.observe_travel(reads, &guard.gate, deadline);
+        let travel = self.observe_travel(reads, &guard.gate, deadline)?;
         let equipped_house = self
             .projection
             .read()
@@ -107,7 +107,10 @@ impl Running {
         reads: Reads,
         gate: &JobGate,
         deadline: Instant,
-    ) -> Snapshot {
+    ) -> Result<Snapshot, Error> {
+        if !self.travel_open(gate) {
+            return Err(Error::Stopped);
+        }
         let mut snapshot = Snapshot::default();
         if reads.contains(Reads::LOAD) {
             let map = self.projection.read().world.map.clone();
@@ -220,7 +223,7 @@ impl Running {
                 })
                 .collect();
         }
-        snapshot
+        Ok(snapshot)
     }
     fn travel_text(&mut self, gate: &JobGate, deadline: Instant, name: &str) -> String {
         match self.travel_call(gate, deadline, name, vec![]) {

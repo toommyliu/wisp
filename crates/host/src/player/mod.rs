@@ -660,12 +660,12 @@ impl Running {
                 if probe.is_some() {
                     self.travel_calls = Some(Vec::new());
                 }
-                let snapshot = self.observe_travel(reads, &gate, deadline);
+                let result = self.observe_travel(reads, &gate, deadline);
                 #[cfg(feature = "testing")]
                 if let Some(probe) = probe {
                     probe(reads, self.travel_calls.take().unwrap());
                 }
-                let _ = reply.send(Ok(snapshot));
+                let _ = reply.send(result);
             }
             Msg::DispatchTravel {
                 action,
