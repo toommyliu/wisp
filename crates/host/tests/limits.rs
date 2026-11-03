@@ -151,6 +151,65 @@ fn a_runaway_turn_is_killed_within_250_ms_of_cpu_and_a_new_runtime_works() {
     }
 }
 
+#[cfg(feature = "testing")]
+struct BusyCores {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    spinners: Vec<thread::JoinHandle<()>>,
+}
+
+#[cfg(feature = "testing")]
+impl BusyCores {
+    fn all() -> Self {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let spinners = (0..thread::available_parallelism().map_or(4, |cores| cores.get()))
+            .map(|_| {
+                let stop = stop.clone();
+                thread::spawn(move || {
+                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        std::hint::spin_loop();
+                    }
+                })
+            })
+            .collect();
+        Self { stop, spinners }
+    }
+}
+
+#[cfg(feature = "testing")]
+impl Drop for BusyCores {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for spinner in self.spinners.drain(..) {
+            let _ = spinner.join();
+        }
+    }
+}
+
+#[cfg(feature = "testing")]
+#[test]
+fn a_runaway_turn_is_killed_within_250_ms_of_cpu_while_every_core_is_busy() {
+    let host = testing::headless_host();
+    let (mut session, link) = testing::start_probe(&host, ProbeMovie::new());
+    drop(link);
+    for _ in 0..5 {
+        let mut runtime = Runtime::start(session.attach(EventInterests::ALL).unwrap()).unwrap();
+        let busy = BusyCores::all();
+        let error = runtime
+            .eval("runaway.js", "while (true) {}")
+            .wait::<Value>(TIMEOUT)
+            .unwrap_err();
+        drop(busy);
+        assert!(
+            matches!(error, RuntimeError::Killed(Kill::Watchdog)),
+            "{error}"
+        );
+        let cpu = runtime
+            .join_cpu_time()
+            .expect("the killed turn had no CPU measurement");
+        assert!(cpu < STOP_LIMIT, "stopped after {cpu:?} CPU");
+    }
+}
+
 #[test]
 fn a_script_blocked_in_a_loader_call_is_killed_without_waiting_for_the_reply() {
     let host = testing::headless_host();
