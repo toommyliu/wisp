@@ -112,6 +112,8 @@ const run = (
       inputs,
     );
     inputValues = values;
+    // The host receives a stop sent while the module loaded before this timer fires.
+    yield* Effect.sleep(0);
     const exit = yield* Effect.exit(
       Effect.gen(function* () {
         return yield* main() as Generator<

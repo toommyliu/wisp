@@ -18827,6 +18827,7 @@ ${prefix}}`;
       inputs
     );
     inputValues = values;
+    yield* sleep2(0);
     const exit3 = yield* exit2(
       gen2(function* () {
         return yield* main();

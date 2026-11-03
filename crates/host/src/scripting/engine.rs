@@ -403,7 +403,7 @@ impl Engine {
         Ok(self.wake())
     }
 
-    fn wake(&mut self) -> Option<Instant> {
+    pub(crate) fn wake(&mut self) -> Option<Instant> {
         let started = *self.isolate.get_slot::<Instant>().unwrap();
         let result = self.in_context(|tc| {
             call_lucent(tc, EntryPoint::Wake, &[])
