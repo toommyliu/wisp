@@ -52,6 +52,7 @@ impl Drop for Json {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct JsMap<V> {
     indices: BTreeMap<u32, (String, V)>,
     names: IndexMap<String, V>,
@@ -89,12 +90,27 @@ impl<V> JsMap<V> {
         self.indices.len() + self.names.len()
     }
 
+    pub(super) fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        let indices = self.indices.values_mut().map(|(_, value)| value);
+        indices.chain(self.names.values_mut())
+    }
+
     pub(super) fn iter(&self) -> impl Iterator<Item = (&str, &V)> {
         let indices = self
             .indices
             .values()
             .map(|(key, value)| (key.as_str(), value));
         indices.chain(self.names.iter().map(|(key, value)| (key.as_str(), value)))
+    }
+}
+
+impl<V> FromIterator<(String, V)> for JsMap<V> {
+    fn from_iter<I: IntoIterator<Item = (String, V)>>(entries: I) -> Self {
+        let mut map = Self::default();
+        for (key, value) in entries {
+            map.insert(key, value);
+        }
+        map
     }
 }
 

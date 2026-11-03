@@ -66,6 +66,7 @@ pub struct Host {
 struct Shared {
     reapers: Arc<reaper::Reapers>,
     files: Arc<crate::data::Files>,
+    accounts: crate::accounts::Accounts,
     http: Arc<crate::scripting::http::Http>,
     net: tokio::runtime::Runtime,
     clipboard: Clipboard,
@@ -87,6 +88,10 @@ pub enum HostError {
     OperationThread(std::io::Error),
     #[error("couldn't start the clipboard thread: {0}")]
     ClipboardThread(std::io::Error),
+    #[error("couldn't start the app data service: {0}")]
+    AppData(std::io::Error),
+    #[error("the app data folder and the script data folder overlap")]
+    OverlappingRoots,
 }
 
 impl Host {
@@ -98,16 +103,31 @@ impl Host {
     }
 
     pub(crate) fn with_services(clipboard: Clipboard, audio: Audio) -> Result<Host, HostError> {
-        let root =
-            crate::data::data_root(dirs::document_dir, dirs::home_dir).map_err(HostError::Files)?;
-        Self::with_services_and_data_root(clipboard, audio, root)
+        use crate::data::roots;
+        let scripts =
+            roots::scripts_root(dirs::document_dir, dirs::home_dir).map_err(HostError::Files)?;
+        let app_data = roots::app_data_root(
+            roots::Platform::CURRENT,
+            cfg!(debug_assertions),
+            |name| std::env::var_os(name),
+            dirs::home_dir,
+        )
+        .map_err(HostError::AppData)?;
+        Self::with_services_and_roots(clipboard, audio, scripts, app_data)
     }
 
-    pub(crate) fn with_services_and_data_root(
+    pub(crate) fn with_services_and_roots(
         clipboard: Clipboard,
         audio: Audio,
-        root: std::path::PathBuf,
+        scripts: std::path::PathBuf,
+        app_data: std::path::PathBuf,
     ) -> Result<Host, HostError> {
+        use crate::data::roots;
+        let real_scripts = roots::create(&scripts).map_err(HostError::Files)?;
+        let real_app_data = roots::create(&app_data).map_err(HostError::AppData)?;
+        if roots::overlap(&real_scripts, &real_app_data) {
+            return Err(HostError::OverlappingRoots);
+        }
         let net = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("lucent-net")
@@ -117,7 +137,13 @@ impl Host {
         Ok(Host {
             shared: Arc::new(Shared {
                 reapers: Arc::default(),
-                files: Arc::new(crate::data::Files::start(root).map_err(HostError::Files)?),
+                files: Arc::new(crate::data::Files::start(scripts).map_err(HostError::Files)?),
+                accounts: crate::accounts::Accounts {
+                    app_data: Arc::new(
+                        crate::data::AppData::start(app_data, real_app_data)
+                            .map_err(HostError::AppData)?,
+                    ),
+                },
                 http: crate::scripting::http::Http::new(net.handle().clone())
                     .map_err(HostError::Http)?,
                 net,
@@ -560,6 +586,15 @@ impl Session {
 impl Host {
     pub fn data_root(&self) -> &std::path::Path {
         self.shared.files.root()
+    }
+
+    pub fn accounts(&self) -> &crate::accounts::Accounts {
+        &self.shared.accounts
+    }
+
+    #[cfg(feature = "testing")]
+    pub fn set_app_data_probe(&self, probe: impl Fn() + Send + Sync + 'static) {
+        self.shared.accounts.app_data.set_probe(Arc::new(probe));
     }
 
     #[cfg(feature = "testing")]

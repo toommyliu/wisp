@@ -1,13 +1,18 @@
-#[cfg(test)]
-mod documents;
+pub(crate) mod app_data;
+pub(crate) mod documents;
+mod fs;
 mod path;
+pub(crate) mod roots;
 
-use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
-use cap_std::fs::{Dir, DirBuilder, Metadata, OpenOptions};
+pub(crate) use app_data::AppData;
+pub use documents::accounts::Password;
+
+use cap_fs_ext::DirExt;
+use cap_std::fs::Dir;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 #[cfg(feature = "testing")]
 use std::sync::Arc;
@@ -15,24 +20,8 @@ use std::sync::mpsc;
 use std::thread;
 
 use crate::scripting::io::Ticket;
+use fs::{Failure, MAX_BYTES, WriteFailure};
 use path::{TEMP_PREFIX, segments};
-
-pub(crate) fn data_root(
-    documents: impl FnOnce() -> Option<PathBuf>,
-    home: impl FnOnce() -> Option<PathBuf>,
-) -> io::Result<PathBuf> {
-    documents()
-        .or_else(|| home().map(|path| path.join("Documents")))
-        .map(|path| path.join("Lucent/data"))
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "Documents directory is unavailable",
-            )
-        })
-}
-
-const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
@@ -110,18 +99,15 @@ impl Files {
         let thread = thread::Builder::new()
             .name("lucent-files".into())
             .spawn(move || {
-                let mut serial = 0_u64;
                 for (request, ticket) in incoming {
                     if !ticket.issue() {
                         continue;
                     }
                     #[cfg(feature = "testing")]
                     notify(&worker_probe, FileStage::Issued, &request);
-                    serial += 1;
                     let result = execute(
                         &worker_root,
                         &request,
-                        serial,
                         #[cfg(feature = "testing")]
                         &worker_probe,
                     );
@@ -198,6 +184,26 @@ fn notify(probe: &Mutex<Option<Probe>>, stage: FileStage, request: &Request) {
 
 type Result<T> = std::result::Result<T, &'static str>;
 
+impl From<Failure> for &'static str {
+    fn from(failure: Failure) -> Self {
+        match failure {
+            Failure::Io(error) => reason(error),
+            Failure::InvalidPath => "invalid-path",
+            Failure::NotDirectory => "not-directory",
+            Failure::NotFile => "not-file",
+            Failure::TooLarge => "too-large",
+        }
+    }
+}
+
+impl From<WriteFailure> for &'static str {
+    fn from(failure: WriteFailure) -> Self {
+        match failure {
+            WriteFailure::Write(failure) | WriteFailure::Rename(failure) => failure.into(),
+        }
+    }
+}
+
 fn reason(error: io::Error) -> &'static str {
     #[cfg(unix)]
     if matches!(
@@ -246,74 +252,9 @@ fn reason(error: io::Error) -> &'static str {
     }
 }
 
-fn metadata(dir: &Dir, name: &str) -> Result<Option<Metadata>> {
-    match dir.symlink_metadata(name) {
-        Ok(info) => Ok(Some(info)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(reason(error)),
-    }
-}
-
-fn directory(dir: &Dir, name: &str, create: bool) -> Result<Option<Dir>> {
-    let mut info = metadata(dir, name)?;
-    if info.is_none() && create {
-        let builder = DirBuilder::new();
-        #[cfg(unix)]
-        let builder = {
-            use cap_std::fs::DirBuilderExt;
-            let mut builder = builder;
-            builder.mode(0o700);
-            builder
-        };
-        match dir.create_dir_with(name, &builder) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(reason(error)),
-        }
-        info = metadata(dir, name)?;
-    }
-    let Some(info) = info else {
-        return Ok(None);
-    };
-    if info.is_symlink() {
-        return Err("invalid-path");
-    }
-    if !info.is_dir() {
-        return Err("not-directory");
-    }
-    dir.open_dir_nofollow(name).map(Some).map_err(reason)
-}
-
-fn root(path: &Path) -> Result<Dir> {
-    let mut builder = std::fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    match std::fs::symlink_metadata(path) {
-        Ok(info) if info.file_type().is_symlink() => return Err("invalid-path"),
-        Ok(info) if !info.is_dir() => return Err("not-directory"),
-        Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            builder.create(path).map_err(reason)?
-        }
-        Err(error) => return Err(reason(error)),
-    }
-    let parent = path.parent().ok_or("invalid-path")?;
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or("invalid-path")?;
-    let parent = Dir::open_ambient_dir(parent, cap_std::ambient_authority()).map_err(reason)?;
-    directory(&parent, name, false)?.ok_or("not-found")
-}
-
 fn execute(
     root_path: &Path,
     request: &Request,
-    serial: u64,
     #[cfg(feature = "testing")] probe: &Mutex<Option<Probe>>,
 ) -> Result<Option<Value>> {
     let parts = request.path().map(segments).transpose()?;
@@ -322,14 +263,14 @@ fn execute(
     {
         return Err("too-large");
     }
-    let mut parent = root(root_path)?;
+    let mut parent: Dir = fs::open_root(root_path, true)?.ok_or("not-found")?;
     let create = matches!(
         request,
         Request::WriteText { .. } | Request::WriteJson { .. }
     );
     if let Some(parts) = &parts {
         for name in &parts[..parts.len() - 1] {
-            match directory(&parent, name, create)? {
+            match fs::directory(&parent, name, create)? {
                 Some(dir) => parent = dir,
                 None => {
                     return match request {
@@ -344,16 +285,12 @@ fn execute(
         }
     }
     let name = parts.as_ref().map(|parts| *parts.last().unwrap());
-    let info = name
-        .map(|name| metadata(&parent, name))
-        .transpose()?
-        .flatten();
     match request {
-        Request::Exists { .. } => Ok(Some(info.is_some().into())),
+        Request::Exists { .. } => Ok(Some(fs::metadata(&parent, name.unwrap())?.is_some().into())),
         Request::List { .. } => {
             let dir = match name {
                 None => parent,
-                Some(name) => directory(&parent, name, false)?.ok_or("not-found")?,
+                Some(name) => fs::directory(&parent, name, false)?.ok_or("not-found")?,
             };
             let mut entries = Vec::new();
             for entry in dir.entries().map_err(reason)? {
@@ -389,110 +326,36 @@ fn execute(
             ))
         }
         Request::ReadText { .. } | Request::ReadJson { .. } => {
-            let Some(info) = info else {
+            let Some(bytes) = fs::read(&parent, name.unwrap())? else {
                 return Ok(None);
             };
-            require_file(&info)?;
-            if info.len() > MAX_BYTES {
-                return Err("too-large");
-            }
-            let mut options = OpenOptions::new();
-            options.read(true).follow(FollowSymlinks::No);
-            let file = match parent.open_with(name.unwrap(), &options) {
-                Ok(file) => file,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-                Err(error) => return Err(reason(error)),
-            };
-            let mut bytes = Vec::new();
-            file.take(MAX_BYTES + 1)
-                .read_to_end(&mut bytes)
-                .map_err(reason)?;
-            if bytes.len() as u64 > MAX_BYTES {
-                return Err("too-large");
-            }
             let text = std::str::from_utf8(&bytes).map_err(|_| "invalid-utf8")?;
             let text = text.strip_prefix('\u{feff}').unwrap_or(text);
             Ok(Some(text.into()))
         }
         Request::WriteText { contents, .. } | Request::WriteJson { contents, .. } => {
-            if let Some(info) = info {
-                require_file(&info)?;
+            let name = name.unwrap();
+            if let Some(info) = fs::metadata(&parent, name)? {
+                fs::require_file(&info)?;
             }
-            let temporary = format!("{TEMP_PREFIX}{}-{serial}.tmp", std::process::id());
-            let mut options = OpenOptions::new();
-            options
-                .write(true)
-                .create_new(true)
-                .follow(FollowSymlinks::No);
-            #[cfg(unix)]
-            {
-                use cap_std::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = parent.open_with(&temporary, &options).map_err(reason)?;
-            let result = (|| {
-                file.write_all(contents.as_bytes()).map_err(reason)?;
-                drop(file);
+            fs::write_atomic(&parent, name, contents.as_bytes(), false, || {
                 #[cfg(feature = "testing")]
                 notify(probe, FileStage::BeforeRename, request);
-                parent
-                    .rename(&temporary, &parent, name.unwrap())
-                    .map_err(reason)
-            })();
-            if result.is_err() {
-                let _ = parent.remove_file(&temporary);
-            }
-            result?;
+            })?;
             Ok(None)
         }
         Request::Remove { .. } => {
-            if let Some(info) = info {
+            let name = name.unwrap();
+            if let Some(info) = fs::metadata(&parent, name)? {
                 if info.is_dir() {
-                    parent.remove_dir(name.unwrap()).map_err(reason)?;
+                    parent.remove_dir(name).map_err(reason)?;
                 } else if info.is_file() || info.is_symlink() {
-                    parent
-                        .remove_file_or_symlink(name.unwrap())
-                        .map_err(reason)?;
+                    parent.remove_file_or_symlink(name).map_err(reason)?;
                 } else {
                     return Err("unavailable");
                 }
             }
             Ok(None)
         }
-    }
-}
-
-fn require_file(info: &Metadata) -> Result<()> {
-    if info.is_symlink() {
-        Err("invalid-path")
-    } else if !info.is_file() {
-        Err("not-file")
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn data_root_prefers_documents_and_falls_back_to_home() {
-        assert_eq!(
-            data_root(
-                || Some(PathBuf::from("configured")),
-                || panic!("home lookup is unnecessary")
-            )
-            .unwrap(),
-            PathBuf::from("configured/Lucent/data")
-        );
-        assert_eq!(
-            data_root(|| None, || Some(PathBuf::from("home"))).unwrap(),
-            PathBuf::from("home/Documents/Lucent/data")
-        );
-        assert_eq!(
-            data_root(|| None, || None).unwrap_err().kind(),
-            io::ErrorKind::NotFound
-        );
     }
 }

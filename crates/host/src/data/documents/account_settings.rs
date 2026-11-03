@@ -1,9 +1,13 @@
-use lucent_protocol::script_options::{RoomPolicy, ScriptOptions};
+use lucent_protocol::script_options::{RoomPolicy, ScriptOptions, ScriptOptionsPatch};
+use std::ops::RangeInclusive;
 
 use super::json::{self, JsMap, Json, Output};
 use super::{Decoded, Issues, Loaded, decode_document, trim};
+use crate::accounts::AccountsError;
 
 const VERSION: u32 = 1;
+
+const ROOMS: RangeInclusive<u32> = 1..=99_999;
 
 const SCRIPTS: [(&str, &str); 3] = [
     ("restartAfterReconnect", "scripts.restartAfterReconnect"),
@@ -11,23 +15,35 @@ const SCRIPTS: [(&str, &str); 3] = [
     ("safeStartStop", "scripts.safeStartStop"),
 ];
 
-#[derive(Debug, thiserror::Error)]
-#[error("Invalid account username.")]
-pub(super) struct InvalidUsername;
-
-pub(super) fn file_name(username: &str) -> Result<String, InvalidUsername> {
+pub(in crate::data) fn file_name(username: &str) -> Result<String, AccountsError> {
     let name = trim(username).to_lowercase();
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
-        return Err(InvalidUsername);
+        return Err(AccountsError::InvalidUsername);
     }
     Ok(format!("{name}.json"))
 }
 
-pub(super) fn decode(file: Option<&[u8]>) -> Loaded<ScriptOptions> {
+pub(in crate::data) fn decode(file: Option<&[u8]>) -> Loaded<ScriptOptions> {
     decode_document(file, from_object)
 }
 
-pub(super) fn encode(options: &ScriptOptions) -> Vec<u8> {
+pub(in crate::data) fn apply(options: ScriptOptions, patch: ScriptOptionsPatch) -> ScriptOptions {
+    let room_policy = match patch.room_policy.unwrap_or(options.room_policy) {
+        RoomPolicy::Specific { room_number } if !ROOMS.contains(&room_number) => {
+            ScriptOptions::default().room_policy
+        }
+        room_policy => room_policy,
+    };
+    ScriptOptions {
+        restart_after_reconnect: patch
+            .restart_after_reconnect
+            .unwrap_or(options.restart_after_reconnect),
+        room_policy,
+        safe_start_stop: patch.safe_start_stop.unwrap_or(options.safe_start_stop),
+    }
+}
+
+pub(in crate::data) fn encode(options: &ScriptOptions) -> Vec<u8> {
     json::stringify(&Output::Object(vec![
         ("version", Output::Integer(VERSION)),
         ("scripts", Output::Object(fields(options))),
@@ -110,7 +126,7 @@ fn room_policy(raw: &Json) -> Option<RoomPolicy> {
         "public" => Some(RoomPolicy::Public),
         "random-private" => Some(RoomPolicy::RandomPrivate),
         "specific" => match policy.get("roomNumber") {
-            Some(Json::Number(room)) if room.fract() == 0.0 && (1.0..=99_999.0).contains(room) => {
+            Some(Json::Number(room)) if room.fract() == 0.0 && ROOMS.contains(&(*room as u32)) => {
                 Some(RoomPolicy::Specific {
                     room_number: *room as u32,
                 })

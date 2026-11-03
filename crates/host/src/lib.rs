@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod automation;
 pub mod bridge;
 mod data;
