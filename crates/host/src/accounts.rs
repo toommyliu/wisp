@@ -150,20 +150,24 @@ pub enum AccountsError {
     GroupNameTaken,
     #[error("Invalid account username.")]
     InvalidUsername,
-    #[error(
-        "JSON file {operation} failed at {}.{}",
-        .path.display(),
-        if *.too_large { " The document exceeds the limit of 8388608 bytes." } else { "" }
-    )]
-    File {
-        operation: &'static str,
-        path: PathBuf,
-        too_large: bool,
-    },
+    #[error("{0}")]
+    File(FileError),
     #[error("the account data service is busy")]
     Busy,
     #[error("the account data service has stopped")]
     Stopped,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "JSON file {operation} failed at {}.{}",
+    .path.display(),
+    if *.too_large { " The document exceeds the limit of 8388608 bytes." } else { "" }
+)]
+pub struct FileError {
+    pub(crate) operation: &'static str,
+    pub(crate) path: PathBuf,
+    pub(crate) too_large: bool,
 }
 
 pub struct Reply<T>(Arc<Mutex<Slot<T>>>);

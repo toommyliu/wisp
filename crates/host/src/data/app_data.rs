@@ -10,7 +10,7 @@ use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
 use super::documents::accounts::{self, AccountsDocument};
 use super::documents::{Decoded, Issues, Loaded, Unreadable, account_edits, account_settings};
 use super::fs::{self, Failure, WriteFailure};
-use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, Answer};
+use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, Answer, FileError};
 use crate::sessions::Changes;
 
 #[cfg(feature = "testing")]
@@ -306,11 +306,11 @@ impl Store {
         let mut path = self.root.clone();
         path.extend(document.directory());
         path.push(document.name());
-        AccountsError::File {
+        AccountsError::File(FileError {
             operation,
             path,
             too_large: matches!(failure, Failure::TooLarge),
-        }
+        })
     }
 }
 

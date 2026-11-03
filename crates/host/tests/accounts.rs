@@ -44,7 +44,9 @@ impl Workspace {
     }
 
     fn path(&self, relative: &str) -> PathBuf {
-        self.app_data().join(relative)
+        relative
+            .split('/')
+            .fold(self.app_data(), |path, segment| path.join(segment))
     }
 
     fn host(&self) -> Host {
@@ -207,11 +209,22 @@ fn groups(snapshot: &AccountsSnapshot) -> Vec<(&str, Vec<&str>)> {
         .collect()
 }
 
-fn read_failure(workspace: &Workspace, relative: &str, too_large: bool) -> AccountsError {
-    AccountsError::File {
-        operation: "read",
-        path: workspace.path(relative),
-        too_large,
+fn read_failure(workspace: &Workspace, relative: &str, too_large: bool) -> String {
+    let limit = if too_large {
+        " The document exceeds the limit of 8388608 bytes."
+    } else {
+        ""
+    };
+    format!(
+        "JSON file read failed at {}.{limit}",
+        workspace.path(relative).display()
+    )
+}
+
+fn file_failure<T: std::fmt::Debug>(result: Result<T, AccountsError>) -> String {
+    match result {
+        Err(error @ AccountsError::File(_)) => error.to_string(),
+        other => panic!("expected a file failure, got {other:?}"),
     }
 }
 
@@ -501,17 +514,10 @@ fn fails_reads_and_updates_without_replacing_unreadable_valid_accounts() {
     workspace.write("accounts.json", source);
     set_mode(&workspace.path("accounts.json"), 0o000);
     let unreadable = read_failure(&workspace, "accounts.json", false);
-    assert_eq!(wait(host.accounts().snapshot()), Err(unreadable.clone()));
+    assert_eq!(file_failure(wait(host.accounts().snapshot())), unreadable);
     assert_eq!(
-        wait(host.accounts().edit(create_group("Raiders", &[]))),
-        Err(unreadable.clone())
-    );
-    assert_eq!(
-        unreadable.to_string(),
-        format!(
-            "JSON file read failed at {}.",
-            workspace.path("accounts.json").display()
-        )
+        file_failure(wait(host.accounts().edit(create_group("Raiders", &[])))),
+        unreadable
     );
     assert_eq!(capture.take(), Vec::<Value>::new());
     set_mode(&workspace.path("accounts.json"), 0o600);
@@ -531,17 +537,10 @@ fn rejects_accounts_above_the_read_limit_without_replacing_them() {
         json!({"accounts": [], "groups": {}, "padding": "x".repeat(8 * 1024 * 1024)}).to_string();
     workspace.write("accounts.json", &source);
     let too_large = read_failure(&workspace, "accounts.json", true);
-    assert_eq!(wait(host.accounts().snapshot()), Err(too_large.clone()));
+    assert_eq!(file_failure(wait(host.accounts().snapshot())), too_large);
     assert_eq!(
-        wait(host.accounts().edit(create_group("Raiders", &[]))),
-        Err(too_large.clone())
-    );
-    assert_eq!(
-        too_large.to_string(),
-        format!(
-            "JSON file read failed at {}. The document exceeds the limit of 8388608 bytes.",
-            workspace.path("accounts.json").display()
-        )
+        file_failure(wait(host.accounts().edit(create_group("Raiders", &[])))),
+        too_large
     );
     assert_eq!(capture.take(), Vec::<Value>::new());
     assert_eq!(workspace.read("accounts.json"), source);
@@ -802,14 +801,14 @@ fn unreadable_accounts_fail_reads_and_edits_without_changing_bytes() {
         }
         let failure = read_failure(&workspace, "accounts.json", too_large);
         assert_eq!(
-            wait(host.accounts().snapshot()),
-            Err(failure.clone()),
+            file_failure(wait(host.accounts().snapshot())),
+            failure,
             "{name}"
         );
         for edit in [create("New"), unchanged(), create_group("Raiders", &[])] {
             assert_eq!(
-                wait(host.accounts().edit(edit)),
-                Err(failure.clone()),
+                file_failure(wait(host.accounts().edit(edit))),
+                failure,
                 "{name}"
             );
         }
@@ -1289,16 +1288,16 @@ fn fails_unreadable_settings_without_overwriting_them_on_update() {
         }
         let failure = read_failure(&workspace, "account-settings/hero.json", false);
         assert_eq!(
-            wait(host.accounts().settings("Hero")),
-            Err(failure.clone()),
+            file_failure(wait(host.accounts().settings("Hero"))),
+            failure,
             "{name}"
         );
         assert_eq!(
-            wait(
+            file_failure(wait(
                 host.accounts()
                     .update_settings("Hero", safe_start_stop(true))
-            ),
-            Err(failure.clone()),
+            )),
+            failure,
             "{name}"
         );
         assert_eq!(writes.load(Ordering::SeqCst), 0, "{name}");

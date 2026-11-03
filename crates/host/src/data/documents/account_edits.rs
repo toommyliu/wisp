@@ -206,7 +206,7 @@ fn group_members(usernames: &[String], accounts: &[Account]) -> Result<Vec<Strin
 mod tests {
     use super::super::json::JsMap;
     use super::*;
-    use crate::accounts::{Account, Password};
+    use crate::accounts::{Account, FileError, Password};
 
     type View = (Vec<[String; 3]>, Vec<(String, Vec<String>)>);
 
@@ -251,11 +251,11 @@ mod tests {
     }
 
     fn unreadable() -> AccountsError {
-        AccountsError::File {
+        AccountsError::File(FileError {
             operation: "read",
             path: "accounts.json".into(),
             too_large: false,
-        }
+        })
     }
 
     fn create(username: &str, password: &str) -> AccountEdit {
