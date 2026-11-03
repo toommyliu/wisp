@@ -159,19 +159,26 @@ struct BusyCores {
 
 #[cfg(feature = "testing")]
 impl BusyCores {
-    fn all() -> Self {
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let spinners = (0..thread::available_parallelism().map_or(4, |cores| cores.get()))
-            .map(|_| {
-                let stop = stop.clone();
-                thread::spawn(move || {
-                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
-                        std::hint::spin_loop();
-                    }
-                })
-            })
-            .collect();
-        Self { stop, spinners }
+    fn start() -> Self {
+        let cores = thread::available_parallelism().map_or(4, |cores| cores.get());
+        let count = if std::env::var_os("CI").is_some() {
+            cores
+        } else {
+            cores.min(6)
+        };
+        let mut busy = Self {
+            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            spinners: Vec::with_capacity(count),
+        };
+        for _ in 0..count {
+            let stop = busy.stop.clone();
+            busy.spinners.push(thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            }));
+        }
+        busy
     }
 }
 
@@ -187,13 +194,13 @@ impl Drop for BusyCores {
 
 #[cfg(feature = "testing")]
 #[test]
-fn a_runaway_turn_is_killed_within_250_ms_of_cpu_while_every_core_is_busy() {
+fn a_runaway_turn_is_killed_within_250_ms_of_cpu_while_the_cores_are_busy() {
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(&host, ProbeMovie::new());
     drop(link);
     for _ in 0..5 {
         let mut runtime = Runtime::start(session.attach(EventInterests::ALL).unwrap()).unwrap();
-        let busy = BusyCores::all();
+        let busy = BusyCores::start();
         let error = runtime
             .eval("runaway.js", "while (true) {}")
             .wait::<Value>(TIMEOUT)
