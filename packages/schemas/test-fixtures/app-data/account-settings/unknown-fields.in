@@ -1,0 +1,1 @@
+{"version":1,"scripts":{"restartAfterReconnect":true,"roomPolicy":{"kind":"public"},"safeStartStop":true,"autoRelogin":true},"theme":"dark"}

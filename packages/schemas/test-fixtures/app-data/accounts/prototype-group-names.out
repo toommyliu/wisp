@@ -1,0 +1,21 @@
+{
+  "accounts": [
+    {
+      "label": "Hero",
+      "username": "Hero",
+      "password": "secret"
+    }
+  ],
+  "groups": {
+    "B": [
+      "Hero"
+    ],
+    "constructor": [
+      "Hero"
+    ],
+    "toString": [],
+    "hasOwnProperty": [],
+    "valueOf": [],
+    "prototype": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "accounts": [
+    {
+      "label": "Hero",
+      "username": "Hero",
+      "password": "secret"
+    },
+    {
+      "label": "Alt",
+      "username": "Alt",
+      "password": "z"
+    }
+  ],
+  "groups": {
+    "Raiders": [
+      "Hero",
+      "Alt"
+    ]
+  }
+}

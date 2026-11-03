@@ -1,0 +1,29 @@
+{
+  "accounts": [
+    {
+      "label": "ユーザー",
+      "username": "Ünïcödé",
+      "password": "pässwörd"
+    },
+    {
+      "label": "Οδυσσέας",
+      "username": "ΟΔΥΣΣΕΥΣ",
+      "password": "Σ"
+    },
+    {
+      "label": "İnci",
+      "username": "İnci",
+      "password": "𐵐"
+    }
+  ],
+  "groups": {
+    "Grüße": [
+      "Ünïcödé"
+    ],
+    "Ομάδα": [
+      "ΟΔΥΣΣΕΥΣ",
+      "İnci"
+    ],
+    "😀": []
+  }
+}

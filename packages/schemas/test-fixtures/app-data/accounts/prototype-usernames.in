@@ -1,0 +1,1 @@
+{"accounts":[{"label":"a","username":"__proto__","password":"a"},{"label":"b","username":"constructor","password":"b"},{"label":"c","username":"toString","password":"c"}],"groups":{"All":["__proto__","constructor","toString","hasOwnProperty"]}}

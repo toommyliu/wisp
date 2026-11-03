@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "scripts": {
+    "restartAfterReconnect": true,
+    "roomPolicy": {
+      "kind": "specific",
+      "roomNumber": 42
+    },
+    "safeStartStop": false
+  }
+}

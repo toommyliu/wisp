@@ -1,0 +1,127 @@
+[
+  {
+    "name": "lowercases a username",
+    "username": "Hero",
+    "file": "hero.json"
+  },
+  {
+    "name": "trims and keeps inner spaces",
+    "username": "  Hero Name  ",
+    "file": "hero name.json"
+  },
+  {
+    "name": "rejects an empty username",
+    "username": "",
+    "file": null
+  },
+  {
+    "name": "rejects a blank username",
+    "username": " \t ",
+    "file": null
+  },
+  {
+    "name": "rejects .",
+    "username": ".",
+    "file": null
+  },
+  {
+    "name": "rejects ..",
+    "username": "..",
+    "file": null
+  },
+  {
+    "name": "rejects .. after trimming",
+    "username": " .. ",
+    "file": null
+  },
+  {
+    "name": "accepts ...",
+    "username": "...",
+    "file": "....json"
+  },
+  {
+    "name": "accepts a leading dot",
+    "username": ".Hero",
+    "file": ".hero.json"
+  },
+  {
+    "name": "rejects a slash",
+    "username": "a/b",
+    "file": null
+  },
+  {
+    "name": "rejects a backslash",
+    "username": "a\\b",
+    "file": null
+  },
+  {
+    "name": "rejects NUL",
+    "username": "a\u0000b",
+    "file": null
+  },
+  {
+    "name": "trims a byte order mark",
+    "username": "﻿Hero﻿",
+    "file": "hero.json"
+  },
+  {
+    "name": "keeps U+0085",
+    "username": "Hero",
+    "file": "hero.json"
+  },
+  {
+    "name": "trims an ideographic space",
+    "username": "　Hero　",
+    "file": "hero.json"
+  },
+  {
+    "name": "rejects a username of only JavaScript whitespace",
+    "username": "﻿  ",
+    "file": null
+  },
+  {
+    "name": "lowercases dotted capital I",
+    "username": "İnci",
+    "file": "i̇nci.json"
+  },
+  {
+    "name": "lowercases a final sigma",
+    "username": "ΟΔΥΣΣΕΥΣ",
+    "file": "οδυσσευς.json"
+  },
+  {
+    "name": "lowercases a sigma before a space",
+    "username": "ΑΣ Β",
+    "file": "ας β.json"
+  },
+  {
+    "name": "keeps sharp s",
+    "username": "Straße",
+    "file": "straße.json"
+  },
+  {
+    "name": "lowercases capital sharp s",
+    "username": "ẞ",
+    "file": "ß.json"
+  },
+  {
+    "name": "lowercases a Unicode 16 letter",
+    "username": "𐵐",
+    "file": "𐵰.json"
+  },
+  {
+    "name": "lowercases the Kelvin sign",
+    "username": "K",
+    "file": "k.json"
+  },
+  {
+    "name": "lowercases a titlecase digraph",
+    "username": "ǅ",
+    "file": "ǆ.json"
+  },
+  {
+    "name": "keeps a Windows device name",
+    "username": "CON",
+    "file": "con.json"
+  }
+]

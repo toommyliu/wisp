@@ -1,0 +1,14 @@
+{
+  "accounts": [
+    {
+      "label": "Aé /\"\\\b\f\n\r\t\u0000\u001f😀\u000b",
+      "username": "Hero",
+      "password": "pass"
+    }
+  ],
+  "groups": {
+    "Raiders": [
+      "Hero"
+    ]
+  }
+}

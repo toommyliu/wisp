@@ -86,6 +86,9 @@ importers:
       '@effect/vitest':
         specifier: 4.0.3
         version: 4.0.3(effect@4.0.3)(vitest@5.0.5(@types/node@24.12.2)(vite@8.3.5(@types/node@24.12.2)(esbuild@0.28.2)(tsx@4.23.15)))
+      '@types/node':
+        specifier: 24.12.2
+        version: 24.12.2
       tsdown:
         specifier: 0.22.14
         version: 0.22.14(@typescript/typescript6@6.0.2)(tsx@4.23.15)

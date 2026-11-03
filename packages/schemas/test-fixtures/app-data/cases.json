@@ -1,0 +1,1509 @@
+[
+  {
+    "name": "keeps the valid entries of the release's invalid document",
+    "document": "accounts",
+    "input": "accounts/release-invalid-entries.in",
+    "output": "accounts/release-invalid-entries.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 2,
+          "groups": 2,
+          "groupMembers": 5
+        }
+      }
+    }
+  },
+  {
+    "name": "reads the release's {not-json file as malformed",
+    "document": "accounts",
+    "input": "accounts/release-not-json.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 2
+    }
+  },
+  {
+    "name": "reads the release's [] file as not an object",
+    "document": "accounts",
+    "input": "accounts/release-array.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "reads the release's null file as not an object",
+    "document": "accounts",
+    "input": "accounts/release-null.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "reads the release's 42 file as not an object",
+    "document": "accounts",
+    "input": "accounts/release-number.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "reads the release's { file as malformed",
+    "document": "accounts",
+    "input": "accounts/release-unclosed-object.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 2
+    }
+  },
+  {
+    "name": "ignores the release's null account",
+    "document": "accounts",
+    "input": "accounts/release-null-account.in",
+    "output": "accounts/release-null-account.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 1,
+          "groups": 0,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "resets a group whose members are not an array",
+    "document": "accounts",
+    "input": "accounts/release-group-not-array.in",
+    "output": "accounts/release-group-not-array.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "groups"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reports ignored accounts and a reset group together",
+    "document": "accounts",
+    "input": "accounts/release-ignored-and-reset.in",
+    "output": "accounts/release-ignored-and-reset.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "groups"
+        ],
+        "ignored": {
+          "accounts": 1,
+          "groups": 0,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "loads a document without groups silently",
+    "document": "accounts",
+    "input": "accounts/release-missing-groups.in",
+    "output": "accounts/release-missing-groups.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "loads an empty group silently",
+    "document": "accounts",
+    "input": "accounts/release-alts.in",
+    "output": "accounts/release-alts.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "loads an empty groups object silently",
+    "document": "accounts",
+    "input": "accounts/release-empty-groups.in",
+    "output": "accounts/release-empty-groups.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes an empty document back byte for byte",
+    "document": "accounts",
+    "input": "accounts/canonical-empty.in",
+    "output": "accounts/canonical-empty.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes escapes, numeric group names and prototype names back byte for byte",
+    "document": "accounts",
+    "input": "accounts/canonical-accounts.in",
+    "output": "accounts/canonical-accounts.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes non-ASCII names back byte for byte",
+    "document": "accounts",
+    "input": "accounts/canonical-unicode.in",
+    "output": "accounts/canonical-unicode.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "rewrites compact CRLF JSON in the release's layout",
+    "document": "accounts",
+    "input": "accounts/compact-crlf.in",
+    "output": "accounts/compact-crlf.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes accounts before groups whatever the input order",
+    "document": "accounts",
+    "input": "accounts/spacing-and-key-order.in",
+    "output": "accounts/spacing-and-key-order.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "keeps the last value of a duplicate key in its first slot",
+    "document": "accounts",
+    "input": "accounts/duplicate-keys.in",
+    "output": "accounts/duplicate-keys.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "orders array-index group names first like a JavaScript object",
+    "document": "accounts",
+    "input": "accounts/numeric-group-order.in",
+    "output": "accounts/numeric-group-order.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 1,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "drops case-insensitive duplicate accounts and groups and case-sensitive unknown members",
+    "document": "accounts",
+    "input": "accounts/case-insensitive-duplicates.in",
+    "output": "accounts/case-insensitive-duplicates.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 2,
+          "groups": 2,
+          "groupMembers": 4
+        }
+      }
+    }
+  },
+  {
+    "name": "matches names with JavaScript's full lowercase mapping",
+    "document": "accounts",
+    "input": "accounts/unicode-case-folding.in",
+    "output": "accounts/unicode-case-folding.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 7,
+          "groups": 4,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "trims group names with JavaScript whitespace",
+    "document": "accounts",
+    "input": "accounts/javascript-trim.in",
+    "output": "accounts/javascript-trim.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 1,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "drops a __proto__ group and keeps constructor and toString",
+    "document": "accounts",
+    "input": "accounts/prototype-group-names.in",
+    "output": "accounts/prototype-group-names.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 3,
+          "groupMembers": 2
+        }
+      }
+    }
+  },
+  {
+    "name": "keeps __PROTO__ when it comes before __proto__",
+    "document": "accounts",
+    "input": "accounts/prototype-group-names-uppercase-first.in",
+    "output": "accounts/prototype-group-names-uppercase-first.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 1,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "drops a __proto__ group whose members are not an array",
+    "document": "accounts",
+    "input": "accounts/prototype-group-name-not-array.in",
+    "output": "accounts/prototype-group-name-not-array.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "groups"
+        ],
+        "ignored": {
+          "accounts": 0,
+          "groups": 1,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "keeps accounts named like prototype properties",
+    "document": "accounts",
+    "input": "accounts/prototype-usernames.in",
+    "output": "accounts/prototype-usernames.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 0,
+          "groupMembers": 1
+        }
+      }
+    }
+  },
+  {
+    "name": "resets accounts that are an object",
+    "document": "accounts",
+    "input": "accounts/accounts-object.in",
+    "output": "accounts/accounts-object.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "accounts"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets accounts that are a string",
+    "document": "accounts",
+    "input": "accounts/accounts-string.in",
+    "output": "accounts/accounts-string.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "accounts"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets accounts that are null",
+    "document": "accounts",
+    "input": "accounts/accounts-null.in",
+    "output": "accounts/accounts-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "accounts"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets groups that are an array",
+    "document": "accounts",
+    "input": "accounts/groups-array.in",
+    "output": "accounts/groups-array.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "groups"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets groups that are null",
+    "document": "accounts",
+    "input": "accounts/groups-null.in",
+    "output": "accounts/groups-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "groups"
+        ]
+      }
+    }
+  },
+  {
+    "name": "keeps only accounts whose three fields are strings",
+    "document": "accounts",
+    "input": "accounts/account-entry-types.in",
+    "output": "accounts/account-entry-types.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 10,
+          "groups": 0,
+          "groupMembers": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "keeps account fields untrimmed and matches members exactly",
+    "document": "accounts",
+    "input": "accounts/untrimmed-fields.in",
+    "output": "accounts/untrimmed-fields.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 0,
+          "groupMembers": 2
+        }
+      }
+    }
+  },
+  {
+    "name": "counts the members of dropped groups",
+    "document": "accounts",
+    "input": "accounts/members-of-dropped-groups.in",
+    "output": "accounts/members-of-dropped-groups.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 3,
+          "groupMembers": 6
+        }
+      }
+    }
+  },
+  {
+    "name": "keeps only string members",
+    "document": "accounts",
+    "input": "accounts/member-types.in",
+    "output": "accounts/member-types.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 0,
+          "groupMembers": 6
+        }
+      }
+    }
+  },
+  {
+    "name": "drops unknown fields without an issue",
+    "document": "accounts",
+    "input": "accounts/unknown-fields.in",
+    "output": "accounts/unknown-fields.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "parses every JSON number like JSON.parse",
+    "document": "accounts",
+    "input": "accounts/numbers.in",
+    "output": "accounts/numbers.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 0,
+          "groupMembers": 1
+        }
+      }
+    }
+  },
+  {
+    "name": "parses deeply nested unknown fields",
+    "document": "accounts",
+    "input": "accounts/deep-nesting.in",
+    "output": "accounts/deep-nesting.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes escaped input in JSON.stringify's escaping",
+    "document": "accounts",
+    "input": "accounts/input-escapes.in",
+    "output": "accounts/input-escapes.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "replaces invalid UTF-8 like Node's Buffer.toString",
+    "document": "accounts",
+    "input": "accounts/invalid-utf8.in",
+    "output": "accounts/invalid-utf8.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads a byte order mark as malformed",
+    "document": "accounts",
+    "input": "accounts/byte-order-mark.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "places a bad escape of a Latin-1 character",
+    "document": "accounts",
+    "input": "accounts/escaped-latin-1-character.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 15
+    }
+  },
+  {
+    "name": "gives no position for a bad escape of a character above Latin-1",
+    "document": "accounts",
+    "input": "accounts/escaped-character-above-latin-1.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "gives no position for a bad escape of invalid UTF-8",
+    "document": "accounts",
+    "input": "accounts/escaped-invalid-utf-8.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "reads lone surrogate escapes",
+    "document": "accounts",
+    "input": "accounts/lone-surrogates.in",
+    "output": "accounts/lone-surrogates.out",
+    "read": {
+      "issues": {}
+    },
+    "host": {
+      "reason": "The host keeps text as Rust strings, which cannot hold a lone surrogate, so it reads each one as U+FFFD.",
+      "output": "accounts/lone-surrogates.host.out"
+    }
+  },
+  {
+    "name": "reads an empty file as malformed",
+    "document": "accounts",
+    "input": "accounts/malformed-empty.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "reads a whitespace-only file as malformed",
+    "document": "accounts",
+    "input": "accounts/malformed-whitespace.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects a trailing comma in an array",
+    "document": "accounts",
+    "input": "accounts/malformed-array-trailing-comma.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects a trailing comma in an object",
+    "document": "accounts",
+    "input": "accounts/malformed-object-trailing-comma.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 16
+    }
+  },
+  {
+    "name": "rejects text after the document",
+    "document": "accounts",
+    "input": "accounts/malformed-trailing-text.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 17
+    }
+  },
+  {
+    "name": "rejects a second document",
+    "document": "accounts",
+    "input": "accounts/malformed-two-documents.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 3
+    }
+  },
+  {
+    "name": "rejects single-quoted names",
+    "document": "accounts",
+    "input": "accounts/malformed-single-quotes.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 2
+    }
+  },
+  {
+    "name": "rejects unquoted names",
+    "document": "accounts",
+    "input": "accounts/malformed-unquoted-name.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 2
+    }
+  },
+  {
+    "name": "rejects an unterminated string",
+    "document": "accounts",
+    "input": "accounts/malformed-unterminated-string.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 28
+    }
+  },
+  {
+    "name": "rejects an unknown escape",
+    "document": "accounts",
+    "input": "accounts/malformed-bad-escape.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects a non-hex unicode escape",
+    "document": "accounts",
+    "input": "accounts/malformed-bad-unicode-escape.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 11
+    }
+  },
+  {
+    "name": "rejects a truncated unicode escape",
+    "document": "accounts",
+    "input": "accounts/malformed-truncated-unicode-escape.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 11
+    }
+  },
+  {
+    "name": "rejects a bad escape after a high surrogate",
+    "document": "accounts",
+    "input": "accounts/malformed-surrogate-then-bad-escape.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 14
+    }
+  },
+  {
+    "name": "rejects a raw tab in a string",
+    "document": "accounts",
+    "input": "accounts/malformed-control-character.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 10
+    }
+  },
+  {
+    "name": "rejects a raw newline in a string",
+    "document": "accounts",
+    "input": "accounts/malformed-raw-newline.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects a leading zero",
+    "document": "accounts",
+    "input": "accounts/malformed-leading-zero.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 7
+    }
+  },
+  {
+    "name": "rejects a negative leading zero",
+    "document": "accounts",
+    "input": "accounts/malformed-negative-leading-zero.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects a minus without digits",
+    "document": "accounts",
+    "input": "accounts/malformed-lone-minus.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 7
+    }
+  },
+  {
+    "name": "rejects a point without digits",
+    "document": "accounts",
+    "input": "accounts/malformed-missing-fraction.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects an exponent without digits",
+    "document": "accounts",
+    "input": "accounts/malformed-missing-exponent.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 9
+    }
+  },
+  {
+    "name": "rejects a leading plus",
+    "document": "accounts",
+    "input": "accounts/malformed-leading-plus.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects a name without a colon",
+    "document": "accounts",
+    "input": "accounts/malformed-missing-colon.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 6
+    }
+  },
+  {
+    "name": "rejects members without a comma",
+    "document": "accounts",
+    "input": "accounts/malformed-missing-object-comma.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects elements without a comma",
+    "document": "accounts",
+    "input": "accounts/malformed-missing-array-comma.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 9
+    }
+  },
+  {
+    "name": "rejects a literal that runs into a digit",
+    "document": "accounts",
+    "input": "accounts/malformed-literal-then-digit.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 9
+    }
+  },
+  {
+    "name": "rejects a literal that runs into a minus",
+    "document": "accounts",
+    "input": "accounts/malformed-literal-then-minus.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects a literal that runs into a quote",
+    "document": "accounts",
+    "input": "accounts/malformed-literal-then-quote.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 9
+    }
+  },
+  {
+    "name": "rejects a misspelled literal",
+    "document": "accounts",
+    "input": "accounts/malformed-literal-then-letter.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects an uppercase literal",
+    "document": "accounts",
+    "input": "accounts/malformed-uppercase-literal.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects a truncated literal",
+    "document": "accounts",
+    "input": "accounts/malformed-truncated-literal.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects an end after a colon",
+    "document": "accounts",
+    "input": "accounts/malformed-end-after-colon.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects an end after an array comma",
+    "document": "accounts",
+    "input": "accounts/malformed-end-after-array-comma.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects an end inside an escape",
+    "document": "accounts",
+    "input": "accounts/malformed-end-in-escape.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects an end after a name",
+    "document": "accounts",
+    "input": "accounts/malformed-end-after-name.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 5
+    }
+  },
+  {
+    "name": "rejects an end inside an array",
+    "document": "accounts",
+    "input": "accounts/malformed-end-in-array.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects an end after an object comma",
+    "document": "accounts",
+    "input": "accounts/malformed-end-after-object-comma.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 8
+    }
+  },
+  {
+    "name": "rejects an end inside a nested object",
+    "document": "accounts",
+    "input": "accounts/malformed-end-in-nested-object.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 26
+    }
+  },
+  {
+    "name": "counts CRLF as one line break",
+    "document": "accounts",
+    "input": "accounts/malformed-crlf-lines.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 4,
+      "column": 5
+    }
+  },
+  {
+    "name": "counts LF CR as two line breaks",
+    "document": "accounts",
+    "input": "accounts/malformed-cr-and-lf-lines.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 5,
+      "column": 3
+    }
+  },
+  {
+    "name": "counts columns in UTF-16 units",
+    "document": "accounts",
+    "input": "accounts/malformed-astral-column.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 11
+    }
+  },
+  {
+    "name": "counts each replacement character as one column",
+    "document": "accounts",
+    "input": "accounts/malformed-replacement-column.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 10
+    }
+  },
+  {
+    "name": "does not count U+2028, U+2029 or U+0085 as line breaks",
+    "document": "accounts",
+    "input": "accounts/malformed-separators-in-strings.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 2,
+      "column": 10
+    }
+  },
+  {
+    "name": "rejects a non-breaking space before the document",
+    "document": "accounts",
+    "input": "accounts/malformed-non-breaking-space.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "rejects a replacement character before the document",
+    "document": "accounts",
+    "input": "accounts/malformed-invalid-utf8-first.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "writes the default settings back byte for byte",
+    "document": "account-settings",
+    "input": "account-settings/canonical-defaults.in",
+    "output": "account-settings/canonical-defaults.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes public room settings back byte for byte",
+    "document": "account-settings",
+    "input": "account-settings/canonical-public.in",
+    "output": "account-settings/canonical-public.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes a specific room back byte for byte",
+    "document": "account-settings",
+    "input": "account-settings/canonical-specific.in",
+    "output": "account-settings/canonical-specific.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes the lowest room back byte for byte",
+    "document": "account-settings",
+    "input": "account-settings/canonical-lowest-room.in",
+    "output": "account-settings/canonical-lowest-room.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes the highest room back byte for byte",
+    "document": "account-settings",
+    "input": "account-settings/canonical-highest-room.in",
+    "output": "account-settings/canonical-highest-room.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads the release's {not-json file as malformed",
+    "document": "account-settings",
+    "input": "account-settings/release-not-json.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 2
+    }
+  },
+  {
+    "name": "reads the release's [] file as not an object",
+    "document": "account-settings",
+    "input": "account-settings/release-array.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "reads the release's null file as not an object",
+    "document": "account-settings",
+    "input": "account-settings/release-null.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "reads the release's 42 file as not an object",
+    "document": "account-settings",
+    "input": "account-settings/release-number.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "resets only the release's invalid restart field",
+    "document": "account-settings",
+    "input": "account-settings/release-invalid-restart.in",
+    "output": "account-settings/release-invalid-restart.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.restartAfterReconnect"
+        ]
+      }
+    }
+  },
+  {
+    "name": "loads the release's partial settings silently",
+    "document": "account-settings",
+    "input": "account-settings/release-optional-fields.in",
+    "output": "account-settings/release-optional-fields.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "rewrites the release's compact settings",
+    "document": "account-settings",
+    "input": "account-settings/release-compact.in",
+    "output": "account-settings/release-compact.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads an empty object as the defaults",
+    "document": "account-settings",
+    "input": "account-settings/empty-object.in",
+    "output": "account-settings/empty-object.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads version 0 silently",
+    "document": "account-settings",
+    "input": "account-settings/version-zero.in",
+    "output": "account-settings/version-zero.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads version -0 silently",
+    "document": "account-settings",
+    "input": "account-settings/version-negative-zero.in",
+    "output": "account-settings/version-negative-zero.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads version 1.0 as 1",
+    "document": "account-settings",
+    "input": "account-settings/version-one-point-zero.in",
+    "output": "account-settings/version-one-point-zero.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads version 1e0 as 1",
+    "document": "account-settings",
+    "input": "account-settings/version-exponent.in",
+    "output": "account-settings/version-exponent.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "decodes a newer version",
+    "document": "account-settings",
+    "input": "account-settings/version-newer.in",
+    "output": "account-settings/version-newer.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reports nothing for invalid fields of a newer version",
+    "document": "account-settings",
+    "input": "account-settings/version-newer-invalid-fields.in",
+    "output": "account-settings/version-newer-invalid-fields.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads a huge integer version as newer",
+    "document": "account-settings",
+    "input": "account-settings/version-huge.in",
+    "output": "account-settings/version-huge.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets a negative version",
+    "document": "account-settings",
+    "input": "account-settings/version-negative.in",
+    "output": "account-settings/version-negative.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a fractional version",
+    "document": "account-settings",
+    "input": "account-settings/version-fraction.in",
+    "output": "account-settings/version-fraction.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a string version",
+    "document": "account-settings",
+    "input": "account-settings/version-string.in",
+    "output": "account-settings/version-string.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a null version",
+    "document": "account-settings",
+    "input": "account-settings/version-null.in",
+    "output": "account-settings/version-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets an infinite version",
+    "document": "account-settings",
+    "input": "account-settings/version-infinite.in",
+    "output": "account-settings/version-infinite.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "lists the version reset before field resets in field order",
+    "document": "account-settings",
+    "input": "account-settings/version-and-fields.in",
+    "output": "account-settings/version-and-fields.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version",
+          "scripts.restartAfterReconnect",
+          "scripts.safeStartStop"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets scripts that are an array",
+    "document": "account-settings",
+    "input": "account-settings/scripts-array.in",
+    "output": "account-settings/scripts-array.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets scripts that are null",
+    "document": "account-settings",
+    "input": "account-settings/scripts-null.in",
+    "output": "account-settings/scripts-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets scripts that are a string",
+    "document": "account-settings",
+    "input": "account-settings/scripts-string.in",
+    "output": "account-settings/scripts-string.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a room policy that is a string",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-string.in",
+    "output": "account-settings/room-policy-string.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets an unknown room policy kind",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-unknown-kind.in",
+    "output": "account-settings/room-policy-unknown-kind.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a specific room without a number",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-missing-room.in",
+    "output": "account-settings/room-policy-missing-room.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets room 0",
+    "document": "account-settings",
+    "input": "account-settings/room-number-zero.in",
+    "output": "account-settings/room-number-zero.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets room 100000",
+    "document": "account-settings",
+    "input": "account-settings/room-number-too-large.in",
+    "output": "account-settings/room-number-too-large.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a fractional room",
+    "document": "account-settings",
+    "input": "account-settings/room-number-fraction.in",
+    "output": "account-settings/room-number-fraction.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a string room",
+    "document": "account-settings",
+    "input": "account-settings/room-number-string.in",
+    "output": "account-settings/room-number-string.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets room -0",
+    "document": "account-settings",
+    "input": "account-settings/room-number-negative-zero.in",
+    "output": "account-settings/room-number-negative-zero.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets an infinite room",
+    "document": "account-settings",
+    "input": "account-settings/room-number-infinite.in",
+    "output": "account-settings/room-number-infinite.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads room 42.0 as 42",
+    "document": "account-settings",
+    "input": "account-settings/room-number-one-point-zero.in",
+    "output": "account-settings/room-number-one-point-zero.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads room 4.2e1 as 42",
+    "document": "account-settings",
+    "input": "account-settings/room-number-exponent.in",
+    "output": "account-settings/room-number-exponent.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets a public room policy with a room number",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-extra-key.in",
+    "output": "account-settings/room-policy-extra-key.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a specific room policy with an extra key",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-extra-key-specific.in",
+    "output": "account-settings/room-policy-extra-key-specific.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "accepts room policy keys in any order",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-key-order.in",
+    "output": "account-settings/room-policy-key-order.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads the last of duplicate kinds",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-duplicate-kind.in",
+    "output": "account-settings/room-policy-duplicate-kind.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets a room policy that is an array",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-array.in",
+    "output": "account-settings/room-policy-array.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a room policy with a __proto__ key",
+    "document": "account-settings",
+    "input": "account-settings/room-policy-proto-key.in",
+    "output": "account-settings/room-policy-proto-key.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.roomPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets booleans written as numbers",
+    "document": "account-settings",
+    "input": "account-settings/booleans-as-numbers.in",
+    "output": "account-settings/booleans-as-numbers.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.restartAfterReconnect",
+          "scripts.safeStartStop"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a null boolean",
+    "document": "account-settings",
+    "input": "account-settings/boolean-null.in",
+    "output": "account-settings/boolean-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "scripts.restartAfterReconnect"
+        ]
+      }
+    }
+  },
+  {
+    "name": "drops unknown fields without an issue",
+    "document": "account-settings",
+    "input": "account-settings/unknown-fields.in",
+    "output": "account-settings/unknown-fields.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads the last of duplicate scripts",
+    "document": "account-settings",
+    "input": "account-settings/duplicate-scripts.in",
+    "output": "account-settings/duplicate-scripts.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads a byte order mark as malformed",
+    "document": "account-settings",
+    "input": "account-settings/byte-order-mark.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  }
+]

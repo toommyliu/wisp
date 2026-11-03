@@ -1,0 +1,10 @@
+{
+  "accounts": [
+    {
+      "label": "c",
+      "username": "c",
+      "password": "c"
+    }
+  ],
+  "groups": {}
+}
