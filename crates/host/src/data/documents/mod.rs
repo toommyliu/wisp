@@ -22,7 +22,7 @@ pub(super) struct Decoded<T> {
     pub(super) issues: Issues,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(super) struct Issues {
     reset: Vec<&'static str>,
     ignored: Vec<(&'static str, usize)>,
@@ -32,9 +32,16 @@ fn decode_document<T>(
     file: Option<&[u8]>,
     decode: impl FnOnce(&JsMap<Json>) -> Decoded<T>,
 ) -> Loaded<T> {
-    todo!()
+    let Some(bytes) = file else {
+        return Loaded::Missing;
+    };
+    match &json::parse(bytes) {
+        Ok(Json::Object(document)) => Loaded::Decoded(decode(document)),
+        Ok(_) => Loaded::Unreadable(Unreadable::NotAnObject),
+        Err(error) => Loaded::Unreadable(Unreadable::Malformed(*error)),
+    }
 }
 
 fn trim(text: &str) -> &str {
-    todo!()
+    text.trim_matches(|c: char| c == '\u{feff}' || (c.is_whitespace() && c != '\u{85}'))
 }
