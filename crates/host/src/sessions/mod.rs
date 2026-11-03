@@ -125,7 +125,9 @@ impl Host {
         use crate::data::roots;
         let real_scripts = roots::create(&scripts).map_err(HostError::Files)?;
         let real_app_data = roots::create(&app_data).map_err(HostError::AppData)?;
-        if roots::overlap(&real_scripts, &real_app_data) {
+        let scripts_ancestry = roots::ancestry(&real_scripts).map_err(HostError::Files)?;
+        let app_data_ancestry = roots::ancestry(&real_app_data).map_err(HostError::AppData)?;
+        if roots::overlap(&scripts_ancestry, &app_data_ancestry) {
             return Err(HostError::OverlappingRoots);
         }
         let net = tokio::runtime::Builder::new_multi_thread()
