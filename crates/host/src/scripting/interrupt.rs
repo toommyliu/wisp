@@ -2,7 +2,7 @@ use std::io;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::scripting::alarm::Alarm;
+use crate::scripting::alarm::{self, Alarm};
 use crate::scripting::cpu_time::ThreadCpu;
 use crate::scripting::{Kill, RuntimeError};
 
@@ -239,6 +239,7 @@ impl Interrupt {
     }
 
     pub(crate) fn watch(&self) {
+        alarm::outrank_script_threads();
         let mut state = self.state.lock().unwrap();
         loop {
             let until = match state.stop {
