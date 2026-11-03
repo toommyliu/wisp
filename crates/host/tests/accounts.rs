@@ -1108,6 +1108,72 @@ fn an_app_data_root_behind_a_dangling_link_into_scripts_is_refused() {
 
 #[cfg(unix)]
 #[test]
+fn follows_a_linked_app_data_folder_and_settings_folder() {
+    use std::os::unix::fs::symlink;
+    let workspace = Workspace::new();
+    let data = workspace.0.join("elsewhere").join("data");
+    let settings = workspace.0.join("elsewhere").join("settings");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&settings).unwrap();
+    symlink(&data, workspace.app_data()).unwrap();
+    symlink(&settings, data.join("account-settings")).unwrap();
+    fs::write(
+        data.join("accounts.json"),
+        file(json!({"accounts": [account("Hero", "secret")], "groups": {}})),
+    )
+    .unwrap();
+    fs::write(
+        settings.join("hero.json"),
+        settings_file(json!({"safeStartStop": true})),
+    )
+    .unwrap();
+    let host = workspace.host();
+    assert_eq!(
+        usernames(&wait(host.accounts().snapshot()).unwrap()),
+        ["Hero"]
+    );
+    assert!(
+        wait(host.accounts().settings("Hero"))
+            .unwrap()
+            .safe_start_stop
+    );
+    wait(host.accounts().edit(create("Sidekick"))).unwrap();
+    wait(
+        host.accounts()
+            .update_settings("Hero", safe_start_stop(false)),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(data.join("accounts.json")).unwrap(),
+        file(json!({
+            "accounts": [account("Hero", "secret"), account("Sidekick", "secret")],
+            "groups": {},
+        }))
+    );
+    assert!(
+        !wait(host.accounts().settings("Hero"))
+            .unwrap()
+            .safe_start_stop
+    );
+    assert!(
+        fs::read_to_string(settings.join("hero.json"))
+            .unwrap()
+            .contains(r#""safeStartStop": false"#)
+    );
+    assert!(
+        fs::symlink_metadata(workspace.app_data())
+            .unwrap()
+            .is_symlink()
+    );
+    assert!(
+        fs::symlink_metadata(data.join("account-settings"))
+            .unwrap()
+            .is_symlink()
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn app_data_files_are_owner_only() {
     use std::os::unix::fs::PermissionsExt;
     let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;

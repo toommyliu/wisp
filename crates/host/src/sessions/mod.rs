@@ -140,7 +140,8 @@ impl Host {
                 files: Arc::new(crate::data::Files::start(scripts).map_err(HostError::Files)?),
                 accounts: crate::accounts::Accounts {
                     app_data: Arc::new(
-                        crate::data::AppData::start(app_data).map_err(HostError::AppData)?,
+                        crate::data::AppData::start(app_data, real_app_data)
+                            .map_err(HostError::AppData)?,
                     ),
                 },
                 http: crate::scripting::http::Http::new(net.handle().clone())

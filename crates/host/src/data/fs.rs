@@ -35,22 +35,25 @@ pub(super) fn metadata(dir: &Dir, name: &str) -> Result<Option<Metadata>, Failur
     }
 }
 
+pub(super) fn create_directory(dir: &Dir, name: &str) -> io::Result<()> {
+    let builder = DirBuilder::new();
+    #[cfg(unix)]
+    let builder = {
+        use cap_std::fs::DirBuilderExt;
+        let mut builder = builder;
+        builder.mode(0o700);
+        builder
+    };
+    match dir.create_dir_with(name, &builder) {
+        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => Err(error),
+        _ => Ok(()),
+    }
+}
+
 pub(super) fn directory(dir: &Dir, name: &str, create: bool) -> Result<Option<Dir>, Failure> {
     let mut info = metadata(dir, name)?;
     if info.is_none() && create {
-        let builder = DirBuilder::new();
-        #[cfg(unix)]
-        let builder = {
-            use cap_std::fs::DirBuilderExt;
-            let mut builder = builder;
-            builder.mode(0o700);
-            builder
-        };
-        match dir.create_dir_with(name, &builder) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
+        create_directory(dir, name)?;
         info = metadata(dir, name)?;
     }
     let Some(info) = info else {

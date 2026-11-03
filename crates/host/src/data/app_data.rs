@@ -1,3 +1,4 @@
+use cap_std::fs::Dir;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::io;
@@ -43,7 +44,7 @@ impl Request {
 }
 
 impl AppData {
-    pub(crate) fn start(root: PathBuf) -> io::Result<Self> {
+    pub(crate) fn start(root: PathBuf, real: PathBuf) -> io::Result<Self> {
         let (sender, requests) = mpsc::sync_channel::<Request>(64);
         let changes = Arc::new(Changes::default());
         #[cfg(feature = "testing")]
@@ -51,6 +52,7 @@ impl AppData {
         let mut worker = Worker {
             store: Store {
                 root,
+                real,
                 #[cfg(feature = "testing")]
                 probe: probe.clone(),
             },
@@ -217,6 +219,7 @@ impl Document<'_> {
 
 struct Store {
     root: PathBuf,
+    real: PathBuf,
     #[cfg(feature = "testing")]
     probe: Arc<Mutex<Option<Probe>>>,
 }
@@ -246,18 +249,29 @@ impl Store {
         })
     }
 
-    fn read(&self, document: Document) -> Result<Option<Vec<u8>>, AccountsError> {
-        let failed = |failure| self.failure("read", document, failure);
-        let Some(mut dir) = fs::open_root(&self.root, false).map_err(failed)? else {
+    fn folder(&self, document: Document, create: bool) -> Result<Option<Dir>, Failure> {
+        let Some(root) = fs::open_root(&self.real, create)? else {
             return Ok(None);
         };
-        if let Some(name) = document.directory() {
-            match fs::directory(&dir, name, false).map_err(failed)? {
-                Some(child) => dir = child,
-                None => return Ok(None),
-            }
+        let Some(name) = document.directory() else {
+            return Ok(Some(root));
+        };
+        if create {
+            fs::create_directory(&root, name)?;
         }
-        fs::read(&dir, document.name()).map_err(failed)
+        match Dir::open_ambient_dir(self.real.join(name), cap_std::ambient_authority()) {
+            Ok(dir) => Ok(Some(dir)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !create => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn read(&self, document: Document) -> Result<Option<Vec<u8>>, AccountsError> {
+        let failed = |failure| self.failure("read", document, failure);
+        match self.folder(document, false).map_err(failed)? {
+            Some(dir) => fs::read(&dir, document.name()).map_err(failed),
+            None => Ok(None),
+        }
     }
 
     fn write(&self, document: Document, contents: &[u8]) -> Result<(), AccountsError> {
@@ -266,14 +280,10 @@ impl Store {
             return Err(failed("write")(Failure::TooLarge));
         }
         let missing = || failed("mkdir")(Failure::Io(io::ErrorKind::NotFound.into()));
-        let mut dir = fs::open_root(&self.root, true)
+        let dir = self
+            .folder(document, true)
             .map_err(failed("mkdir"))?
             .ok_or_else(missing)?;
-        if let Some(name) = document.directory() {
-            dir = fs::directory(&dir, name, true)
-                .map_err(failed("mkdir"))?
-                .ok_or_else(missing)?;
-        }
         let renamed = fs::write_atomic(&dir, document.name(), contents, true, || {
             #[cfg(feature = "testing")]
             {
