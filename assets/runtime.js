@@ -5568,11 +5568,6 @@ ${prefix}}`;
   var host3 = __host;
   var timers = /* @__PURE__ */ new Map();
   var nextId = 1;
-  var enter;
-  var requestEnter = /* @__PURE__ */ __name((resume) => {
-    enter = resume;
-    host3.requestEnter();
-  }, "requestEnter");
   var schedule = /* @__PURE__ */ __name((callback3, delay3, args2, repeat4) => {
     const ms = Math.max(0, Number(delay3) || 0);
     const timer = {
@@ -5587,6 +5582,16 @@ ${prefix}}`;
   var clear = /* @__PURE__ */ __name((id) => {
     if (id !== void 0) timers.delete(id);
   }, "clear");
+  var requestEnter = /* @__PURE__ */ __name((enter) => {
+    schedule(
+      () => {
+        if (!host3.stopRequested()) enter();
+      },
+      0,
+      [],
+      false
+    );
+  }, "requestEnter");
   var describe = /* @__PURE__ */ __name((cause) => {
     try {
       return cause instanceof Error ? cause.stack ?? String(cause) : String(cause);
@@ -5655,7 +5660,6 @@ ${prefix}}`;
       }
       invoke(timer.callback);
     }
-    if (items.some((item) => item.type === "enter")) invoke(() => enter?.());
     return errors;
   }, "turn");
   var wake = /* @__PURE__ */ __name(() => {

@@ -71,7 +71,6 @@ pub struct Runtime {
 enum Command {
     Io,
     Wake,
-    Enter,
     StopScript,
     StartScript,
     Stop,
@@ -91,14 +90,6 @@ impl Wake for IoWake {
     }
     fn wake_by_ref(self: &Arc<Self>) {
         let _ = self.0.send(Command::Io);
-    }
-}
-
-struct EnterWake(mpsc::Sender<Command>);
-
-impl Wake for EnterWake {
-    fn wake(self: Arc<Self>) {
-        let _ = self.0.send(Command::Enter);
     }
 }
 
@@ -190,6 +181,7 @@ impl ScriptRun {
     }
 
     pub fn stop_script(&self) {
+        self.runtime.interrupt.request_stop();
         let _ = self.runtime.commands.send(Command::StopScript);
     }
 
@@ -248,7 +240,6 @@ impl Runtime {
             queued: AtomicBool::new(false),
         });
         let io_wake = Waker::from(Arc::new(IoWake(commands.clone())));
-        let enter_wake = Waker::from(Arc::new(EnterWake(commands.clone())));
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
         let thread = thread::Builder::new()
             .name(format!("lucent-js-{}", link.id()))
@@ -283,7 +274,7 @@ impl Runtime {
                         thread::current().name().unwrap(),
                         thread::current().id()
                     );
-                    let engine = Engine::new(link, interrupt.clone(), io_wake, enter_wake)?;
+                    let engine = Engine::new(link, interrupt.clone(), io_wake)?;
                     run(
                         engine,
                         execution,
@@ -441,7 +432,6 @@ fn run(
                 engine.stop(None);
                 Some(Vec::new())
             }
-            Ok(Command::Enter) => Some(vec![host::Item::Enter]),
             Ok(Command::Wake) => {
                 wake.queued.store(false, Ordering::Release);
                 let Some(items) = take_events(&mut engine) else {
