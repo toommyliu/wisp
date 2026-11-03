@@ -418,6 +418,12 @@ mod tests {
         mpsc::Receiver<Msg>,
         std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) {
+        running.projection.write().readiness = crate::projection::PlayerReadiness {
+            connected: true,
+            facts: true,
+            avatar: crate::projection::Avatar::Loaded,
+            ..Default::default()
+        };
         let (sender, inbox) = mpsc::channel();
         let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker = crate::sessions::operations::Operations::start(0).unwrap();
@@ -444,10 +450,6 @@ mod tests {
             inbox.recv_timeout(Duration::from_secs(1)).unwrap(),
             Msg::OperationAnswer(_, ScriptEvent::OperationStarted { id: 42 })
         ));
-        let Msg::Command(_, reply) = inbox.recv_timeout(Duration::from_secs(1)).unwrap() else {
-            panic!("expected login refresh");
-        };
-        reply.send(Ok("true".into())).unwrap();
         (worker, inbox, stopped)
     }
 

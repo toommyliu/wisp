@@ -410,19 +410,10 @@ impl Endpoint {
         operations: &Shared,
         id: u64,
     ) -> Result<bool, Error> {
-        self.check()?;
-        operations.check(id)?;
-        let (reply, logged_in) = crate::bridge::Pending::channel();
-        self.inbox.post(Msg::Command(
-            lucent_protocol::command::Command::RefreshLoggedIn {},
-            reply,
-        ));
-        let logged_in = serde_json::from_str::<bool>(&self.wait(operations, id, logged_in)?)
-            .map_err(|error| crate::projection::commands::decode_error("auth.isLoggedIn", error))?;
-        if !logged_in {
-            return Ok(false);
-        }
         let prepared = self.read(operations, id, |projection| {
+            if !projection.readiness.can_act() {
+                return None;
+            }
             let drop = projection
                 .items
                 .resolve(ItemContainer::Drop, &selector)?

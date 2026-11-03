@@ -127,17 +127,23 @@ fn adapter_controls_stop_kill_and_cancel_reconnect(cx: &mut gpui::TestAppContext
         |movie, callback| movie.constant(callback, serde_json::Value::Null),
     );
     let (mut session, observer) = testing::start_probe(&host, movie);
-    for packet in [
-        serde_json::json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[],"hitems":[]}}),
-        serde_json::json!({"type":"json","dataObj":{"cmd":"moveToArea","areaId":1,"areaName":"battleon-1","uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100}]}}),
+    for (name, data) in [
+        ("onConnection", "OnConnection".to_owned()),
+        (
+            "onExtensionResponse",
+            serde_json::json!({"type":"json","dataObj":{"cmd":"loadInventoryBig","items":[],"hitems":[]}})
+                .to_string(),
+        ),
+        (
+            "onExtensionResponse",
+            serde_json::json!({"type":"json","dataObj":{"cmd":"moveToArea","areaId":1,"areaName":"battleon-1","uoBranch":[{"entID":7,"uoName":"player-a","intHP":100,"intHPMax":100}]}})
+                .to_string(),
+        ),
     ] {
         observer
             .call_loader(
                 "probe.emit",
-                vec![
-                    Value::String("onExtensionResponse".into()),
-                    Value::String(packet.to_string()),
-                ],
+                vec![Value::String(name.into()), Value::String(data)],
             )
             .recv_timeout(Duration::from_secs(15))
             .unwrap();

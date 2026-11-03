@@ -112,7 +112,6 @@ fn session_starts_stops_and_kills_scripts() {
         Some("wait.js was stopped")
     );
     session.start_script(loose(&[("wait.js", source)])).unwrap();
-    transition(&changes, ScriptPhase::Waiting);
     transition(&changes, ScriptPhase::Preparing);
     transition(&changes, ScriptPhase::Starting);
     transition(&changes, ScriptPhase::Running);
@@ -129,7 +128,6 @@ fn session_starts_stops_and_kills_scripts() {
     session
         .start_script(loose(&[("done.js", "export default function* () {}")]))
         .unwrap();
-    transition(&changes, ScriptPhase::Waiting);
     transition(&changes, ScriptPhase::Preparing);
     transition(&changes, ScriptPhase::Starting);
     transition(&changes, ScriptPhase::Running);

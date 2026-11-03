@@ -77,6 +77,7 @@ impl DropPolicy {
         EventKind::ItemDrop,
         EventKind::Invalidated,
         EventKind::Operation,
+        EventKind::Readiness,
     ]);
 
     pub fn new(link: ScriptLink, waker: Waker) -> Self {
@@ -146,6 +147,9 @@ impl DropPolicy {
                     {
                         self.rescan |= self.config.as_ref().is_some_and(Config::active);
                     }
+                }
+                Ok(Some(ScriptEvent::Readiness { can_act: true, .. })) => {
+                    self.rescan |= self.config.as_ref().is_some_and(Config::active);
                 }
                 Ok(Some(ScriptEvent::Operation { id, .. })) => {
                     if let Some(pass) = &mut self.pass

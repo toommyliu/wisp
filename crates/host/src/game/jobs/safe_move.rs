@@ -266,13 +266,17 @@ mod tests {
         let host = testing::headless_host();
         let (_session, link) = testing::start_probe(
             &host,
-            testing::ProbeMovie::new()
-                .constant("auth.isLoggedIn", serde_json::json!(true))
-                .recording("world.isLoaded"),
+            testing::ProbeMovie::new().recording("world.isLoaded"),
         );
-        link.command(lucent_protocol::command::Command::RefreshLoggedIn {})
-            .recv_timeout(REPLY_TIMEOUT)
-            .unwrap();
+        link.call_loader(
+            "probe.emit",
+            vec![
+                Value::String("onConnection".into()),
+                Value::String("OnConnection".into()),
+            ],
+        )
+        .recv_timeout(REPLY_TIMEOUT)
+        .unwrap();
         let (entered, arrived) = std::sync::mpsc::channel();
         let (release, held) = std::sync::mpsc::channel::<()>();
         let _hold = link.inbox().read_projection(move |_| {

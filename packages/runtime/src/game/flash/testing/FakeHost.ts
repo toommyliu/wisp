@@ -53,6 +53,7 @@ export interface FakeHostState {
   items: Record<ItemContainer, ItemSnapshot[]>;
   hydration: Record<ItemContainer, number>;
   missing: ReadinessKey[];
+  canAct: boolean;
   quests: QuestSnapshot[];
   acceptedQuestIds: number[];
   shop: ShopSnapshot | null;
@@ -95,6 +96,7 @@ export const makeFakeHostState = (): FakeHostState => ({
     temporary: 0,
   },
   missing: [],
+  canAct: false,
   quests: [],
   acceptedQuestIds: [],
   shop: null,
@@ -284,7 +286,7 @@ const answer = (state: FakeHostState, query: Query): unknown => {
       const flags = Object.fromEntries(
         readinessKeys.map((key) => [key, !state.missing.includes(key)]),
       );
-      return { epoch: 0, failures: {}, missing: state.missing, state: flags };
+      return { epoch: 0, canAct: state.canAct, failures: {}, missing: state.missing, state: flags };
     }
     case "quest":
       return state.quests.find((quest) => quest.id === query.id) ?? null;

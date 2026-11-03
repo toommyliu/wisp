@@ -60,6 +60,8 @@ pub struct Projection {
     combat: combat_state::CounterWindows,
     session_logged_in: bool,
     pub(crate) connected: Option<bool>,
+    pub(crate) connects: u64,
+    pub(crate) disconnects: u64,
 }
 
 impl Projection {
@@ -68,8 +70,12 @@ impl Projection {
             "OnConnectionLost" | "OnConnectionFailed" => {
                 self.auth.logged_in = false;
                 self.connected = Some(false);
+                self.disconnects += 1;
             }
-            "OnConnection" => self.connected = Some(true),
+            "OnConnection" => {
+                self.connected = Some(true);
+                self.connects += 1;
+            }
             _ => return ProjectionOutput::default(),
         }
         self.readiness.logged_out = false;

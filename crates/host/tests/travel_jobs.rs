@@ -352,7 +352,7 @@ fn combat_exit_refreshes_cells_before_cancelling_and_jumping() {
 }
 
 #[test]
-fn an_already_loaded_join_uses_the_native_readiness_order() {
+fn an_already_loaded_join_reads_readiness_without_loader_calls() {
     let (mut session, observer, _supervisor) = setup();
     let (observed, observations) = std::sync::mpsc::channel();
     session.set_travel_observation_probe(move |reads, calls| {
@@ -374,11 +374,7 @@ fn an_already_loaded_join_uses_the_native_readiness_order() {
     );
     assert_eq!(
         observations.recv_timeout(TIMEOUT).unwrap(),
-        vec![
-            "auth.isLoggedIn".to_owned(),
-            "world.isLoaded".to_owned(),
-            "player.isLoaded".to_owned()
-        ]
+        Vec::<String>::new()
     );
     assert_eq!(
         run.wait(TIMEOUT).unwrap(),
