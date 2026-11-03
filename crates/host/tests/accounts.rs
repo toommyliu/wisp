@@ -423,7 +423,7 @@ fn loads_missing_storage_silently() {
         AccountsSnapshot::default()
     );
     assert_eq!(capture.take(), Vec::<Value>::new());
-    assert!(!workspace.app_data().exists());
+    assert_eq!(fs::read_dir(workspace.app_data()).unwrap().count(), 0);
 }
 
 #[test]
@@ -1050,6 +1050,62 @@ fn roots_that_nest_are_refused() {
     assert!(testing::headless_host_with_roots(base.join("data"), base.join("database")).is_ok());
 }
 
+#[test]
+fn roots_that_differ_only_in_case_or_normalization_are_refused() {
+    let workspace = Workspace::new();
+    let base = workspace.0.join("roots");
+    fs::create_dir(&base).unwrap();
+    for (scripts, app_data) in [("Shared", "shared"), ("caf\u{e9}", "cafe\u{301}")] {
+        fs::create_dir(base.join(scripts)).unwrap();
+        let aliased = base.join(app_data).exists();
+        fs::remove_dir(base.join(scripts)).unwrap();
+        match testing::headless_host_with_roots(base.join(scripts), base.join(app_data).join("app"))
+        {
+            Err(HostError::OverlappingRoots) => assert!(aliased, "{scripts:?} {app_data:?}"),
+            Err(error) => panic!("{error}"),
+            Ok(host) => {
+                wait(host.accounts().edit(create("Hero"))).unwrap();
+                assert_eq!(
+                    run_script(
+                        &host,
+                        r#"return yield* attempt(fs.readText("app/accounts.json"));"#
+                    ),
+                    "missing",
+                    "{scripts:?} {app_data:?}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn an_app_data_root_behind_a_dangling_link_into_scripts_is_refused() {
+    let workspace = Workspace::new();
+    std::os::unix::fs::symlink(workspace.scripts().join("inner"), workspace.0.join("link"))
+        .unwrap();
+    let app_data = workspace.0.join("link").join("app-data");
+    match testing::headless_host_with_roots(workspace.scripts(), app_data) {
+        Err(HostError::OverlappingRoots | HostError::AppData(_)) => {}
+        Err(error) => panic!("{error}"),
+        Ok(host) => {
+            let created = run_script(
+                &host,
+                r#"return yield* attempt(fs.writeText("inner/note.txt", ""));"#,
+            );
+            assert_eq!(created, "missing");
+            wait(host.accounts().edit(create("Hero"))).unwrap();
+            assert_eq!(
+                run_script(
+                    &host,
+                    r#"return yield* attempt(fs.readText("inner/app-data/accounts.json"));"#
+                ),
+                "missing"
+            );
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn app_data_files_are_owner_only() {
@@ -1410,7 +1466,7 @@ fn settings_reject_invalid_usernames() {
         );
     }
     assert_eq!(writes.load(Ordering::SeqCst), 0);
-    assert!(!workspace.app_data().exists());
+    assert_eq!(fs::read_dir(workspace.app_data()).unwrap().count(), 0);
 }
 
 #[test]

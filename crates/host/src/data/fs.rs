@@ -65,7 +65,7 @@ pub(super) fn directory(dir: &Dir, name: &str, create: bool) -> Result<Option<Di
     Ok(Some(dir.open_dir_nofollow(name)?))
 }
 
-pub(super) fn open_root(path: &Path, create: bool) -> Result<Option<Dir>, Failure> {
+pub(super) fn create_root(path: &Path) -> io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -73,11 +73,15 @@ pub(super) fn open_root(path: &Path, create: bool) -> Result<Option<Dir>, Failur
         use std::os::unix::fs::DirBuilderExt;
         builder.mode(0o700);
     }
+    builder.create(path)
+}
+
+pub(super) fn open_root(path: &Path, create: bool) -> Result<Option<Dir>, Failure> {
     match std::fs::symlink_metadata(path) {
         Ok(info) if info.file_type().is_symlink() => return Err(Failure::InvalidPath),
         Ok(info) if !info.is_dir() => return Err(Failure::NotDirectory),
         Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound && create => builder.create(path)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound && create => create_root(path)?,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     }

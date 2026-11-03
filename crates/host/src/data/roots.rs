@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Platform {
@@ -63,28 +63,17 @@ pub(crate) fn app_data_root(
     Ok(base.join(if dev { "lucent-dev" } else { "lucent" }))
 }
 
-pub(crate) fn overlap(first: &Path, second: &Path) -> bool {
-    let (first, second) = (resolved(first), resolved(second));
-    first.starts_with(&second) || second.starts_with(&first)
+pub(crate) fn create(path: &Path) -> io::Result<PathBuf> {
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => super::fs::create_root(path)?,
+        Err(error) => return Err(error),
+        Ok(_) => {}
+    }
+    path.canonicalize()
 }
 
-fn resolved(path: &Path) -> PathBuf {
-    for ancestor in path.ancestors() {
-        let Ok(mut resolved) = ancestor.canonicalize() else {
-            continue;
-        };
-        for component in path.strip_prefix(ancestor).unwrap().components() {
-            match component {
-                Component::ParentDir => {
-                    resolved.pop();
-                }
-                Component::CurDir => {}
-                component => resolved.push(component),
-            }
-        }
-        return resolved;
-    }
-    path.to_path_buf()
+pub(crate) fn overlap(first: &Path, second: &Path) -> bool {
+    first.starts_with(second) || second.starts_with(first)
 }
 
 #[cfg(test)]
@@ -197,27 +186,26 @@ mod tests {
 
     #[test]
     fn roots_overlap_when_equal_or_nested() {
-        let base = std::env::temp_dir().join(format!("lucent-roots-{}", std::process::id()));
+        let base = Path::new("base");
         let data = base.join("data");
         assert!(overlap(&data, &data));
         assert!(overlap(&data, &data.join("app")));
         assert!(overlap(&data.join("app"), &data));
-        assert!(overlap(&data, &base.join("other").join("..").join("data")));
         assert!(!overlap(&data, &base.join("database")));
         assert!(!overlap(&data, &base.join("app")));
     }
 
     #[cfg(unix)]
     #[test]
-    fn roots_that_alias_through_a_symlink_overlap() {
+    fn created_roots_that_alias_through_a_symlink_overlap() {
         let base = std::env::temp_dir().join(format!("lucent-roots-link-{}", std::process::id()));
         std::fs::create_dir_all(base.join("real")).unwrap();
         let link = base.join("link");
         let _ = std::fs::remove_file(&link);
         std::os::unix::fs::symlink(base.join("real"), &link).unwrap();
         let aliased = overlap(
-            &base.join("real").join("data"),
-            &link.join("data").join("app"),
+            &create(&base.join("real").join("data")).unwrap(),
+            &create(&link.join("data").join("app")).unwrap(),
         );
         std::fs::remove_dir_all(&base).unwrap();
         assert!(aliased);

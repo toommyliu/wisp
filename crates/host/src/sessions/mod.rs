@@ -122,7 +122,10 @@ impl Host {
         scripts: std::path::PathBuf,
         app_data: std::path::PathBuf,
     ) -> Result<Host, HostError> {
-        if crate::data::roots::overlap(&scripts, &app_data) {
+        use crate::data::roots;
+        let real_scripts = roots::create(&scripts).map_err(HostError::Files)?;
+        let real_app_data = roots::create(&app_data).map_err(HostError::AppData)?;
+        if roots::overlap(&real_scripts, &real_app_data) {
             return Err(HostError::OverlappingRoots);
         }
         let net = tokio::runtime::Builder::new_multi_thread()
