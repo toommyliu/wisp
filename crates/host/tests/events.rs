@@ -49,16 +49,8 @@ fn logout_reaches_a_fresh_runtime_on_a_logged_in_session() {
             new Promise(resolve => {
                 const loggedIn = JSON.parse(__host.read('{"kind":"auth"}')).loggedIn;
                 const seen = [];
-                const onConnection = window.onConnection;
-                const onProjectionEvent = window.onProjectionEvent;
-                window.onConnection = status => {
-                    onConnection(status);
-                    seen.push(status);
-                };
-                window.onProjectionEvent = event => {
-                    onProjectionEvent(event);
-                    seen.push(event.type);
-                };
+                window.onConnection = status => seen.push(status);
+                window.onProjectionEvent = event => seen.push(event.type);
                 window.onDebug = () => resolve({ loggedIn, seen });
                 window.swf["probe.emit"]("onConnection", "OnConnectionLost");
                 window.swf["probe.emit"]("onDebug", "after");

@@ -13,7 +13,7 @@ import { completeTravel, failTravels } from "./travel";
 
 import { prepareJob, failJob, failJobs } from "./jobs";
 
-import type { ScriptSource } from "../game/scripting/ScriptRunner";
+import type { ScriptLoad } from "./scripts";
 
 declare global {
   var __host: {
@@ -41,10 +41,11 @@ declare global {
     cancelIo(id: string): void;
     now(): number;
     log(level: "info" | "warn" | "error" | "debug", text: string): void;
+    stopRequested(): boolean;
   };
   var __lucent: Readonly<{
     start(
-      load: ScriptSource["load"],
+      load: ScriptLoad,
       name: string,
       inputsJson: string,
     ): Promise<ScriptOutcome>;
@@ -116,6 +117,17 @@ const schedule = (
 
 const clear = (id: number | undefined): void => {
   if (id !== undefined) timers.delete(id);
+};
+
+export const requestEnter = (enter: () => void): void => {
+  schedule(
+    () => {
+      if (!host.stopRequested()) enter();
+    },
+    0,
+    [],
+    false,
+  );
 };
 
 const describe = (cause: unknown): string => {

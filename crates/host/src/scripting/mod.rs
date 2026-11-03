@@ -181,6 +181,7 @@ impl ScriptRun {
     }
 
     pub fn stop_script(&self) {
+        self.runtime.interrupt.request_stop();
         let _ = self.runtime.commands.send(Command::StopScript);
     }
 
@@ -401,14 +402,14 @@ fn run(
     loop {
         interrupt.begin_turn();
         let items = match command {
-            Ok(Command::Io) => engine.take_io(),
+            Ok(Command::Io) => Some(engine.take_io()),
             Ok(Command::Eval {
                 name,
                 source,
                 reply,
             }) => {
                 engine.eval(&name, &source, reply);
-                Vec::new()
+                Some(Vec::new())
             }
             Ok(Command::StartScript) => {
                 let Execution::StartScript {
@@ -421,7 +422,7 @@ fn run(
                 };
                 execution = Execution::Script;
                 engine.start(script, inputs, reply);
-                Vec::new()
+                None
             }
             Ok(Command::StopScript) => {
                 if let Execution::StartScript { reply, .. } = execution {
@@ -429,23 +430,26 @@ fn run(
                     return Ok(());
                 }
                 engine.stop(None);
-                Vec::new()
+                Some(Vec::new())
             }
             Ok(Command::Wake) => {
                 wake.queued.store(false, Ordering::Release);
                 let Some(items) = take_events(&mut engine) else {
                     return Ok(());
                 };
-                items
+                Some(items)
             }
             Ok(Command::Kill) => {
                 interrupt.kill(Kill::Requested);
-                Vec::new()
+                Some(Vec::new())
             }
-            Err(RecvTimeoutError::Timeout) => Vec::new(),
+            Err(RecvTimeoutError::Timeout) => Some(Vec::new()),
             Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
         };
-        let turn = engine.turn(&serde_json::to_string(&items).unwrap());
+        let turn = match items {
+            Some(items) => engine.turn(&serde_json::to_string(&items).unwrap()),
+            None => Ok(engine.wake()),
+        };
         match interrupt.end_turn() {
             None => {}
             Some(Stop::Kill(kill)) => {

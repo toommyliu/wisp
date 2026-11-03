@@ -7,9 +7,7 @@ import type {
   Query,
   QueryOutputs,
 } from "@lucent/game/protocol";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { DiagnosticSink } from "../bridge/DiagnosticSink";
@@ -26,14 +24,8 @@ export interface HostStateService {
   ) => Effect.Effect<Option.Option<CommandOutputs[K]>>;
 }
 
-export class HostState extends Context.Service<HostState, HostStateService>()(
-  "lucent/renderer/flash/HostState",
-) {}
-
-export const layer = Layer.effect(
-  HostState,
+export const makeHostState = (host: Pick<typeof __host, "read" | "command">) =>
   Effect.gen(function* () {
-    const host = __host;
     const diagnosticSink = yield* DiagnosticSink;
 
     const read = <K extends Query["kind"]>(query: QueryOf<K>) =>
@@ -58,9 +50,8 @@ export const layer = Layer.effect(
         }
       });
 
-    return { command, read };
-  }),
-);
+    return { command, read } satisfies HostStateService;
+  });
 
 const isFiniteNumber = (value: unknown): boolean =>
   typeof value === "number" && Number.isFinite(value);

@@ -109,6 +109,10 @@ impl Engine {
                 ("takeIoBody", v8::Function::new(scope, host_take_io_body)),
                 ("now", v8::Function::new(scope, host_now)),
                 ("log", v8::Function::new(scope, host_log)),
+                (
+                    "stopRequested",
+                    v8::Function::new(scope, host_stop_requested),
+                ),
             ] {
                 let key = v8::String::new(scope, name).unwrap();
                 let function = function.ok_or_else(|| {
@@ -403,7 +407,7 @@ impl Engine {
         Ok(self.wake())
     }
 
-    fn wake(&mut self) -> Option<Instant> {
+    pub(crate) fn wake(&mut self) -> Option<Instant> {
         let started = *self.isolate.get_slot::<Instant>().unwrap();
         let result = self.in_context(|tc| {
             call_lucent(tc, EntryPoint::Wake, &[])
@@ -828,6 +832,14 @@ fn host_now(
     mut reply: v8::ReturnValue<v8::Value>,
 ) {
     reply.set_double(scope.get_slot::<Instant>().unwrap().elapsed().as_secs_f64() * 1000.0);
+}
+
+fn host_stop_requested(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    mut reply: v8::ReturnValue<v8::Value>,
+) {
+    reply.set_bool(scope.get_slot::<Arc<Interrupt>>().unwrap().stop_requested());
 }
 
 fn host_log(

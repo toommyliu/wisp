@@ -62,6 +62,13 @@ impl Answer for State<'_> {
             self.settings.anti_counter_enabled,
         )
     }
+    fn attack_blocked(&self, monster_map_id: i64) -> bool {
+        self.projection.attack_blocked(
+            monster_map_id,
+            super::combat_state::now_ms(),
+            self.settings.anti_counter_enabled,
+        )
+    }
     fn auto_attack(&self) -> lucent_protocol::auto_attack::AutoAttackRecords {
         self.records.auto_attack.records.read().clone()
     }

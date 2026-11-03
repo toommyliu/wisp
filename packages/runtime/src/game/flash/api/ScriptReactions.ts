@@ -1,15 +1,11 @@
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 
 import type { GatewayService } from "../bridge/Gateway";
 import type { HostStateService } from "../state/HostState";
 import type { Events } from "./Events";
-import type { AntiCounter } from "./internal/AntiCounter";
 import type { MonsterServices } from "./Monsters";
 
 interface Services {
-  readonly antiCounter: AntiCounter;
   readonly events: Events;
   readonly gateway: GatewayService;
   readonly host: HostStateService;
@@ -17,7 +13,6 @@ interface Services {
 }
 
 export const start = Effect.fnUntraced(function* ({
-  antiCounter,
   events,
   gateway,
   host,
@@ -38,11 +33,5 @@ export const start = Effect.fnUntraced(function* ({
         ),
       ),
   );
-  yield* gateway.start(antiCounter.handleEvent);
+  yield* gateway.start();
 });
-
-export class ScriptReactions extends Context.Service<ScriptReactions, Services>()(
-  "lucent/renderer/flash/ScriptReactions",
-) {}
-
-export const layer = Layer.effectDiscard(Effect.flatMap(ScriptReactions, start));

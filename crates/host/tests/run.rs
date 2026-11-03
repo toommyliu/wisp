@@ -29,17 +29,21 @@ fn a_failed_script_reports_its_error_and_the_next_run_completes() {
 }
 
 #[test]
-fn the_api_layer_listens_for_projection_events_before_the_first_turn() {
+fn a_runtime_owns_no_loader_callbacks_until_its_script_starts() {
     let host = testing::headless_host();
     let (_session, link) = testing::start_probe(&host, ProbeMovie::new());
     let runtime = Runtime::start(link).unwrap();
 
-    let listening: String = runtime
-        .eval("first.js", "typeof window.onProjectionEvent")
+    let callbacks: Vec<String> = runtime
+        .eval(
+            "first.js",
+            r#"["onConnection", "onDebug", "onExtensionResponse", "onProjectionEvent", "packetFromClient", "packetFromServer"]
+                .map(name => typeof window[name])"#,
+        )
         .wait(TIMEOUT)
         .unwrap();
 
-    assert_eq!(listening, "function");
+    assert_eq!(callbacks, ["undefined"; 6]);
 }
 
 #[test]

@@ -1,6 +1,4 @@
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
@@ -20,7 +18,7 @@ import {
   isUnsupportedPacketEnvelope,
   parsePacket,
 } from "../protocol/PacketCodec";
-import { Bridge } from "./Bridge";
+import type { BridgeService } from "./Bridge";
 import { DiagnosticSink } from "./DiagnosticSink";
 
 type CallbackKey =
@@ -79,10 +77,9 @@ const runtimeEvent = (callback: Delivery): RuntimeEvent | undefined => {
   }
 };
 
-export const makeGateway = (target?: Window) =>
+export const makeGateway = (bridge: BridgeService, target?: Window) =>
   Effect.gen(function* () {
     const resolvedTarget = target ?? window;
-    const bridge = yield* Bridge;
     const diagnosticSink = yield* DiagnosticSink;
     const scope = yield* Effect.scope;
     const callbacks = yield* Queue.unbounded<Delivery>();
@@ -253,11 +250,4 @@ export const makeGateway = (target?: Window) =>
     };
   });
 
-export class Gateway extends Context.Service<Gateway>()(
-  "lucent/renderer/flash/Gateway",
-  { make: makeGateway() },
-) {}
-
 export type GatewayService = Effect.Success<ReturnType<typeof makeGateway>>;
-
-export const layer = Layer.effect(Gateway, Gateway.make);

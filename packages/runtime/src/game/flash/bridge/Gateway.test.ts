@@ -1,12 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 
-import { Bridge, makeBridge } from "./Bridge";
+import { makeBridge } from "./Bridge";
 import { makeGateway } from "./Gateway";
 
 const swfTarget = {
@@ -22,7 +21,7 @@ describe("Gateway", () => {
     return Effect.gen(function* () {
       yield* Effect.scoped(
         Effect.gen(function* () {
-          yield* makeGateway(target);
+          yield* makeGateway(yield* makeBridge(swfTarget), target);
           expect(target.packetFromClient).toBeTypeOf("function");
           expect(target.onProjectionEvent).toBeTypeOf("function");
         }),
@@ -30,7 +29,7 @@ describe("Gateway", () => {
 
       expect(target.packetFromClient).toBeUndefined();
       expect(target.onProjectionEvent).toBeUndefined();
-    }).pipe(Effect.provide(Layer.effect(Bridge, makeBridge(swfTarget))));
+    });
   });
 
   it.effect(
@@ -40,7 +39,7 @@ describe("Gateway", () => {
 
       return Effect.scoped(
         Effect.gen(function* () {
-          const gateway = yield* makeGateway(target);
+          const gateway = yield* makeGateway(yield* makeBridge(swfTarget), target);
           const packets = yield* gateway.subscribePackets;
           const events = yield* gateway.subscribeEvents;
           const packetsBeforeEvent: Array<readonly [string, number]> = [];
@@ -70,7 +69,7 @@ describe("Gateway", () => {
           expect(packetsBeforeEvent).toEqual([["join-map", 1]]);
           expect((yield* PubSub.take(packets)).command).toBe("moveToArea");
         }),
-      ).pipe(Effect.provide(Layer.effect(Bridge, makeBridge(swfTarget))));
+      );
     },
   );
 
@@ -81,7 +80,7 @@ describe("Gateway", () => {
 
       return Effect.scoped(
         Effect.gen(function* () {
-          const gateway = yield* makeGateway(target);
+          const gateway = yield* makeGateway(yield* makeBridge(swfTarget), target);
           yield* gateway.start();
           const capture = yield* gateway.rawPackets.pipe(
             Stream.runHead,
@@ -96,7 +95,7 @@ describe("Gateway", () => {
             raw: "<msg t='sys'></msg>",
           });
         }),
-      ).pipe(Effect.provide(Layer.effect(Bridge, makeBridge(swfTarget))));
+      );
     },
   );
 });

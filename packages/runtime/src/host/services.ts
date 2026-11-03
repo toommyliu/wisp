@@ -1,9 +1,8 @@
-import { makeEnvironmentService } from "./environment";
 import * as Effect from "effect/Effect";
 
+import type { ArmyApiRuntimeShape } from "../game/army/Army";
 import { ArmyError, ArmyLoopTauntError } from "../game/army/ArmyErrors";
-import type { ScriptDialogsShape } from "../game/scripting/ScriptDialogs";
-import type { ScriptServicesShape } from "../game/scripting/ScriptServices";
+import type { EnvironmentShape } from "./environment";
 
 export class HostServiceUnavailable extends Error {
   constructor(readonly service: string) {
@@ -22,44 +21,31 @@ const armyFailure =
     return Effect.fail(new ErrorClass(cause.message, cause));
   };
 
-const unavailableEnvironment = (): never => { throw new HostServiceUnavailable("environment"); };
-const environmentHost = typeof __host === "undefined"
-  ? { read: unavailableEnvironment, command: unavailableEnvironment }
-  : { read: __host.read, command: __host.command };
+export const unavailableArmy: ArmyApiRuntimeShape = {
+  equipSet: armyFailure(ArmyError),
+  getConfigString: defect("army"),
+  getConfigValue: defect("army"),
+  getPlayerNumber: defect("army"),
+  getSession: defect("army"),
+  isLeader: defect("army"),
+  isMember: defect("army"),
+  isStarted: defect("army"),
+  joinMap: armyFailure(ArmyError),
+  kill: armyFailure(ArmyError),
+  killForItem: armyFailure(ArmyError),
+  killForTempItem: armyFailure(ArmyError),
+  leave: defect("army"),
+  loopTaunt: armyFailure(ArmyLoopTauntError),
+  runStep: armyFailure(ArmyError),
+  start: armyFailure(ArmyError),
+  sync: armyFailure(ArmyError),
+  waitForAllInMap: armyFailure(ArmyError),
+};
 
-export const unavailableScriptServices = {
-  army: {
-    equipSet: armyFailure(ArmyError),
-    getConfigString: defect("army"),
-    getConfigValue: defect("army"),
-    getPlayerNumber: defect("army"),
-    getSession: defect("army"),
-    isLeader: defect("army"),
-    isMember: defect("army"),
-    isStarted: defect("army"),
-    joinMap: armyFailure(ArmyError),
-    kill: armyFailure(ArmyError),
-    killForItem: armyFailure(ArmyError),
-    killForTempItem: armyFailure(ArmyError),
-    leave: defect("army"),
-    loopTaunt: armyFailure(ArmyLoopTauntError),
-    runStep: armyFailure(ArmyError),
-    start: armyFailure(ArmyError),
-    sync: armyFailure(ArmyError),
-    waitForAllInMap: armyFailure(ArmyError),
-  },
-  environment: makeEnvironmentService(environmentHost, {
-    fetchBoosts: failure("environment"),
-    syncToAll: failure("environment"),
-  }),
-} satisfies Omit<ScriptServicesShape, "autoZone" | "autoRelogin" | "fileSystem" | "http">;
-
-export const unavailableScriptDialogs = {
-  alert: defect("dialogs"),
-  beep: defect("beep"),
-  confirm: defect("dialogs"),
-  getCurrent: defect("dialogs"),
-  onCurrent: defect("dialogs"),
-  prompt: defect("dialogs"),
-  respond: defect("dialogs"),
-} satisfies ScriptDialogsShape;
+export const unavailableEnvironment: Pick<
+  EnvironmentShape,
+  "fetchBoosts" | "syncToAll"
+> = {
+  fetchBoosts: failure("environment"),
+  syncToAll: failure("environment"),
+};

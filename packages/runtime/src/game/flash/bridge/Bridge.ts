@@ -1,7 +1,5 @@
-import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -89,11 +87,4 @@ export const makeBridge = (target?: Pick<Window, "swf">) =>
     };
   });
 
-export class Bridge extends Context.Service<Bridge>()(
-  "lucent/renderer/flash/Bridge",
-  { make: makeBridge() },
-) {}
-
 export type BridgeService = Effect.Success<ReturnType<typeof makeBridge>>;
-
-export const layer = Layer.effect(Bridge, Bridge.make);

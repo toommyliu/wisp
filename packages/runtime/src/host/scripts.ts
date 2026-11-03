@@ -1,88 +1,159 @@
 import type { ScriptOutcome } from "@lucent/game/protocol";
+import type { ScriptInputValues } from "@lucent/schemas/scriptInputs";
+import type * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as ManagedRuntime from "effect/ManagedRuntime";
+import type * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 
-import { scriptApiLayer } from "../game/flash/apiLayer";
-import { ScriptDialogs } from "../game/scripting/ScriptDialogs";
+import { makeApi } from "../game/flash/api/Api";
+import { makeBridge } from "../game/flash/bridge/Bridge";
+import { makeGateway } from "../game/flash/bridge/Gateway";
+import { makeHostState } from "../game/flash/state/HostState";
+import { makeScriptRuntimeServices } from "../game/scripting/api/Services";
 import {
-  ScriptRunner,
-  layer as scriptRunnerLayer,
-  type ScriptSource,
-} from "../game/scripting/ScriptRunner";
-import { ScriptServices } from "../game/scripting/ScriptServices";
+  makeScriptBuiltinModules,
+  type ScriptBuiltinModules,
+} from "../game/scripting/ScriptBuiltinModules";
+import { makeScriptFileSystemApi } from "../game/scripting/ScriptFileSystem";
+import { makeScriptHttpApi } from "../game/scripting/ScriptHttp";
+import { ScriptLoadError } from "../game/scripting/ScriptRunnerErrors";
+import {
+  makeScriptRuntimeApi,
+  snapshotRoomPolicy,
+} from "../game/scripting/ScriptRuntime";
+import {
+  makeScriptAsyncScope,
+  type ScriptAsyncScope,
+} from "../game/scripting/scriptAsyncScope";
+import { readScriptEntry } from "../game/scripting/scriptEntry";
 import { makeAutoReloginService } from "./autoRelogin";
 import { makeAutoZoneService } from "./autoZone";
+import { makeHostDialogs } from "./dialogs";
+import { makeEnvironmentService } from "./environment";
 import { makeFileSystemBridge } from "./filesystem";
 import { makeHttpBridge } from "./http";
-import { makeScriptHttpApi } from "../game/scripting/ScriptHttp";
-import { makeHostDialogs } from "./dialogs";
-import { hideInternals } from "./loop";
-import { unavailableScriptServices } from "./services";
+import { hideInternals, requestEnter } from "./loop";
+import { failedOutcome, scriptOutcome } from "./outcome";
+import { makeScriptOptionsApi } from "./scriptOptions";
+import { unavailableArmy, unavailableEnvironment } from "./services";
 
-const http = makeHttpBridge(__host);
-const api = ManagedRuntime.make(scriptApiLayer);
-api.runSync(Effect.void);
-const runtime = ManagedRuntime.make(
-  scriptRunnerLayer.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        scriptApiLayer,
-        Layer.succeed(ScriptServices, {
-          ...unavailableScriptServices,
-          fileSystem: makeFileSystemBridge(__host),
-          http: scope => makeScriptHttpApi(http, scope),
-          autoZone: makeAutoZoneService(__host),
-          autoRelogin: makeAutoReloginService(__host),
-        }),
-        Layer.succeed(ScriptDialogs, makeHostDialogs(__host)),
+export type ScriptLoad = (builtins: ScriptBuiltinModules) => unknown;
+
+type Ending =
+  | { readonly kind: "finished"; readonly exit: Exit.Exit<unknown, unknown> }
+  | { readonly kind: "stopped"; readonly reason: string | null }
+  | { readonly kind: "failed"; readonly cause: Cause.Cause<unknown> };
+
+const host = __host;
+const swf = { swf: window.swf };
+let end: (ending: Ending) => void = () => undefined;
+
+const outcome = (ending: Ending): ScriptOutcome => {
+  switch (ending.kind) {
+    case "finished":
+      return scriptOutcome(ending.exit);
+    case "stopped":
+      return { kind: "externally-stopped", reason: ending.reason };
+    case "failed":
+      return failedOutcome(ending.cause);
+  }
+};
+
+const run = (
+  load: ScriptLoad,
+  name: string,
+  inputs: ScriptInputValues,
+  scope: ScriptAsyncScope,
+) =>
+  Effect.gen(function* () {
+    const bridge = yield* makeBridge(swf);
+    const gateway = yield* makeGateway(bridge);
+    const state = yield* makeHostState(host);
+    const api = yield* makeApi(bridge, gateway, state);
+    yield* Effect.addFinalizer(() => scope.close);
+    const scriptOptions = makeScriptOptionsApi(state);
+    let inputValues: ScriptInputValues = {};
+    const modules = makeScriptBuiltinModules({
+      autoRelogin: makeAutoReloginService(host),
+      autoZone: makeAutoZoneService(host),
+      bridge,
+      failCause: (cause) => Effect.sync(() => end({ kind: "failed", cause })),
+      fileSystem: makeScriptFileSystemApi(makeFileSystemBridge(host), scope),
+      http: yield* makeScriptHttpApi(makeHttpBridge(host), scope),
+      roomPolicy: scriptOptions
+        .get()
+        .pipe(Effect.map((options) => snapshotRoomPolicy(options.roomPolicy))),
+      scope,
+      script: makeScriptRuntimeApi({
+        dialogs: makeHostDialogs(host),
+        scriptOptions,
+        getInputValues: () => inputValues,
+        log: (...values) => console.log("[script]", ...values),
+        scope,
+        source: { sourceName: name.trim() === "" ? "script" : name },
+      }),
+      services: makeScriptRuntimeServices(
+        api,
+        unavailableArmy,
+        makeEnvironmentService(host, unavailableEnvironment),
       ),
-    ),
-  ),
-  { memoMap: api.memoMap },
-);
-runtime.runSync(Effect.void);
+    });
+    hideInternals();
+    const namespace = yield* Effect.try({
+      try: () => load(modules),
+      catch: (cause) =>
+        new ScriptLoadError({
+          detail: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    });
+    const { main, inputValues: values } = yield* readScriptEntry(
+      namespace,
+      name,
+      inputs,
+    );
+    inputValues = values;
+    yield* Effect.callback<void>((resume) => {
+      requestEnter(() => resume(Effect.void));
+    });
+    const script = yield* Effect.forkChild(
+      Effect.gen(function* () {
+        return yield* main() as Generator<
+          Effect.Effect<any, any, never>,
+          unknown,
+          any
+        >;
+      }),
+      { startImmediately: true },
+    );
+    const exit = yield* Fiber.await(script).pipe(
+      Effect.onInterrupt(() => Fiber.interrupt(script)),
+    );
+    end({ kind: "finished", exit });
+  }).pipe(Effect.scoped);
 
 export const start = (
-  load: ScriptSource["load"],
+  load: ScriptLoad,
   name: string,
   inputsJson: string,
 ): Promise<ScriptOutcome> => {
-  hideInternals();
-  return runtime.runPromise(
-    Effect.gen(function* () {
-      const runner = yield* ScriptRunner;
-      const handle = yield* runner.start(
-        { name, load },
-        JSON.parse(inputsJson),
-      );
-      const outcome = yield* handle.terminal;
-      switch (outcome.kind) {
-        case "completed":
-          return { kind: "completed" };
-        case "failed":
-          return {
-            kind: "failed",
-            message: outcome.status.message,
-            details: outcome.status.detailsText ?? null,
-          };
-        case "script-exited":
-          return {
-            kind: "script-exited",
-            closeClient: outcome.closeClient,
-            logout: outcome.logout,
-          };
-        case "script-stopped":
-        case "externally-stopped":
-          return { kind: outcome.kind, reason: outcome.status.reason ?? null };
-      }
-    }),
-  );
+  const root = new AbortController();
+  const scope = makeScriptAsyncScope();
+  let ending: Ending | undefined;
+  end = (next) => {
+    if (ending !== undefined) return;
+    ending = next;
+    if (next.kind === "finished") return;
+    scope.controller.abort();
+    root.abort();
+  };
+  return Effect.runPromiseExit(
+    run(load, name, JSON.parse(inputsJson) as ScriptInputValues, scope),
+    { signal: root.signal },
+  ).then((exit) => outcome(ending ?? { kind: "finished", exit }));
 };
 
-export const stop = (reason?: string): Promise<void> =>
-  runtime.runPromise(
-    Effect.flatMap(ScriptRunner, (runner) => runner.stop(reason)).pipe(
-      Effect.asVoid,
-    ),
-  );
+export const stop = (reason?: string): Promise<void> => {
+  end({ kind: "stopped", reason: reason ?? null });
+  return Promise.resolve();
+};

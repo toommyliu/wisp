@@ -20,8 +20,6 @@ export const makeSettings = (host: HostStateService) => {
         }
       }),
     get,
-    isAntiCounterEnabled: () =>
-      get().pipe(Effect.map((state) => state.antiCounterEnabled)),
   };
 };
 

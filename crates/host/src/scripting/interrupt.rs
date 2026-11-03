@@ -1,5 +1,6 @@
 use std::io;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::scripting::alarm::{self, Alarm};
@@ -13,6 +14,7 @@ const RETERMINATE: Duration = Duration::from_millis(20);
 pub(crate) struct Interrupt {
     state: Mutex<State>,
     alarm: Alarm,
+    stop_requested: AtomicBool,
 }
 
 struct State {
@@ -112,7 +114,16 @@ impl Interrupt {
                 armed: None,
             }),
             alarm: Alarm::new()?,
+            stop_requested: AtomicBool::new(false),
         })
+    }
+
+    pub(crate) fn request_stop(&self) {
+        self.stop_requested.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn stop_requested(&self) -> bool {
+        self.stop_requested.load(Ordering::Acquire)
     }
 
     pub(crate) fn attach(&self, isolate: v8::IsolateHandle) {

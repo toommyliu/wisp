@@ -1,12 +1,10 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 
-import { Bridge } from "../bridge/Bridge";
-import { Gateway } from "../bridge/Gateway";
-import { HostState } from "../state/HostState";
+import type { BridgeService } from "../bridge/Bridge";
+import type { GatewayService } from "../bridge/Gateway";
+import type { HostStateService } from "../state/HostState";
 import { makeAuth } from "./Auth";
-import { makeAntiCounter } from "./internal/AntiCounter";
 import { makeBank } from "./Bank";
 import { makeCombat } from "./Combat";
 import { makeDrops } from "./Drops";
@@ -19,19 +17,17 @@ import { makePacket } from "./Packet";
 import { makePlayer } from "./Player";
 import { makePlayers } from "./Players";
 import { makeQuests } from "./Quests";
-import {
-  ScriptReactions,
-  start as startScriptReactions,
-} from "./ScriptReactions";
+import { start as startScriptReactions } from "./ScriptReactions";
 import { makeSettings } from "./Settings";
 import { makeShops } from "./Shops";
 import { makeTempInventory } from "./TempInventory";
 import { makeWaitApi } from "./Wait";
 
-const makeApiServices = Effect.gen(function* () {
-  const bridge = yield* Bridge;
-  const gateway = yield* Gateway;
-  const host = yield* HostState;
+const makeApiServices = Effect.fnUntraced(function* (
+  bridge: BridgeService,
+  gateway: GatewayService,
+  host: HostStateService,
+) {
   const wait = makeWaitApi(bridge, gateway);
   const events = yield* makeEvents(gateway, wait);
   const packet = yield* makePacket(gateway, host, wait);
@@ -47,12 +43,10 @@ const makeApiServices = Effect.gen(function* () {
   const player = makePlayer(bridge, host, inventory, map, wait);
   const quests = makeQuests(bridge, host, wait);
   const settings = makeSettings(host);
-  const antiCounter = makeAntiCounter(bridge, settings.isAntiCounterEnabled);
   const shops = makeShops(bridge, host, inventory, wait);
   const tempInventory = makeTempInventory(host);
   const combat = makeCombat(
     bridge,
-    antiCounter,
     host,
     drops,
     events,
@@ -61,7 +55,6 @@ const makeApiServices = Effect.gen(function* () {
     monsterServices.lookup,
     player,
     players,
-    settings,
     tempInventory,
     wait,
   );
@@ -88,7 +81,6 @@ const makeApiServices = Effect.gen(function* () {
       wait,
     },
     scriptReactions: {
-      antiCounter,
       events,
       gateway,
       host,
@@ -97,23 +89,20 @@ const makeApiServices = Effect.gen(function* () {
   };
 });
 
-export type ApiService = Effect.Success<typeof makeApiServices>["api"];
+export type ApiService = Effect.Success<
+  ReturnType<typeof makeApiServices>
+>["api"];
 
-export const makeApi = makeApiServices.pipe(
-  Effect.tap(({ scriptReactions }) => startScriptReactions(scriptReactions)),
-  Effect.map(({ api }) => api),
-);
+export const makeApi = (
+  bridge: BridgeService,
+  gateway: GatewayService,
+  host: HostStateService,
+) =>
+  makeApiServices(bridge, gateway, host).pipe(
+    Effect.tap(({ scriptReactions }) => startScriptReactions(scriptReactions)),
+    Effect.map(({ api }) => api),
+  );
 
 export class Api extends Context.Service<Api, ApiService>()(
   "lucent/renderer/flash/Api",
 ) {}
-
-export const layer = Layer.effectContext(
-  makeApiServices.pipe(
-    Effect.map(({ api, scriptReactions }) =>
-      Context.make(Api, api).pipe(
-        Context.add(ScriptReactions, scriptReactions),
-      ),
-    ),
-  ),
-);
