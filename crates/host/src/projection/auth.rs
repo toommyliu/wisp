@@ -22,6 +22,7 @@ pub struct AuthState {
     pub username: String,
     pub password: String,
     pub logged_in: bool,
+    pub(crate) credentials_epoch: Option<u64>,
     servers: IndexMap<String, LiveServer>,
 }
 impl std::fmt::Debug for AuthState {

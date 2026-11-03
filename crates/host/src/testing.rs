@@ -219,6 +219,21 @@ pub fn wait_loaded(link: &ScriptLink) {
     }
 }
 
+pub fn wait_until_ready(link: &ScriptLink) {
+    link.set_waker(Waker::from(Arc::new(Unpark(thread::current()))));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !link.read(|p| p.readiness.can_act()).unwrap() {
+        if link.try_event().unwrap().is_none() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "the avatar did not become ready within 10 seconds"
+            );
+            thread::park_timeout(remaining);
+        }
+    }
+}
+
 fn string(value: &str) -> &SwfStr {
     SwfStr::from_utf8_str(value)
 }

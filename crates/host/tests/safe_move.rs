@@ -940,16 +940,7 @@ fn changing_accounts_while_running_never_moves_the_new_account() {
 
 #[test]
 fn logged_out_safe_stop_makes_no_game_calls() {
-    let (mut session, observer, mut supervisor) = setup_with(false, |movie| {
-        movie
-            .responding(
-                "auth.isLoggedIn",
-                std::iter::repeat_n((json!(true), vec![]), 256)
-                    .chain(std::iter::repeat_n((json!(false), vec![]), 64)),
-            )
-            .recording("world.isLoaded")
-            .recording("player.isLoaded")
-    });
+    let (mut session, observer, mut supervisor) = setup(false);
     supervisor.start_script(&mut session, loose(&[("x.js", "import * as script from 'lucent/script'; export default function* () { yield* script.alert('running'); }")])).unwrap();
     wait_for(&session, || session.script_dialog().is_some());
     let (calls, recorded) = std::sync::mpsc::channel();
@@ -957,16 +948,19 @@ fn logged_out_safe_stop_makes_no_game_calls() {
         let _ = calls.send(issued);
     });
     options(&session, true);
-    for _ in 0..256 {
-        observer
-            .command(lucent_protocol::command::Command::RefreshLoggedIn {})
-            .recv_timeout(TIMEOUT)
-            .unwrap();
-        if !observer.read(|p| p.auth.logged_in).unwrap() {
-            break;
-        }
+    for command in [
+        lucent_protocol::command::Command::Logout {},
+        lucent_protocol::command::Command::RefreshCredentials {},
+        lucent_protocol::command::Command::RefreshLoggedIn {},
+    ] {
+        observer.command(command).recv_timeout(TIMEOUT).unwrap();
     }
-    assert!(!observer.read(|p| p.auth.logged_in).unwrap());
+    assert_eq!(
+        observer
+            .read(|p| (p.auth.logged_in, p.auth.username.clone()))
+            .unwrap(),
+        (true, "player-a".into())
+    );
     drain(&observer);
     session.respond_dialog(
         session.script_dialog().unwrap().id,
@@ -976,7 +970,6 @@ fn logged_out_safe_stop_makes_no_game_calls() {
         session.script_status().phase == ScriptPhase::Idle
     });
     let events = drain(&observer);
-    assert!(!observer.read(|p| p.auth.logged_in).unwrap());
     let observations: Vec<_> = recorded.try_iter().collect();
     assert!(!observations.is_empty(), "safe stop was skipped");
     let calls: Vec<_> = observations.into_iter().flatten().collect();

@@ -53,8 +53,8 @@ fn session_with(movie: testing::ProbeMovie) -> (Session, Runtime, ScriptLink, Sc
     let host = testing::headless_host();
     let (mut session, link) = testing::start_probe(&host, movie);
     let runtime = Runtime::start(link).unwrap();
-    common::ready(&runtime);
     let control = session.attach(EventInterests::ALL).unwrap();
+    common::log_in_ready(&control);
     emit(
         &control,
         json!({"cmd":"loadInventoryBig","hitems":[{"ItemID":2,"sName":"Home","sType":"House","bEquip":1}],"items":[

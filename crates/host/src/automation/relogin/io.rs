@@ -58,9 +58,6 @@ impl<T> Slot<T> {
 }
 pub(super) struct Observation {
     snapshot: Slot<Snapshot>,
-    login: Slot<String>,
-    world: Slot<Value>,
-    player: Slot<Value>,
     pub(super) select: Slot<Value>,
     pub(super) deadline: Instant,
 }
@@ -73,12 +70,8 @@ pub(super) struct Observed {
 }
 impl Observation {
     pub(super) fn new(host: &impl ReloginHost, waker: &Waker, now: Instant) -> Self {
-        let login = Slot::new(host.command(Command::RefreshLoggedIn {}), waker, now);
         Self {
             snapshot: Slot::new(host.snapshot(), waker, now),
-            login,
-            world: Slot::new(host.call("world.isLoaded", vec![]), waker, now),
-            player: Slot::new(host.call("player.isLoaded", vec![]), waker, now),
             select: Slot::new(
                 host.call(
                     "flash.isNull",
@@ -92,34 +85,15 @@ impl Observation {
     }
     pub(super) fn poll(&mut self, now: Instant) -> Option<Observed> {
         self.snapshot.poll(now);
-        self.login.poll(now);
-        self.world.poll(now);
-        self.player.poll(now);
         self.select.poll(now);
-        if ![
-            self.snapshot.done(),
-            self.login.done(),
-            self.world.done(),
-            self.player.done(),
-            self.select.done(),
-        ]
-        .into_iter()
-        .all(|x| x)
-        {
+        if !self.snapshot.done() || !self.select.done() {
             return None;
         }
-        let logged_in = self
-            .login
-            .value()
-            .and_then(|json| serde_json::from_str::<bool>(json).ok())
-            .unwrap_or_else(|| self.snapshot.value().is_some_and(|s| s.logged_in));
+        let snapshot = self.snapshot.value();
         Some(Observed {
-            connected: self.snapshot.value().and_then(|s| s.connected),
-            logged_in,
-            ready: logged_in
-                && self.snapshot.value().is_some_and(|s| s.ready)
-                && self.world.value() == Some(&Value::Bool(true))
-                && self.player.value() == Some(&Value::Bool(true)),
+            connected: snapshot.and_then(|s| s.connected),
+            logged_in: snapshot.is_some_and(|s| s.logged_in),
+            ready: snapshot.is_some_and(|s| s.ready),
             select: self.select.value() == Some(&Value::Bool(false)),
         })
     }

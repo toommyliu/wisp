@@ -81,8 +81,8 @@ fn accepting_session() -> (lucent_host::Session, Runtime, ScriptLink, ScriptLink
         ),
     );
     let runtime = Runtime::start(link).unwrap();
-    common::ready(&runtime);
     let control = session.attach(EventInterests::ALL).unwrap();
+    common::log_in_ready(&control);
     emit(
         &control,
         json!({"cmd":"dropItem","items":{
