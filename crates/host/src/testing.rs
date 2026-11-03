@@ -23,19 +23,25 @@ pub fn headless_host() -> Host {
 }
 
 pub fn headless_host_with_data(root: impl Into<std::path::PathBuf>) -> Host {
-    Host::with_services_and_data_root(
-        Clipboard::memory().expect("couldn't start the in-memory clipboard"),
-        || Box::new(NullAudioBackend::new()),
-        root.into(),
-    )
-    .expect("couldn't start the headless host")
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let app_data = std::env::temp_dir().join(format!(
+        "lucent-app-data-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    headless_host_with_roots(root, app_data).expect("couldn't start the headless host")
 }
 
 pub fn headless_host_with_roots(
     scripts: impl Into<std::path::PathBuf>,
     app_data: impl Into<std::path::PathBuf>,
 ) -> Result<Host, crate::HostError> {
-    todo!()
+    Host::with_services_and_roots(
+        Clipboard::memory().expect("couldn't start the in-memory clipboard"),
+        || Box::new(NullAudioBackend::new()),
+        scripts.into(),
+        app_data.into(),
+    )
 }
 
 pub type ProbeReply = (serde_json::Value, Vec<(String, String)>);

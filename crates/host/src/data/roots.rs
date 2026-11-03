@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Platform {
@@ -19,22 +19,97 @@ impl Platform {
     };
 }
 
+pub(crate) fn scripts_root(
+    documents: impl FnOnce() -> Option<PathBuf>,
+    home: impl FnOnce() -> Option<PathBuf>,
+) -> io::Result<PathBuf> {
+    documents()
+        .or_else(|| home().map(|path| path.join("Documents")))
+        .map(|path| path.join("Lucent/data"))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "Documents directory is unavailable",
+            )
+        })
+}
+
 pub(crate) fn app_data_root(
     platform: Platform,
     dev: bool,
     var: impl Fn(&str) -> Option<OsString>,
     home: impl FnOnce() -> Option<PathBuf>,
 ) -> io::Result<PathBuf> {
-    todo!()
+    let set = |name| {
+        var(name)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    let home = || {
+        home()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "home directory is unavailable"))
+    };
+    let base = match platform {
+        Platform::Windows => match set("APPDATA") {
+            Some(base) => base,
+            None => home()?.join("AppData").join("Roaming"),
+        },
+        Platform::MacOs => home()?.join("Library").join("Application Support"),
+        Platform::Other => match set("XDG_DATA_HOME") {
+            Some(base) => base,
+            None => home()?.join(".local").join("share"),
+        },
+    };
+    Ok(base.join(if dev { "lucent-dev" } else { "lucent" }))
 }
 
 pub(crate) fn overlap(first: &Path, second: &Path) -> bool {
-    todo!()
+    let (first, second) = (resolved(first), resolved(second));
+    first.starts_with(&second) || second.starts_with(&first)
+}
+
+fn resolved(path: &Path) -> PathBuf {
+    for ancestor in path.ancestors() {
+        let Ok(mut resolved) = ancestor.canonicalize() else {
+            continue;
+        };
+        for component in path.strip_prefix(ancestor).unwrap().components() {
+            match component {
+                Component::ParentDir => {
+                    resolved.pop();
+                }
+                Component::CurDir => {}
+                component => resolved.push(component),
+            }
+        }
+        return resolved;
+    }
+    path.to_path_buf()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scripts_root_prefers_documents_and_falls_back_to_home() {
+        assert_eq!(
+            scripts_root(
+                || Some(PathBuf::from("configured")),
+                || panic!("home lookup is unnecessary")
+            )
+            .unwrap(),
+            PathBuf::from("configured/Lucent/data")
+        );
+        assert_eq!(
+            scripts_root(|| None, || Some(PathBuf::from("home"))).unwrap(),
+            PathBuf::from("home/Documents/Lucent/data")
+        );
+        assert_eq!(
+            scripts_root(|| None, || None).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
 
     fn resolve(
         platform: Platform,

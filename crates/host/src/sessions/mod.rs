@@ -102,16 +102,28 @@ impl Host {
     }
 
     pub(crate) fn with_services(clipboard: Clipboard, audio: Audio) -> Result<Host, HostError> {
-        let root =
-            crate::data::data_root(dirs::document_dir, dirs::home_dir).map_err(HostError::Files)?;
-        Self::with_services_and_data_root(clipboard, audio, root)
+        use crate::data::roots;
+        let scripts =
+            roots::scripts_root(dirs::document_dir, dirs::home_dir).map_err(HostError::Files)?;
+        let app_data = roots::app_data_root(
+            roots::Platform::CURRENT,
+            cfg!(debug_assertions),
+            |name| std::env::var_os(name),
+            dirs::home_dir,
+        )
+        .map_err(HostError::AppData)?;
+        Self::with_services_and_roots(clipboard, audio, scripts, app_data)
     }
 
-    pub(crate) fn with_services_and_data_root(
+    pub(crate) fn with_services_and_roots(
         clipboard: Clipboard,
         audio: Audio,
-        root: std::path::PathBuf,
+        scripts: std::path::PathBuf,
+        app_data: std::path::PathBuf,
     ) -> Result<Host, HostError> {
+        if crate::data::roots::overlap(&scripts, &app_data) {
+            return Err(HostError::OverlappingRoots);
+        }
         let net = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("lucent-net")
@@ -121,7 +133,7 @@ impl Host {
         Ok(Host {
             shared: Arc::new(Shared {
                 reapers: Arc::default(),
-                files: Arc::new(crate::data::Files::start(root).map_err(HostError::Files)?),
+                files: Arc::new(crate::data::Files::start(scripts).map_err(HostError::Files)?),
                 http: crate::scripting::http::Http::new(net.handle().clone())
                     .map_err(HostError::Http)?,
                 net,
