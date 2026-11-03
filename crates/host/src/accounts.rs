@@ -5,14 +5,19 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
+use std::time::SystemTime;
 
 use crate::data::app_data::{AppData, Request};
 
 pub use crate::data::Password;
 
+mod servers;
+pub use servers::{LoadError, LoginServers, Ping, PingStatus, Server, ServerList};
+
 #[derive(Clone)]
 pub struct Accounts {
     pub(crate) app_data: Arc<AppData>,
+    pub(crate) servers: LoginServers,
 }
 
 impl Accounts {
@@ -36,15 +41,24 @@ impl Accounts {
         self.ask(|answer| Request::UpdateSettings(username.to_owned(), patch, answer))
     }
 
+    pub fn servers(&self) -> &LoginServers {
+        &self.servers
+    }
+
     pub fn watch(&self, waker: Waker) {
         self.app_data.changes.watch(waker);
     }
 
     fn ask<T>(&self, request: impl FnOnce(Answer<T>) -> Request) -> Reply<T> {
-        let slot = Arc::new(Mutex::new(Slot::Waiting(None)));
-        self.app_data.submit(request(Answer(Some(slot.clone()))));
-        Reply(slot)
+        let (answer, reply) = reply();
+        self.app_data.submit(request(answer));
+        reply
     }
+}
+
+pub(crate) fn reply<T>() -> (Answer<T>, Reply<T>) {
+    let slot = Arc::new(Mutex::new(Slot::Waiting(None)));
+    (Answer(Some(slot.clone())), Reply(slot))
 }
 
 #[derive(Debug)]
@@ -152,6 +166,11 @@ pub enum AccountsError {
     InvalidUsername,
     #[error("{0}")]
     File(FileError),
+    #[error("{error}")]
+    Servers {
+        error: LoadError,
+        refresh_available_at: Option<SystemTime>,
+    },
     #[error("the account data service has stopped")]
     Stopped,
 }
