@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod documents;
 mod path;
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};

@@ -1,0 +1,1 @@
+{"version":7,"scripts":{"restartAfterReconnect":"yes","roomPolicy":{"kind":"specific","roomNumber":0},"safeStartStop":null}}

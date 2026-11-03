@@ -1,0 +1,55 @@
+{
+  "accounts": [
+    {
+      "label": "dotted capital I",
+      "username": "İnci",
+      "password": "a"
+    },
+    {
+      "label": "final sigma",
+      "username": "ΟΔΥΣΣΕΥΣ",
+      "password": "c"
+    },
+    {
+      "label": "sharp s",
+      "username": "Straße",
+      "password": "e"
+    },
+    {
+      "label": "double s",
+      "username": "STRASSE",
+      "password": "f"
+    },
+    {
+      "label": "capital sharp s",
+      "username": "ẞig",
+      "password": "g"
+    },
+    {
+      "label": "Garay capital",
+      "username": "𐵐",
+      "password": "i"
+    },
+    {
+      "label": "Kelvin sign",
+      "username": "K",
+      "password": "k"
+    },
+    {
+      "label": "Ohm sign",
+      "username": "Ω",
+      "password": "m"
+    },
+    {
+      "label": "Rams horn",
+      "username": "Ɤ",
+      "password": "o"
+    }
+  ],
+  "groups": {
+    "İ": [],
+    "ΑΣ": [],
+    "Σ": [],
+    "ǅ": []
+  }
+}

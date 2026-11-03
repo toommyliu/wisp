@@ -1,0 +1,39 @@
+{
+  "accounts": [
+    {
+      "label": "Main",
+      "username": "Hero",
+      "password": "hunter2"
+    },
+    {
+      "label": "Alt \"quoted\" \\ back/slash",
+      "username": "Alt",
+      "password": "tab\there\nline\rcr\bbs\fff\u0000\u0001\u001f   é 😀 中"
+    }
+  ],
+  "groups": {
+    "0": [
+      "Alt"
+    ],
+    "2": [],
+    "10": [
+      "Hero"
+    ],
+    "4294967294": [],
+    "Raiders": [
+      "Hero",
+      "Alt"
+    ],
+    "Alts": [
+      "Alt"
+    ],
+    "01": [],
+    "4294967295": [],
+    "-1": [],
+    "1.5": [],
+    "constructor": [
+      "Hero"
+    ],
+    "toString": []
+  }
+}

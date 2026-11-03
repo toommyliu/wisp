@@ -1,0 +1,1 @@
+{"accounts":[{"label":"Hero","username":"Hero","password":"secret"},{"label":"Duplicate","username":"hero","password":"private"},{"label":"Broken","username":"Broken","password":42}],"groups":{"Raiders":["Hero","Hero","Missing",42]," raiders ":["Hero"]," ":["Hero"]}}

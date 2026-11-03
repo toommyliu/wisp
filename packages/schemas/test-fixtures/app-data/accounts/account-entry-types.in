@@ -1,0 +1,1 @@
+{"accounts":[null,1,"Hero",[],{},{"label":"a","username":"a"},{"label":1,"username":"b","password":"c"},{"label":"c","username":"c","password":"c","extra":true,"nested":{"x":[1]}},[{"label":"d","username":"d","password":"d"}],{"label":"e","username":null,"password":"e"},{"label":"f","username":"f","password":"f","password":false}],"groups":{}}
