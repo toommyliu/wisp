@@ -66,6 +66,7 @@ pub struct Host {
 struct Shared {
     reapers: Arc<reaper::Reapers>,
     files: Arc<crate::data::Files>,
+    accounts: crate::accounts::Accounts,
     http: Arc<crate::scripting::http::Http>,
     net: tokio::runtime::Runtime,
     clipboard: Clipboard,
@@ -134,6 +135,11 @@ impl Host {
             shared: Arc::new(Shared {
                 reapers: Arc::default(),
                 files: Arc::new(crate::data::Files::start(scripts).map_err(HostError::Files)?),
+                accounts: crate::accounts::Accounts {
+                    app_data: Arc::new(
+                        crate::data::AppData::start(app_data).map_err(HostError::AppData)?,
+                    ),
+                },
                 http: crate::scripting::http::Http::new(net.handle().clone())
                     .map_err(HostError::Http)?,
                 net,
@@ -579,12 +585,12 @@ impl Host {
     }
 
     pub fn accounts(&self) -> &crate::accounts::Accounts {
-        todo!()
+        &self.shared.accounts
     }
 
     #[cfg(feature = "testing")]
     pub fn set_app_data_probe(&self, probe: impl Fn() + Send + Sync + 'static) {
-        todo!()
+        self.shared.accounts.app_data.set_probe(Arc::new(probe));
     }
 
     #[cfg(feature = "testing")]

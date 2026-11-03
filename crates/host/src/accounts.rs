@@ -6,20 +6,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
+use crate::data::app_data::{AppData, Request};
+
 pub use crate::data::Password;
 
 #[derive(Clone)]
 pub struct Accounts {
-    app_data: Arc<crate::data::AppData>,
+    pub(crate) app_data: Arc<AppData>,
 }
 
 impl Accounts {
-    pub(crate) fn new(app_data: Arc<crate::data::AppData>) -> Self {
-        Self { app_data }
-    }
-
     pub fn snapshot(&self) -> Reply<AccountsSnapshot> {
-        todo!()
+        self.ask(Request::Snapshot)
     }
 
     pub fn edit(&self, edit: AccountEdit) -> Reply<AccountsSnapshot> {
@@ -40,6 +38,12 @@ impl Accounts {
 
     pub fn watch(&self, waker: Waker) {
         todo!()
+    }
+
+    fn ask<T>(&self, request: impl FnOnce(Answer<T>) -> Request) -> Reply<T> {
+        let slot = Arc::new(Mutex::new(Slot::Waiting(None)));
+        self.app_data.submit(request(Answer(Some(slot.clone()))));
+        Reply(slot)
     }
 }
 
@@ -171,17 +175,6 @@ enum Slot<T> {
 }
 
 pub(crate) struct Answer<T>(Option<Arc<Mutex<Slot<T>>>>);
-
-pub(crate) fn reply<T>() -> (Answer<T>, Reply<T>) {
-    let slot = Arc::new(Mutex::new(Slot::Waiting(None)));
-    (Answer(Some(slot.clone())), Reply(slot))
-}
-
-impl<T> Reply<T> {
-    pub(crate) fn ready(result: Result<T, AccountsError>) -> Self {
-        Self(Arc::new(Mutex::new(Slot::Ready(result))))
-    }
-}
 
 impl<T> Future for Reply<T> {
     type Output = Result<T, AccountsError>;

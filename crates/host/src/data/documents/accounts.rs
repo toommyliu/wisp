@@ -4,7 +4,7 @@ use std::fmt;
 
 use super::json::{self, JsMap, Json, Output};
 use super::{Decoded, Issues, Loaded, decode_document, trim};
-use crate::accounts::Account;
+use crate::accounts::{Account, AccountsSnapshot, Group};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Password(String);
@@ -25,12 +25,26 @@ impl fmt::Debug for Password {
     }
 }
 
-pub(super) struct AccountsDocument {
+#[derive(Default)]
+pub(in crate::data) struct AccountsDocument {
     pub(super) accounts: Vec<Account>,
     pub(super) groups: JsMap<Vec<String>>,
 }
 
-pub(super) fn decode(file: Option<&[u8]>) -> Loaded<AccountsDocument> {
+impl AccountsDocument {
+    pub(in crate::data) fn snapshot(&self) -> AccountsSnapshot {
+        let groups = self.groups.iter().map(|(name, usernames)| Group {
+            name: name.to_owned(),
+            usernames: usernames.clone(),
+        });
+        AccountsSnapshot {
+            accounts: self.accounts.clone(),
+            groups: groups.collect(),
+        }
+    }
+}
+
+pub(in crate::data) fn decode(file: Option<&[u8]>) -> Loaded<AccountsDocument> {
     decode_document(file, from_object)
 }
 

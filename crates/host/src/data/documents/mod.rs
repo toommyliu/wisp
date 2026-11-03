@@ -25,8 +25,8 @@ pub(super) struct Decoded<T> {
 
 #[derive(Default)]
 pub(super) struct Issues {
-    reset: Vec<&'static str>,
-    ignored: Vec<(&'static str, usize)>,
+    pub(super) reset: Vec<&'static str>,
+    pub(super) ignored: Vec<(&'static str, usize)>,
 }
 
 fn decode_document<T>(
