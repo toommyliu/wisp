@@ -437,6 +437,16 @@ impl ScriptLink {
             query.take();
             return Ok(serde_json::to_string(&*records).unwrap());
         }
+        if matches!(query, Some(Query::Follower {})) {
+            let records = self
+                .records
+                .follower
+                .records
+                .try_read_for(timeout)
+                .ok_or(bridge::Error::Timeout)?;
+            query.take();
+            return Ok(serde_json::to_string(&*records).unwrap());
+        }
         if matches!(query, Some(Query::AutoRelogin {})) {
             let records = self
                 .records
@@ -567,6 +577,27 @@ pub(super) fn route_command(
         Command::DisableAutoAttack {} => {
             return records.auto_attack.submit(
                 super::auto_attack::Edit::Disable,
+                detached.clone(),
+                Instant::now(),
+            );
+        }
+        Command::ConfigureFollower { config } => {
+            return records.follower.submit(
+                super::follower::Edit::Configure(config),
+                detached.clone(),
+                Instant::now(),
+            );
+        }
+        Command::StartFollower { config, profile } => {
+            return records.follower.submit(
+                super::follower::Edit::Start { config, profile },
+                detached.clone(),
+                Instant::now(),
+            );
+        }
+        Command::StopFollower {} => {
+            return records.follower.submit(
+                super::follower::Edit::Stop,
                 detached.clone(),
                 Instant::now(),
             );

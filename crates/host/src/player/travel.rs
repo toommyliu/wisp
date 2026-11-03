@@ -47,7 +47,7 @@ impl Running {
                 });
             }
         }
-        let travel = self.observe_travel(reads, &guard.gate, deadline);
+        let travel = self.observe_travel(reads, &guard.gate, deadline)?;
         let equipped_house = self
             .projection
             .read()
@@ -84,6 +84,9 @@ impl Running {
         })
     }
 
+    fn travel_open(&self, gate: &JobGate) -> bool {
+        gate.admits(self.operation_packets.binding())
+    }
     pub(super) fn travel_call(
         &mut self,
         gate: &JobGate,
@@ -91,7 +94,7 @@ impl Running {
         name: &str,
         args: Vec<Value>,
     ) -> Result<Value, Error> {
-        if !gate.open() {
+        if !self.travel_open(gate) {
             return Err(Error::Stopped);
         }
         if Instant::now() >= deadline {
@@ -104,7 +107,10 @@ impl Running {
         reads: Reads,
         gate: &JobGate,
         deadline: Instant,
-    ) -> Snapshot {
+    ) -> Result<Snapshot, Error> {
+        if !self.travel_open(gate) {
+            return Err(Error::Stopped);
+        }
         let mut snapshot = Snapshot::default();
         if reads.contains(Reads::LOAD) {
             let map = self.projection.read().world.map.clone();
@@ -162,7 +168,7 @@ impl Running {
                     }
                 }
             }
-            snapshot.cells = if gate.open() && Instant::now() < deadline {
+            snapshot.cells = if self.travel_open(gate) && Instant::now() < deadline {
                 self.refresh_cells(|player, name| {
                     lucent_protocol::bridge::to_json(player.travel_call(
                         gate,
@@ -198,7 +204,7 @@ impl Running {
                 })
                 .collect();
         }
-        snapshot
+        Ok(snapshot)
     }
     fn travel_text(&mut self, gate: &JobGate, deadline: Instant, name: &str) -> String {
         match self.travel_call(gate, deadline, name, vec![]) {

@@ -171,6 +171,9 @@ impl Running {
             )),
             Command::EnableAutoAttack { .. }
             | Command::DisableAutoAttack {}
+            | Command::ConfigureFollower { .. }
+            | Command::StartFollower { .. }
+            | Command::StopFollower {}
             | Command::SetAutoReloginEnabled { .. }
             | Command::SetAutoReloginDelay { .. }
             | Command::SetAutoReloginServer { .. } => Err(Error::CommandFailed {

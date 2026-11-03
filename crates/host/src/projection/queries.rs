@@ -72,6 +72,9 @@ impl Answer for State<'_> {
     fn auto_attack(&self) -> lucent_protocol::auto_attack::AutoAttackRecords {
         self.records.auto_attack.records.read().clone()
     }
+    fn follower(&self) -> lucent_protocol::follower::FollowerRecords {
+        self.records.follower.records.read().clone()
+    }
     fn auto_relogin(&self) -> lucent_protocol::auto_relogin::AutoReloginRecords {
         self.records.auto_relogin.read().clone()
     }

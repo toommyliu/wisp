@@ -5,7 +5,10 @@ use super::{
 use crate::scripting::{Kill, RuntimeError, ScriptRun};
 use crate::{
     HostError, ScriptLink, Session, Surface,
-    automation::{AutoZonePolicy, DropPolicy, EnvironmentPolicy, ReloginPolicy, SettingsPolicy},
+    automation::{
+        AutoZonePolicy, DropPolicy, EnvironmentPolicy, ReloginPolicy, SettingsPolicy,
+        follower::FollowerPolicy,
+    },
     bridge,
 };
 use lucent_protocol::script::{Script, ScriptOutcome, ScriptPhase, ScriptStatus};
@@ -113,6 +116,7 @@ struct Player {
     auto_zone: ScriptLink,
     drops: ScriptLink,
     jobs: ScriptLink,
+    follower: ScriptLink,
     environment: ScriptLink,
 }
 impl Supervisor {
@@ -190,6 +194,7 @@ impl Supervisor {
             auto_zone: None,
             drops: None,
             jobs: None,
+            follower: None,
             environment: None,
             deadline: None,
         };
@@ -281,6 +286,7 @@ fn attach(session: &mut Session) -> Option<Player> {
         auto_zone: session.attach(AutoZonePolicy::INTERESTS)?,
         drops: session.attach(DropPolicy::INTERESTS)?,
         jobs: session.attach(crate::game::jobs::ProfileJobs::INTERESTS)?,
+        follower: session.attach(FollowerPolicy::INTERESTS)?,
         environment: session.attach(EnvironmentPolicy::INTERESTS)?,
     })
 }
@@ -353,6 +359,7 @@ struct Supervision {
     auto_zone: Option<AutoZonePolicy>,
     drops: Option<DropPolicy>,
     jobs: Option<crate::game::jobs::ProfileJobs>,
+    follower: Option<FollowerPolicy>,
     environment: Option<EnvironmentPolicy>,
     deadline: Option<Instant>,
 }
@@ -501,6 +508,7 @@ impl Supervision {
             auto_zone,
             drops,
             jobs,
+            follower,
             environment,
         } = player;
         self.connections = watch
@@ -522,6 +530,10 @@ impl Supervision {
         self.jobs = None;
         self.jobs = Some(crate::game::jobs::ProfileJobs::new(
             jobs,
+            Waker::from(self.notify.clone()),
+        ));
+        self.follower = Some(FollowerPolicy::new(
+            follower,
             Waker::from(self.notify.clone()),
         ));
         self.settings = Some(SettingsPolicy::new(
@@ -552,6 +564,9 @@ impl Supervision {
                 .as_mut()
                 .and_then(|p| p.advance(Instant::now())),
             self.auto_zone
+                .as_mut()
+                .and_then(|p| p.advance(Instant::now())),
+            self.follower
                 .as_mut()
                 .and_then(|p| p.advance(Instant::now())),
             self.jobs.as_mut().and_then(|p| p.advance(Instant::now())),
@@ -824,7 +839,7 @@ impl Supervision {
                             }
                             lc::RoomPolicy::RandomPrivate => {
                                 crate::game::safe_move::RoomPolicy::RandomPrivate {
-                                    room: random_private_room(),
+                                    room: crate::game::travel::random_private_room(),
                                 }
                             }
                         };
@@ -1061,17 +1076,6 @@ fn with_reason(end: &str, reason: Option<String>) -> String {
         Some(reason) => format!("{end}: {reason}"),
         None => end.into(),
     }
-}
-
-fn random_private_room() -> u32 {
-    use std::sync::atomic::AtomicU64;
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-    let draw = SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ^ std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-    10000 + (draw % 90000) as u32
 }
 
 #[cfg(test)]

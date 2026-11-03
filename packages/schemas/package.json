@@ -82,16 +82,6 @@
         "default": "./dist/environment.cjs"
       }
     },
-    "./follower": {
-      "import": {
-        "types": "./dist/follower.d.mts",
-        "default": "./dist/follower.mjs"
-      },
-      "require": {
-        "types": "./dist/follower.d.cts",
-        "default": "./dist/follower.cjs"
-      }
-    },
     "./filesystem": {
       "import": {
         "types": "./dist/filesystem.d.mts",

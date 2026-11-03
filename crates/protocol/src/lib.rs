@@ -32,3 +32,4 @@ pub mod combat_profile;
 pub mod combat_state;
 
 pub mod environment;
+pub mod follower;

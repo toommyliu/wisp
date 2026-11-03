@@ -5,7 +5,7 @@ One line per shim in `src/shims/`, then the globals the code reads from the DOM 
 ## Shims
 
 - `shims/bridge.d.ts`: `Window.swf`, the 147 loader ExternalInterface methods (`auth.login`, `player.walkTo`, `world.loadSwf`, ...), plus the callbacks the runtime assigns on `window` (`onConnection`, `onDebug`, `onExtensionResponse`, `onLoaded`, `onProgress`, `packetFromClient`, `packetFromServer`). Needed by `game/flash/bridge/Bridge.ts` (calls), `game/flash/bridge/Gateway.ts` (callbacks), and the `game/flash/api/*` services that name methods by `keyof Window["swf"]` (Auth, Bank, Combat, Drops, House, Inventory, Map, Monsters, Player, Quests, Settings, Shops, Wait). Verbatim copy of lucent's generated `bridge.d.ts`.
-- `shims/desktop.d.ts`: `Window.desktop: DesktopBridge`, the Electron preload IPC client (type in `shared/desktopBridge.ts`). Needed by `game/army/Army.ts` and `game/army/ArmyLoopTaunt.ts` (`army`), `game/automation/Follower.ts` (`gameFollower`, `combatProfiles.getState`), and other desktop-only adapters.
+- `shims/desktop.d.ts`: `Window.desktop: DesktopBridge`, the Electron preload IPC client (type in `shared/desktopBridge.ts`). Needed by `game/army/Army.ts` and `game/army/ArmyLoopTaunt.ts` (`army`), and other desktop-only adapters.
 
 ## DOM globals without a shim file
 

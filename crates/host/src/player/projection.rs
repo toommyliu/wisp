@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use lucent_protocol::{
-    PacketDirection,
+    Packet, PacketDirection, PacketEncoding,
     bridge::{from_json, to_json},
     event::ProjectionEvent,
     hydration::HydrationResult,
@@ -24,13 +24,15 @@ impl Running {
             };
             let mut projection = self.projection.write();
             let epoch = projection.receipts.epoch();
+            let mut message = None;
             let event = match received {
                 None => {
                     self.invalidate_projection(&mut projection);
                     None
                 }
                 Some(event) => {
-                    let projected = self.project_event(&mut projection, &event);
+                    let projected;
+                    (projected, message) = self.project_event(&mut projection, &event);
                     Some(ScriptEvent::Loader { event, projected })
                 }
             };
@@ -79,6 +81,9 @@ impl Running {
             };
             if let Some(event) = event {
                 self.publish(event);
+            }
+            if let Some(message) = message {
+                self.publish(message);
             }
             for monster_map_id in countered {
                 self.stop_attacking_countered(monster_map_id);
@@ -199,9 +204,13 @@ impl Running {
         );
     }
 
-    fn project_event(&self, projection: &mut Projection, event: &Event) -> Vec<ProjectionEvent> {
+    fn project_event(
+        &self,
+        projection: &mut Projection,
+        event: &Event,
+    ) -> (Vec<ProjectionEvent>, Option<ScriptEvent>) {
         let Some(Value::String(raw)) = event.args.first() else {
-            return vec![];
+            return (vec![], None);
         };
         let direction = match event.name.as_str() {
             "onConnection" => {
@@ -217,15 +226,30 @@ impl Running {
                     epoch = projection.receipts.epoch(),
                     "projection connection changed"
                 );
-                return output.events;
+                return (output.events, None);
             }
             "onExtensionResponse" => PacketDirection::Extension,
             "packetFromClient" => PacketDirection::Client,
             "packetFromServer" => PacketDirection::Server,
-            _ => return vec![],
+            _ => return (vec![], None),
         };
         let PacketDecode::Parsed(packet) = parse_packet(direction, raw) else {
-            return vec![];
+            return (vec![], None);
+        };
+        let message = match &packet {
+            Packet::Server {
+                command,
+                data,
+                encoding: PacketEncoding::String,
+                ..
+            } if command == "warning" || command == "server" => data
+                .get(3)
+                .and_then(serde_json::Value::as_str)
+                .map(|message| ScriptEvent::ServerMessage {
+                    command: command.clone(),
+                    message: message.into(),
+                }),
+            _ => None,
         };
         let mut progress = projection.packet(&packet, now_ms(), true);
         let mut projected = vec![];
@@ -277,7 +301,7 @@ impl Running {
             inventory = projection.items.all(lucent_protocol::item::ItemContainer::Inventory).len(),
             "projection processed packet"
         );
-        projected
+        (projected, message)
     }
 }
 

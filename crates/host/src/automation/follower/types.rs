@@ -1,11 +1,9 @@
 use crate::game::travel;
 use std::num::NonZeroU32;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AttackTarget {
-    Id(u64),
-    Name(String),
-}
+pub use lucent_protocol::follower::{
+    FollowerAttackTarget as AttackTarget, FollowerPhase as Phase, FollowerStatus as Status,
+};
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -57,39 +55,6 @@ pub struct Snapshot {
     pub target: Option<Player>,
     pub random_room: Option<u32>,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Phase {
-    #[default]
-    Idle,
-    Starting,
-    Following,
-    Walking,
-    Combat,
-    Stopped,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Status {
-    pub enabled: bool,
-    pub running: bool,
-    pub phase: Phase,
-    pub attempts_remaining: u32,
-    pub last_error: Option<String>,
-    pub stopped_reason: Option<String>,
-    pub warnings: Vec<String>,
-}
-impl Default for Status {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            running: false,
-            phase: Phase::Idle,
-            attempts_remaining: 3,
-            last_error: None,
-            stopped_reason: None,
-            warnings: vec![],
-        }
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RequestId(pub u64);
 #[derive(Clone, Debug)]
@@ -116,9 +81,7 @@ pub enum Effect {
         id: RequestId,
         engaged: bool,
     },
-    StopCombat {
-        id: Option<RequestId>,
-    },
+    StopCombat,
 }
 #[derive(Clone, Debug)]
 pub enum Reply {
@@ -134,9 +97,6 @@ pub enum LocationKind {
 #[derive(Clone, Debug)]
 pub enum CombatEvent {
     Attacking,
-    Attacked,
-    DispatchError,
-    AsyncFailure(String),
     Failed(String),
     Warnings(Vec<String>),
 }
@@ -144,7 +104,6 @@ pub enum CombatEvent {
 pub enum Event {
     Start,
     Stop,
-    Reset,
     Tick,
     Completed {
         id: RequestId,

@@ -69,13 +69,18 @@ impl ScriptJobs {
             Ok(executor) => executor,
             Err(_) => return Ok(None),
         };
-        self.submit_travel(executor, TravelOwner::Script(self.completions.clone()))
-            .map(Some)
+        self.submit_travel(
+            executor,
+            TravelOwner::Script(self.completions.clone()),
+            self.player.packets.binding(),
+        )
+        .map(Some)
     }
     pub(crate) fn submit_travel(
         &self,
         executor: TravelJob,
         owner: TravelOwner,
+        binding: Binding,
     ) -> Result<JobId, String> {
         let script = owner.script();
         let mut handoff = self.requests.handoff.lock();
@@ -91,7 +96,7 @@ impl ScriptJobs {
             return Err("too many script jobs".into());
         }
         let id = JobId::next();
-        let gate = Arc::new(JobGate::new(self.player.packets.binding()));
+        let gate = Arc::new(JobGate::new(binding));
         self.live.lock().insert(id, gate.clone());
         handoff.travel.push_back(Request {
             id,
@@ -139,16 +144,17 @@ impl ProfileJobs {
 }
 impl Travel {
     pub(super) fn cancel(&mut self) {
-        self.request.gate.close();
-        self.request
-            .owner
-            .complete(Outcome::Cancelled, self.request.id);
         self.request
             .executor
             .advance(&self.snapshot, Event::Cancel, 0);
+        self.finish(Outcome::Cancelled);
+    }
+    fn finish(&mut self, outcome: Outcome) {
+        self.done = true;
+        self.request.gate.close();
         self.waiting = None;
         self.due = None;
-        self.done = true;
+        self.request.owner.complete(outcome, self.request.id);
     }
     fn deadline(&self) -> Option<Instant> {
         let reply = self.waiting.as_ref().map(|waiting| match waiting {
@@ -166,11 +172,7 @@ impl Travel {
     ) {
         self.due = effects.next_deadline.map(|ms| clock.at(ms));
         if let Some(outcome) = effects.outcome {
-            self.done = true;
-            self.request.gate.close();
-            self.waiting = None;
-            self.due = None;
-            self.request.owner.complete(outcome, self.request.id);
+            self.finish(outcome);
         } else if let Some(command) = effects.command {
             let deadline = now + REPLY_TIMEOUT;
             let (reply, pending) = Pending::channel();
@@ -181,6 +183,10 @@ impl Travel {
                 deadline,
                 reply,
             });
+            #[cfg(feature = "testing")]
+            if let Some(probe) = link.records.jobs.queued_call_probe.lock().clone() {
+                probe(command.action.loader_call().0);
+            }
             self.waiting = Some(Waiting::Action {
                 pending,
                 command,
@@ -220,7 +226,7 @@ impl Travel {
                     };
                     self.snapshot = match result {
                         Ok(snapshot) => snapshot,
-                        Err(_)
+                        Err(Error::Timeout)
                             if self
                                 .request
                                 .executor
@@ -229,19 +235,7 @@ impl Travel {
                         {
                             Snapshot::default()
                         }
-                        Err(_) => {
-                            self.apply(
-                                Effects {
-                                    outcome: Some(Outcome::Returned(false)),
-                                    ..Default::default()
-                                },
-                                now,
-                                clock,
-                                link,
-                                waker,
-                            );
-                            return;
-                        }
+                        Err(_) => return self.finish(Outcome::Returned(false)),
                     };
                     Event::Tick
                 }
@@ -261,12 +255,13 @@ impl Travel {
                         });
                         return;
                     };
-                    let reply = if matches!(command.action, travel::Action::CellReady(_)) {
-                        Reply::CellReady(result == Ok(Value::Bool(true)))
-                    } else if result.is_ok() {
-                        Reply::Accepted
-                    } else {
-                        Reply::Unavailable
+                    let reply = match result {
+                        Err(Error::Stopped) => return self.finish(Outcome::Returned(false)),
+                        result if matches!(command.action, travel::Action::CellReady(_)) => {
+                            Reply::CellReady(result == Ok(Value::Bool(true)))
+                        }
+                        Ok(_) => Reply::Accepted,
+                        Err(_) => Reply::Unavailable,
                     };
                     Event::Completed {
                         id: command.id,
@@ -429,7 +424,11 @@ mod session_tests {
         let (reply, pending) = Pending::channel();
         jobs.link
             .jobs
-            .submit_travel(TravelJob::new(travel::Request::Exit).unwrap(), reply.into())
+            .submit_travel(
+                TravelJob::new(travel::Request::Exit).unwrap(),
+                reply.into(),
+                jobs.link.packets.binding(),
+            )
             .unwrap();
         assert_eq!(jobs.requests.handoff.lock().scripts, 0);
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -437,6 +436,45 @@ mod session_tests {
             jobs.advance(Instant::now());
             if let Some(result) = pending.try_recv() {
                 assert_eq!(result.unwrap(), Outcome::Returned(true));
+                break;
+            }
+            assert!(Instant::now() < deadline, "session travel did not finish");
+            std::thread::yield_now();
+        }
+        assert_eq!(jobs.requests.handoff.lock().travel_live, 0);
+    }
+
+    #[test]
+    fn session_travel_decided_on_an_earlier_connection_fails() {
+        let host = testing::headless_host();
+        let (_session, link) = testing::start_probe(&host, testing::ProbeMovie::new());
+        let mut jobs = ProfileJobs::new(link, Waker::noop().clone());
+        let decided = jobs.link.packets.binding();
+        jobs.link
+            .call_loader(
+                "probe.emit",
+                vec![
+                    Value::String("onConnection".into()),
+                    Value::String("OnConnection".into()),
+                ],
+            )
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert_ne!(jobs.link.packets.binding(), decided);
+        let (reply, pending) = Pending::channel();
+        jobs.link
+            .jobs
+            .submit_travel(
+                TravelJob::new(travel::Request::Exit).unwrap(),
+                reply.into(),
+                decided,
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            jobs.advance(Instant::now());
+            if let Some(result) = pending.try_recv() {
+                assert_eq!(result.unwrap(), Outcome::Returned(false));
                 break;
             }
             assert!(Instant::now() < deadline, "session travel did not finish");
