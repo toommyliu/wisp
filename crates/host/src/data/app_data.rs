@@ -17,6 +17,7 @@ use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, FileError};
 use crate::app_settings::{AppSettings, SettingsError, Update};
 use crate::reply::Answer;
 use crate::sessions::Changes;
+use crate::updates::{ReleaseCache, UpdatesError};
 
 #[cfg(feature = "testing")]
 type Probe = Arc<dyn Fn() + Send + Sync>;
@@ -37,6 +38,8 @@ pub(crate) enum Request {
     UpdateSettings(String, ScriptOptionsPatch, Answer<ScriptOptions>),
     AppSettings(Answer<AppSettings, SettingsError>),
     UpdateAppSettings(Update, Answer<AppSettings, SettingsError>),
+    ReleaseCache(Answer<Option<ReleaseCache>, UpdatesError>),
+    SaveReleaseCache(ReleaseCache, Answer<(), UpdatesError>),
 }
 
 impl AppData {
@@ -121,7 +124,31 @@ impl Worker {
             Request::UpdateAppSettings(update, answer) => {
                 answer.send(self.update_app_settings(update))
             }
+            Request::ReleaseCache(answer) => answer.send(Ok(self.release_cache())),
+            Request::SaveReleaseCache(cache, answer) => {
+                let mut contents =
+                    serde_json::to_vec_pretty(&cache).expect("a release cache serializes");
+                contents.push(b'\n');
+                let saved = self.store.write(Document::ReleaseCache, &contents);
+                if let Err(error) = saved {
+                    tracing::warn!(component = "updates", %error, "Failed to save release cache");
+                }
+                answer.send(Ok(()))
+            }
         }
+    }
+
+    fn release_cache(&self) -> Option<ReleaseCache> {
+        let read = self.store.read(Document::ReleaseCache);
+        let decoded = read.map(|bytes| bytes.map(|bytes| serde_json::from_slice(&bytes)));
+        let error = match decoded {
+            Ok(None) => return None,
+            Ok(Some(Ok(cache))) => return Some(cache),
+            Ok(Some(Err(error))) => error.to_string(),
+            Err(error) => error.to_string(),
+        };
+        tracing::warn!(component = "updates", %error, "Failed to load release cache");
+        None
     }
 
     fn app_settings(&mut self, diagnostics: bool) -> Result<&AppSettings, FileError> {
@@ -214,12 +241,13 @@ enum Document<'a> {
     Accounts,
     Settings(&'a str),
     AppSettings,
+    ReleaseCache,
 }
 
 impl Document<'_> {
     fn directory(self) -> Option<&'static str> {
         match self {
-            Document::Accounts | Document::AppSettings => None,
+            Document::Accounts | Document::AppSettings | Document::ReleaseCache => None,
             Document::Settings(_) => Some("account-settings"),
         }
     }
@@ -229,6 +257,7 @@ impl Document<'_> {
             Document::Accounts => "accounts.json",
             Document::Settings(file) => file,
             Document::AppSettings => "settings.json",
+            Document::ReleaseCache => "update-cache.json",
         }
     }
 
@@ -237,6 +266,7 @@ impl Document<'_> {
             Document::Accounts => "accounts",
             Document::Settings(_) => "account settings",
             Document::AppSettings => "settings",
+            Document::ReleaseCache => "release cache",
         }
     }
 
@@ -245,6 +275,7 @@ impl Document<'_> {
             Document::Accounts => "accounts",
             Document::Settings(_) => "account-settings",
             Document::AppSettings => "settings",
+            Document::ReleaseCache => "updates",
         }
     }
 
@@ -253,6 +284,7 @@ impl Document<'_> {
             Document::Accounts => "accounts.json",
             Document::Settings(_) => "account-settings/[account].json",
             Document::AppSettings => "settings.json",
+            Document::ReleaseCache => "update-cache.json",
         }
     }
 }
