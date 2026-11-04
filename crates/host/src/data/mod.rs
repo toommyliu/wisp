@@ -3,6 +3,7 @@ pub(crate) mod documents;
 mod fs;
 mod path;
 pub(crate) mod roots;
+pub(crate) mod saved_objects;
 
 pub(crate) use app_data::AppData;
 pub use documents::accounts::Password;

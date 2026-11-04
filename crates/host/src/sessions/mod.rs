@@ -53,6 +53,7 @@ pub(crate) struct AttachmentId(pub(crate) u64);
 use std::sync::Arc;
 
 use crate::bridge::{EVENT_CAPACITY, PendingRead, script_events};
+use crate::data::saved_objects::{Owner, Profile};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::player::frames::FrameLease;
@@ -68,6 +69,7 @@ struct Shared {
     files: Arc<crate::data::Files>,
     accounts: crate::accounts::Accounts,
     app_settings: crate::app_settings::AppSettingsStore,
+    saved_objects: crate::data::saved_objects::SavedObjects,
     updates: crate::updates::Updates,
     http: Arc<crate::scripting::http::Http>,
     net: tokio::runtime::Runtime,
@@ -158,6 +160,7 @@ impl Host {
                     servers: crate::accounts::LoginServers::start(net.handle()),
                 },
                 updates: crate::updates::Updates::start(net.handle(), app_data.clone()),
+                saved_objects: crate::data::saved_objects::SavedObjects::new(app_data.clone()),
                 app_settings: crate::app_settings::AppSettingsStore { app_data },
                 http: crate::scripting::http::Http::new(net.handle().clone())
                     .map_err(HostError::Http)?,
@@ -170,11 +173,25 @@ impl Host {
     }
 
     pub fn start_session(&self, surface: Surface) -> Result<Session, HostError> {
-        self.start_movie(surface, Movie::loader())
+        self.start_movie(surface, Movie::loader(), Owner::Default)
     }
 
-    pub(crate) fn start_movie(&self, surface: Surface, movie: Movie) -> Result<Session, HostError> {
+    pub fn start_account_session(
+        &self,
+        surface: Surface,
+        username: &str,
+    ) -> Result<Session, HostError> {
+        self.start_movie(surface, Movie::loader(), Owner::account(username))
+    }
+
+    pub(crate) fn start_movie(
+        &self,
+        surface: Surface,
+        movie: Movie,
+        owner: Owner,
+    ) -> Result<Session, HostError> {
         let id = self.shared.next_session.fetch_add(1, Ordering::Relaxed);
+        let saved_objects = self.shared.saved_objects.profile(owner);
         let settings = Arc::new(RwLock::new(GameSettings::default()));
         let auto_zone = Arc::new(RwLock::new(AutoZoneConfig::default()));
         let changes = Arc::new(Changes::default());
@@ -187,6 +204,7 @@ impl Host {
                 settings: settings.clone(),
                 auto_zone: auto_zone.clone(),
                 changes: changes.clone(),
+                saved_objects: saved_objects.clone(),
             },
         )?;
         let operations = operations::Operations::start(id).map_err(HostError::OperationThread)?;
@@ -224,6 +242,7 @@ impl Host {
             muted: false,
             auto_zone,
             settings,
+            saved_objects,
             host: self.clone(),
         })
     }
@@ -248,6 +267,7 @@ impl Host {
                 settings: records.settings,
                 auto_zone: records.auto_zone,
                 changes: records.changes,
+                saved_objects: records.saved_objects,
             },
         )
         .map_err(HostError::PlayerThread)
@@ -258,6 +278,7 @@ struct PlayerRecords {
     settings: Arc<RwLock<GameSettings>>,
     auto_zone: Arc<RwLock<AutoZoneConfig>>,
     changes: Arc<Changes>,
+    saved_objects: Arc<Profile>,
 }
 
 pub struct Session {
@@ -286,6 +307,7 @@ pub struct Session {
     host: Host,
     settings: Arc<RwLock<GameSettings>>,
     auto_zone: Arc<RwLock<AutoZoneConfig>>,
+    saved_objects: Arc<Profile>,
 }
 
 impl Session {
@@ -584,6 +606,7 @@ impl Session {
                 settings: self.settings.clone(),
                 auto_zone: self.auto_zone.clone(),
                 changes: self.changes.clone(),
+                saved_objects: self.saved_objects.clone(),
             },
         )?;
         self.player = Some(player);

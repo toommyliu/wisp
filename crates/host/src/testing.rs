@@ -214,8 +214,37 @@ pub fn start_probe(host: &Host, movie: ProbeMovie) -> (Session, ScriptLink) {
 }
 
 pub fn start_probe_without_viewport(host: &Host, movie: ProbeMovie) -> (Session, ScriptLink) {
+    start_owned_probe(host, movie, crate::data::saved_objects::Owner::Default)
+}
+
+pub fn start_account_probe(
+    host: &Host,
+    movie: ProbeMovie,
+    username: &str,
+) -> (Session, ScriptLink) {
+    let (session, link) = start_owned_probe(
+        host,
+        movie,
+        crate::data::saved_objects::Owner::account(username),
+    );
+    session.send(ViewEvent::Resized(
+        Viewport::new(100.0, 100.0, 1.0).unwrap(),
+    ));
+    wait_loaded(&link);
+    (session, link)
+}
+
+fn start_owned_probe(
+    host: &Host,
+    movie: ProbeMovie,
+    owner: crate::data::saved_objects::Owner,
+) -> (Session, ScriptLink) {
     let mut session = host
-        .start_movie(headless_surface(), Movie(Arc::from(fixture_swf(&movie))))
+        .start_movie(
+            headless_surface(),
+            Movie(Arc::from(fixture_swf(&movie))),
+            owner,
+        )
         .expect("couldn't start the probe player");
     let link = session.attach(crate::bridge::EventInterests::ALL).unwrap();
     (session, link)
@@ -356,6 +385,44 @@ fn fixture_swf(movie: &ProbeMovie) -> Vec<u8> {
         Action::Return,
     ]);
     let user_id_body = actions(&[push(vec![Value::Int(7)]), Action::Return]);
+    let shared_object = [
+        push(vec![Value::Str(string("/")), Value::Str(string("name"))]),
+        Action::GetVariable,
+        push(vec![Value::Int(2), Value::Str(string("SharedObject"))]),
+        Action::GetVariable,
+        push(vec![Value::Str(string("getLocal"))]),
+        Action::CallMethod,
+    ];
+    let mut save_shared = vec![push(vec![Value::Str(string("so"))])];
+    save_shared.extend(shared_object.clone());
+    save_shared.extend([
+        Action::DefineLocal,
+        push(vec![Value::Str(string("so"))]),
+        Action::GetVariable,
+        push(vec![Value::Str(string("data"))]),
+        Action::GetMember,
+        push(vec![Value::Str(string("key"))]),
+        Action::GetVariable,
+        push(vec![Value::Str(string("value"))]),
+        Action::GetVariable,
+        Action::SetMember,
+        push(vec![Value::Int(0), Value::Str(string("so"))]),
+        Action::GetVariable,
+        push(vec![Value::Str(string("flush"))]),
+        Action::CallMethod,
+        Action::Return,
+    ]);
+    let save_shared_body = actions(&save_shared);
+    let mut read_shared = shared_object.to_vec();
+    read_shared.extend([
+        push(vec![Value::Str(string("data"))]),
+        Action::GetMember,
+        push(vec![Value::Str(string("key"))]),
+        Action::GetVariable,
+        Action::GetMember,
+        Action::Return,
+    ]);
+    let read_shared_body = actions(&read_shared);
     let constant_bodies: Vec<(&str, Vec<u8>)> = constants
         .iter()
         .map(|(name, value)| {
@@ -661,6 +728,16 @@ fn fixture_swf(movie: &ProbeMovie) -> Vec<u8> {
             "probe.emit",
             vec![string("name"), string("payload")],
             emit_body.as_slice(),
+        ),
+        (
+            "probe.saveShared",
+            vec![string("name"), string("key"), string("value")],
+            save_shared_body.as_slice(),
+        ),
+        (
+            "probe.readShared",
+            vec![string("name"), string("key")],
+            read_shared_body.as_slice(),
         ),
     ];
     if !movie.game_objects.is_empty() {

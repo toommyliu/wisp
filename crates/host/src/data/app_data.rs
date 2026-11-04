@@ -13,6 +13,7 @@ use super::documents::{
     Decoded, Issues, Loaded, Unreadable, account_edits, account_settings, app_settings,
 };
 use super::fs::{self, Failure, WriteFailure};
+use super::saved_objects::{self, Disk, Load};
 use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, FileError};
 use crate::app_settings::{AppSettings, SettingsError, Update};
 use crate::reply::Answer;
@@ -40,6 +41,16 @@ pub(crate) enum Request {
     UpdateAppSettings(Update, Answer<AppSettings, SettingsError>),
     ReleaseCache(Answer<Option<ReleaseCache>, UpdatesError>),
     SaveReleaseCache(ReleaseCache, Answer<(), UpdatesError>),
+    LoadSavedObjects {
+        folder: Vec<String>,
+        partition: String,
+        load: Arc<Load>,
+    },
+    SaveSavedObject {
+        folder: Vec<String>,
+        key: String,
+        bytes: Option<Vec<u8>>,
+    },
 }
 
 impl AppData {
@@ -140,6 +151,14 @@ impl Worker {
                     tracing::warn!(component = "updates", %error, "Failed to save release cache");
                 }
                 answer.send(Ok(()))
+            }
+            Request::LoadSavedObjects {
+                folder,
+                partition,
+                load,
+            } => load.fill(self.store.saved_objects(&folder, &partition)),
+            Request::SaveSavedObject { folder, key, bytes } => {
+                self.store.save_object(&folder, &key, bytes.as_deref());
             }
         }
     }
@@ -425,6 +444,127 @@ impl Store {
         })
     }
 
+    fn saved_objects(&self, folder: &[String], partition: &str) -> Disk {
+        if matches!(self.saved_object_dir(folder, &[], false), Ok(None)) {
+            self.import_saved_objects(folder, partition);
+        }
+        let mut disk = Disk::default();
+        match self.saved_object_dir(folder, &[], false) {
+            Ok(Some(dir)) => read_saved_objects(&dir, "", 0, &mut disk),
+            Ok(None) => {}
+            Err(_) => disk.failed = true,
+        }
+        if disk.failed || !disk.unreadable.is_empty() {
+            tracing::warn!(
+                component = "saved-objects",
+                unreadable = disk.unreadable.len(),
+                "Some game saves couldn't be read; they won't be overwritten until the game restarts"
+            );
+        }
+        disk
+    }
+
+    fn saved_object_dir(
+        &self,
+        folder: &[String],
+        dirs: &[&str],
+        create: bool,
+    ) -> Result<Option<Dir>, Failure> {
+        let Some(mut dir) = fs::open_root(&self.real, create)? else {
+            return Ok(None);
+        };
+        let names = std::iter::once(SAVED_OBJECTS)
+            .chain(folder.iter().map(String::as_str))
+            .chain(dirs.iter().copied());
+        for name in names {
+            match fs::directory(&dir, name, create)? {
+                Some(next) => dir = next,
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(dir))
+    }
+
+    fn save_object(&self, folder: &[String], key: &str, bytes: Option<&[u8]>) -> bool {
+        let segments: Vec<&str> = key.split('/').collect();
+        let (name, dirs) = segments.split_last().expect("a key has a name");
+        let file = format!("{name}.sol");
+        let saved = match bytes {
+            Some(bytes) => self
+                .saved_object_dir(folder, dirs, true)
+                .and_then(|dir| dir.ok_or(Failure::NotDirectory))
+                .and_then(|dir| {
+                    fs::write_atomic(&dir, &file, bytes, true, || {}).map_err(|failure| {
+                        match failure {
+                            WriteFailure::Write(failure) | WriteFailure::Rename(failure) => failure,
+                        }
+                    })
+                }),
+            None => self.saved_object_dir(folder, dirs, false).and_then(|dir| {
+                match dir.map(|dir| dir.remove_file(&file)) {
+                    Some(Err(error)) if error.kind() != io::ErrorKind::NotFound => {
+                        Err(error.into())
+                    }
+                    _ => Ok(()),
+                }
+            }),
+        };
+        if saved.is_err() {
+            tracing::warn!(
+                component = "saved-objects",
+                key,
+                "Couldn't save a game save"
+            );
+        }
+        saved.is_ok()
+    }
+
+    fn import_saved_objects(&self, folder: &[String], partition: &str) {
+        let files = self.release_saved_objects(partition);
+        if files.is_empty() {
+            return;
+        }
+        let imported = files
+            .iter()
+            .filter(|(key, bytes)| self.save_object(folder, key, Some(bytes)))
+            .count();
+        tracing::info!(
+            component = "saved-objects",
+            from = self.release_name(),
+            imported,
+            "Imported game saves from the old data folder"
+        );
+    }
+
+    fn release_saved_objects(&self, partition: &str) -> Vec<(String, Vec<u8>)> {
+        let Some(release) = &self.release else {
+            return Vec::new();
+        };
+        let database = release
+            .join("Partitions")
+            .join(partition)
+            .join("Local Storage")
+            .join("leveldb");
+        if !database.is_dir() {
+            return Vec::new();
+        }
+        let copy = self.real.join(format!(
+            "{}local-storage-{}",
+            super::path::TEMP_PREFIX,
+            std::process::id()
+        ));
+        let saves = local_storage_saves(&database, &copy);
+        let _ = std::fs::remove_dir_all(&copy);
+        saves.unwrap_or_else(|_| {
+            tracing::warn!(
+                component = "saved-objects",
+                from = self.release_name(),
+                "Couldn't read game saves in the old data folder"
+            );
+            Vec::new()
+        })
+    }
+
     fn release_name(&self) -> &str {
         let name = self.release.as_deref().and_then(|path| path.file_name());
         name.and_then(|name| name.to_str()).unwrap_or_default()
@@ -548,4 +688,110 @@ fn warn_invalid(document: Document, issues: &Issues) {
         "Saved {} had invalid entries; ignoring them until the next save",
         document.kind(),
     );
+}
+
+const SAVED_OBJECTS: &str = "saved-objects";
+
+fn read_saved_objects(dir: &Dir, prefix: &str, depth: usize, disk: &mut Disk) {
+    let Ok(listing) = dir.entries() else {
+        disk.failed = true;
+        return;
+    };
+    for entry in listing {
+        let Ok(entry) = entry else {
+            disk.failed = true;
+            continue;
+        };
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Ok(kind) = entry.file_type() else {
+            disk.failed = true;
+            continue;
+        };
+        let path = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        if kind.is_dir() && depth < 31 {
+            match fs::directory(dir, &name, false) {
+                Ok(Some(child)) => read_saved_objects(&child, &path, depth + 1, disk),
+                Ok(None) => {}
+                Err(_) => disk.failed = true,
+            }
+        } else if kind.is_file()
+            && let Some(key) = path.strip_suffix(".sol")
+            && saved_objects::key(key).as_deref() == Some(key)
+        {
+            match fs::read(dir, &name) {
+                Ok(Some(bytes)) => {
+                    disk.entries.insert(key.to_owned(), bytes);
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    disk.unreadable.insert(key.to_owned());
+                }
+            }
+        }
+    }
+}
+
+fn local_storage_saves(
+    database: &std::path::Path,
+    copy: &std::path::Path,
+) -> io::Result<Vec<(String, Vec<u8>)>> {
+    let _ = std::fs::remove_dir_all(copy);
+    fs::create_root(copy)?;
+    for entry in std::fs::read_dir(database)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() && entry.file_name() != "LOCK" {
+            std::fs::copy(entry.path(), copy.join(entry.file_name()))?;
+        }
+    }
+    let options = rusty_leveldb::Options {
+        create_if_missing: false,
+        ..rusty_leveldb::Options::default()
+    };
+    let mut db = rusty_leveldb::DB::open(copy, options).map_err(io::Error::other)?;
+    let mut entries = db.new_iter().map_err(io::Error::other)?;
+    let mut saves = Vec::new();
+    while let Some((key, value)) = rusty_leveldb::LdbIterator::next(&mut entries) {
+        saves.extend(ruffle_save(&key, &value));
+    }
+    Ok(saves)
+}
+
+fn ruffle_save(key: &[u8], value: &[u8]) -> Option<(String, Vec<u8>)> {
+    use base64::Engine;
+    let name = chromium_text(key.strip_prefix(b"_file://\0")?)?;
+    let (host, name) = name.split_once("//")?;
+    if host.is_empty() || host.contains('/') || name.contains('/') {
+        return None;
+    }
+    let key = saved_objects::key(&format!("localhost/{name}"))?;
+    let text = chromium_text(value)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(text)
+        .ok()?;
+    Some((key, bytes))
+}
+
+fn chromium_text(bytes: &[u8]) -> Option<String> {
+    match bytes.split_first()? {
+        (1, latin1) => Some(latin1.iter().map(|&byte| char::from(byte)).collect()),
+        (0, utf16) => {
+            let (units, []) = utf16.as_chunks::<2>() else {
+                return None;
+            };
+            String::from_utf16(
+                &units
+                    .iter()
+                    .map(|unit| u16::from_le_bytes(*unit))
+                    .collect::<Vec<_>>(),
+            )
+            .ok()
+        }
+        _ => None,
+    }
 }
