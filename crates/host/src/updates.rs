@@ -121,11 +121,31 @@ impl ReleasePage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReleaseCache {
+    #[serde(with = "shared")]
     release: Arc<Release>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     etag: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skipped_version: Option<Version>,
+}
+
+mod shared {
+    use super::Release;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::sync::Arc;
+
+    pub(super) fn serialize<S: Serializer>(
+        release: &Arc<Release>,
+        to: S,
+    ) -> Result<S::Ok, S::Error> {
+        Release::serialize(release, to)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        from: D,
+    ) -> Result<Arc<Release>, D::Error> {
+        Release::deserialize(from).map(Arc::new)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
