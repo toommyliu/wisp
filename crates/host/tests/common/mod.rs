@@ -338,6 +338,7 @@ pub fn named_threads() -> Vec<String> {
     }
 }
 
+pub mod app_data;
 pub mod logs;
 
 #[cfg(target_os = "linux")]

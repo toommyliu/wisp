@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod app_settings;
 pub mod automation;
 pub mod bridge;
 mod data;
@@ -7,6 +8,7 @@ pub mod library;
 mod net;
 mod player;
 pub mod projection;
+pub mod reply;
 mod sessions;
 
 pub use bridge::PendingRead;

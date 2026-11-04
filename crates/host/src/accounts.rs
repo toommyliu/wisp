@@ -1,13 +1,11 @@
 use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
-use parking_lot::Mutex;
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::task::Waker;
 use std::time::SystemTime;
 
 use crate::data::app_data::{AppData, Request};
+use crate::reply::{Answer, Reply, Stopped, reply};
 
 pub use crate::data::Password;
 
@@ -46,7 +44,7 @@ impl Accounts {
     }
 
     pub fn watch(&self, waker: Waker) {
-        self.app_data.changes.watch(waker);
+        self.app_data.account_changes.watch(waker);
     }
 
     fn ask<T>(&self, request: impl FnOnce(Answer<T>) -> Request) -> Reply<T> {
@@ -54,11 +52,6 @@ impl Accounts {
         self.app_data.submit(request(answer));
         reply
     }
-}
-
-pub(crate) fn reply<T>() -> (Answer<T>, Reply<T>) {
-    let slot = Arc::new(Mutex::new(Slot::Waiting(None)));
-    (Answer(Some(slot.clone())), Reply(slot))
 }
 
 #[derive(Debug)]
@@ -165,7 +158,7 @@ pub enum AccountsError {
     #[error("Invalid account username.")]
     InvalidUsername,
     #[error("{0}")]
-    File(FileError),
+    File(#[from] FileError),
     #[error("{error}")]
     Servers {
         error: LoadError,
@@ -173,6 +166,10 @@ pub enum AccountsError {
     },
     #[error("the account data service has stopped")]
     Stopped,
+}
+
+impl Stopped for AccountsError {
+    const STOPPED: Self = AccountsError::Stopped;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -185,53 +182,4 @@ pub struct FileError {
     pub(crate) operation: &'static str,
     pub(crate) path: PathBuf,
     pub(crate) too_large: bool,
-}
-
-pub struct Reply<T>(Arc<Mutex<Slot<T>>>);
-
-enum Slot<T> {
-    Waiting(Option<Waker>),
-    Ready(Result<T, AccountsError>),
-    Taken,
-}
-
-pub(crate) struct Answer<T>(Option<Arc<Mutex<Slot<T>>>>);
-
-impl<T> Future for Reply<T> {
-    type Output = Result<T, AccountsError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut slot = self.0.lock();
-        match std::mem::replace(&mut *slot, Slot::Taken) {
-            Slot::Ready(result) => Poll::Ready(result),
-            Slot::Waiting(_) => {
-                *slot = Slot::Waiting(Some(cx.waker().clone()));
-                Poll::Pending
-            }
-            Slot::Taken => panic!("a reply was polled after it completed"),
-        }
-    }
-}
-
-impl<T> Answer<T> {
-    pub(crate) fn send(mut self, result: Result<T, AccountsError>) {
-        if let Some(slot) = self.0.take() {
-            fill(&slot, result);
-        }
-    }
-}
-
-impl<T> Drop for Answer<T> {
-    fn drop(&mut self) {
-        if let Some(slot) = self.0.take() {
-            fill(&slot, Err(AccountsError::Stopped));
-        }
-    }
-}
-
-fn fill<T>(slot: &Mutex<Slot<T>>, result: Result<T, AccountsError>) {
-    let previous = std::mem::replace(&mut *slot.lock(), Slot::Ready(result));
-    if let Slot::Waiting(Some(waker)) = previous {
-        waker.wake();
-    }
 }

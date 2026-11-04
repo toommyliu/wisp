@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 use serde_json::{Map, Value, json};
 
 use super::json;
-use super::{Decoded, Issues, Loaded, decode_document, trim};
+use super::{Decoded, Issues, Loaded, decode_document, integer, newer_version, trim};
 use crate::accounts::AccountsError;
 
 const VERSION: u32 = 1;
@@ -68,14 +68,7 @@ fn fields(options: &ScriptOptions) -> Map<String, Value> {
 
 fn from_object(document: &Map<String, Value>) -> Decoded<ScriptOptions> {
     let mut issues = Issues::default();
-    let newer = match document.get("version").map(integer) {
-        None => false,
-        Some(Some(version)) if version >= 0.0 => version > f64::from(VERSION),
-        Some(_) => {
-            issues.reset.push("version");
-            false
-        }
-    };
+    let newer = newer_version(document, VERSION, &mut issues);
     let scripts = match document.get("scripts") {
         Some(Value::Object(scripts)) => Some(scripts),
         None => None,
@@ -106,10 +99,6 @@ fn from_object(document: &Map<String, Value>) -> Decoded<ScriptOptions> {
         value: options,
         issues: if newer { Issues::default() } else { issues },
     }
-}
-
-fn integer(raw: &Value) -> Option<f64> {
-    raw.as_f64().filter(|value| value.fract() == 0.0)
 }
 
 fn room_policy(raw: &Value) -> Option<RoomPolicy> {

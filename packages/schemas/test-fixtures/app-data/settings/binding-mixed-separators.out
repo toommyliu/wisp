@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "preferences": {
+    "checkForUpdates": false,
+    "launchMode": "game",
+    "showGameUsernameInWindowTitle": false,
+    "useGameTabs": false
+  },
+  "appearance": {
+    "themeMode": "dark",
+    "reduceMotion": "system",
+    "useCursorPointers": false,
+    "themes": {
+      "light": {
+        "tokens": {
+          "background": "#ffffff",
+          "foreground": "#262626",
+          "card": "#ffffff",
+          "cardForeground": "#262626",
+          "popover": "#ffffff",
+          "popoverForeground": "#262626",
+          "primary": "#262626",
+          "primaryForeground": "#fafafa",
+          "secondary": "#f5f5f5",
+          "secondaryForeground": "#262626",
+          "muted": "#f5f5f5",
+          "mutedForeground": "#5c5c5c",
+          "accent": "#f5f5f5",
+          "accentForeground": "#262626",
+          "destructive": "#ef4444",
+          "destructiveForeground": "#b91c1c",
+          "success": "#10b981",
+          "successForeground": "#047857",
+          "warning": "#f59e0b",
+          "warningForeground": "#b45309",
+          "info": "#3b82f6",
+          "infoForeground": "#1d4ed8",
+          "border": "#ebebeb",
+          "input": "#e5e5e5",
+          "ring": "#a3a3a3"
+        },
+        "sansFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "monoFont": "ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace",
+        "sansFontSize": 14,
+        "monoFontSize": 12,
+        "rounding": 1
+      },
+      "dark": {
+        "tokens": {
+          "background": "#0e0e0f",
+          "foreground": "#f5f5f5",
+          "card": "#121214",
+          "cardForeground": "#f5f5f5",
+          "popover": "#161618",
+          "popoverForeground": "#f5f5f5",
+          "primary": "#f5f5f5",
+          "primaryForeground": "#262626",
+          "secondary": "#202022",
+          "secondaryForeground": "#f5f5f5",
+          "muted": "#202022",
+          "mutedForeground": "#a6a6a6",
+          "accent": "#202022",
+          "accentForeground": "#f5f5f5",
+          "destructive": "#f87171",
+          "destructiveForeground": "#f87171",
+          "success": "#34d399",
+          "successForeground": "#34d399",
+          "warning": "#fbbf24",
+          "warningForeground": "#fbbf24",
+          "info": "#60a5fa",
+          "infoForeground": "#60a5fa",
+          "border": "#262628",
+          "input": "#2e2e31",
+          "ring": "#737373"
+        },
+        "sansFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+        "monoFont": "ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace",
+        "sansFontSize": 14,
+        "monoFontSize": 12,
+        "rounding": 1
+      }
+    }
+  },
+  "hotkeys": {
+    "bindings": [
+      {
+        "id": "toggleTopBar",
+        "value": "Mod+Shift+T"
+      },
+      {
+        "id": "loadScript",
+        "value": "Mod+O"
+      },
+      {
+        "id": "toggleScript",
+        "value": "Mod+Shift+X"
+      },
+      {
+        "id": "toggleScriptsDialog",
+        "value": "Mod+Shift+S"
+      },
+      {
+        "id": "toggleOptionsMenu",
+        "value": "Mod+Shift+,"
+      },
+      {
+        "id": "openEnvironment",
+        "value": "Alt+E"
+      },
+      {
+        "id": "openLoaderGrabber",
+        "value": ""
+      },
+      {
+        "id": "openFollower",
+        "value": "Alt+F"
+      },
+      {
+        "id": "openPackets",
+        "value": ""
+      },
+      {
+        "id": "toggleAutoattack",
+        "value": "Alt+A"
+      },
+      {
+        "id": "toggleFollower",
+        "value": "Alt+Shift+F"
+      },
+      {
+        "id": "toggleBank",
+        "value": "Alt+Shift Z"
+      },
+      {
+        "id": "toggleInfiniteRange",
+        "value": "Alt+I"
+      },
+      {
+        "id": "toggleProvokeCell",
+        "value": ""
+      },
+      {
+        "id": "toggleEnemyMagnet",
+        "value": ""
+      },
+      {
+        "id": "toggleInterfaceOnlyRendering",
+        "value": "Alt+L"
+      },
+      {
+        "id": "toggleMinimalRendering",
+        "value": "Alt+Shift+L"
+      },
+      {
+        "id": "toggleHidePlayers",
+        "value": ""
+      },
+      {
+        "id": "toggleSkipCutscenes",
+        "value": ""
+      },
+      {
+        "id": "toggleAntiCounter",
+        "value": ""
+      },
+      {
+        "id": "toggleAnimations",
+        "value": ""
+      },
+      {
+        "id": "toggleCollisions",
+        "value": ""
+      },
+      {
+        "id": "toggleDeathAds",
+        "value": ""
+      }
+    ]
+  }
+}
