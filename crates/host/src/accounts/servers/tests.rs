@@ -5,14 +5,34 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::UNIX_EPOCH;
+use tokio::io::DuplexStream;
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::time::advance;
 
+const VER_CHK: &[u8] = b"<msg t='sys'><body action='verChk' r='0'><ver v='157' /></body></msg>\0";
+const API_OK: &[u8] = b"<msg t='sys'><body action='apiOK' r='0'></body></msg>\0";
+
+type Script = Box<dyn Fn(usize) -> Vec<Step> + Send + Sync>;
+
 struct Fake {
     respond: Box<dyn Fn(usize) -> Result<Arc<Listing>, LoadError> + Send + Sync>,
+    script: Script,
     requests: AtomicUsize,
     sockets: Mutex<Vec<Socket>>,
+}
+
+#[derive(Clone, Copy)]
+enum Step {
+    Reply(Duration),
+    Close,
+    Flood,
+}
+
+fn replies(delays_ms: [u64; 4]) -> Vec<Step> {
+    delays_ms
+        .map(|delay| Step::Reply(Duration::from_millis(delay)))
+        .to_vec()
 }
 
 struct Socket {
@@ -32,8 +52,16 @@ impl Fake {
     fn new(
         respond: impl Fn(usize) -> Result<Arc<Listing>, LoadError> + Send + Sync + 'static,
     ) -> Arc<Self> {
+        Self::scripted(respond, |_| replies([0; 4]))
+    }
+
+    fn scripted(
+        respond: impl Fn(usize) -> Result<Arc<Listing>, LoadError> + Send + Sync + 'static,
+        script: impl Fn(usize) -> Vec<Step> + Send + Sync + 'static,
+    ) -> Arc<Self> {
         Arc::new(Self {
             respond: Box::new(respond),
+            script: Box::new(script),
             requests: AtomicUsize::new(0),
             sockets: Mutex::new(Vec::new()),
         })
@@ -59,6 +87,41 @@ impl Fake {
             let _ = connect.send(());
         }
     }
+
+    fn refuse(&self, index: usize) {
+        self.sockets.lock().unwrap()[index].connect.take();
+    }
+}
+
+async fn answer(mut server: DuplexStream, script: Vec<Step>, _closes: Closes) {
+    let mut steps = script.into_iter();
+    let mut request = Vec::new();
+    let mut buffer = [0; 256];
+    loop {
+        let read = match server.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(read) => read,
+        };
+        for &byte in &buffer[..read] {
+            request.push(byte);
+            if byte != 0 {
+                continue;
+            }
+            assert_eq!(std::mem::take(&mut request), VER_CHK);
+            let sent = match steps.next() {
+                Some(Step::Reply(delay)) => {
+                    tokio::time::sleep(delay).await;
+                    server.write_all(API_OK).await
+                }
+                Some(Step::Close) => server.shutdown().await,
+                Some(Step::Flood) => server.write_all(&[b'x'; 4097]).await,
+                None => Ok(()),
+            };
+            if sent.is_err() {
+                return;
+            }
+        }
+    }
 }
 
 impl Network for Fake {
@@ -68,19 +131,22 @@ impl Network for Fake {
         Box::pin(async move { outcome })
     }
 
-    fn dial(&self, _host: &GameHost, _port: u16) -> BoxFuture<io::Result<()>> {
+    fn dial(&self, _host: &GameHost, _port: u16) -> BoxFuture<io::Result<Box<dyn Connection>>> {
         let (connect, connected) = oneshot::channel();
         let closed = Arc::new(AtomicBool::new(false));
-        self.sockets.lock().unwrap().push(Socket {
+        let mut sockets = self.sockets.lock().unwrap();
+        let script = (self.script)(sockets.len());
+        sockets.push(Socket {
             connect: Some(connect),
             closed: closed.clone(),
         });
-        let closes = Closes(closed);
+        let (client, server) = tokio::io::duplex(8192);
+        tokio::spawn(answer(server, script, Closes(closed)));
         Box::pin(async move {
-            let _closes = closes;
             connected
                 .await
-                .map_err(|_| io::Error::from(io::ErrorKind::ConnectionAborted))
+                .map_err(|_| io::Error::from(io::ErrorKind::ConnectionRefused))?;
+            Ok(Box::new(client) as Box<dyn Connection>)
         })
     }
 }
@@ -272,33 +338,96 @@ async fn keeps_cached_servers_after_a_manual_refresh_fails() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn reports_offline_success_invalid_targets_and_deadlines_in_input_order() {
-    let fake = Fake::new(|_| unreachable!());
+async fn reports_offline_success_invalid_refused_and_deadlines_in_input_order() {
+    let fake = Fake::scripted(|_| unreachable!(), |_| replies([0, 10, 10, 10]));
     let mut invalid = row("Invalid", true);
     invalid["iPort"] = json!(-1);
     let targets = listing(json!([
         row("Offline", false),
         row("Connected", true),
         invalid,
+        row("Refused", true),
         row("Timed out", true)
     ]));
+    let started = tokio::time::Instant::now();
     let pending = tokio::spawn(ping_all(fake.clone(), targets));
-    until(|| fake.dialed() == 2).await;
+    until(|| fake.dialed() == 3).await;
     advance(Duration::from_millis(25)).await;
     fake.connect(0);
-    until(|| fake.open() == [1]).await;
-    advance(Duration::from_millis(1975)).await;
+    fake.refuse(1);
     assert_eq!(
         &*pending.await.unwrap(),
         [
             ping("Offline", PingStatus::Offline),
-            ping("Connected", PingStatus::Ok { latency_ms: 25 }),
+            ping("Connected", PingStatus::Ok { one_way_ms: 5 }),
             ping("Invalid", PingStatus::Unreachable),
+            ping("Refused", PingStatus::Unreachable),
             ping("Timed out", PingStatus::Timeout),
         ]
     );
-    assert_eq!(fake.dialed(), 2);
-    assert!(fake.open().is_empty());
+    assert_eq!(started.elapsed(), Duration::from_secs(6));
+    assert_eq!(fake.dialed(), 3);
+    until(|| fake.open().is_empty()).await;
+}
+
+async fn ping_one(script: Vec<Step>) -> (PingStatus, Duration) {
+    let fake = Fake::scripted(|_| unreachable!(), move |_| script.clone());
+    let started = tokio::time::Instant::now();
+    let pending = tokio::spawn(ping_all(fake.clone(), listing(json!([row("Artix", true)]))));
+    until(|| fake.dialed() == 1).await;
+    advance(Duration::from_millis(100)).await;
+    fake.connect(0);
+    let status = pending.await.unwrap()[0].status();
+    let elapsed = started.elapsed();
+    advance(Duration::from_secs(6)).await;
+    until(|| fake.open().is_empty()).await;
+    (status, elapsed)
+}
+
+#[tokio::test(start_paused = true)]
+async fn reports_half_the_median_round_trip_rounded_up_like_the_game() {
+    assert_eq!(
+        ping_one(replies([400, 61, 75, 50])).await,
+        (
+            PingStatus::Ok { one_way_ms: 31 },
+            Duration::from_millis(686)
+        )
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn one_six_second_deadline_covers_the_connect_warm_up_and_samples() {
+    assert_eq!(
+        ping_one(replies([1300, 650, 650, 650])).await.0,
+        PingStatus::Ok { one_way_ms: 325 }
+    );
+    assert_eq!(
+        ping_one(replies([5700, 60, 60, 60])).await.0,
+        PingStatus::Ok { one_way_ms: 30 }
+    );
+    assert_eq!(
+        ping_one(replies([5750, 60, 60, 60])).await,
+        (PingStatus::Timeout, Duration::from_secs(6))
+    );
+    assert_eq!(
+        ping_one(Vec::new()).await,
+        (PingStatus::Timeout, Duration::from_secs(6))
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn reports_early_closes_and_unterminated_oversized_replies_as_unreachable() {
+    for script in [
+        vec![Step::Close],
+        vec![
+            Step::Reply(Duration::ZERO),
+            Step::Reply(Duration::ZERO),
+            Step::Close,
+        ],
+        vec![Step::Flood],
+    ] {
+        assert_eq!(ping_one(script).await.0, PingStatus::Unreachable);
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -309,26 +438,29 @@ async fn limits_concurrency_to_six_and_cancels_every_outstanding_connection() {
     until(|| fake.dialed() == 6).await;
     fake.connect(0);
     until(|| fake.dialed() == 7).await;
+    assert_eq!(fake.open(), [1, 2, 3, 4, 5, 6]);
     pending.abort();
     let _ = pending.await;
+    until(|| fake.open().is_empty()).await;
     advance(Duration::from_secs(10)).await;
     assert_eq!(fake.dialed(), 7);
-    assert!(fake.open().is_empty());
 }
 
 #[tokio::test(start_paused = true)]
-async fn shares_ping_loads_expires_them_after_completion_and_invalidates_them_on_refresh() {
-    let fake = Fake::new(|request| {
-        Ok(listing(json!([
-            row("Artix", request == 1),
-            row("Yorumi", true)
-        ])))
-    });
+async fn shares_ping_loads_and_keeps_them_until_a_refresh_refetches_the_list() {
+    let fake = Fake::scripted(
+        |request| {
+            Ok(listing(json!([
+                row("Artix", request == 1),
+                row("Yorumi", true)
+            ])))
+        },
+        |_| replies([0, 10, 10, 10]),
+    );
     let (servers, _) = serving(&fake);
     let (first, concurrent) = (servers.pings(), servers.pings());
     until(|| fake.dialed() == 2).await;
     assert_eq!(fake.requests(), 1);
-    advance(Duration::from_millis(10)).await;
     fake.connect(0);
     fake.connect(1);
     let (first, concurrent) = (first.await.unwrap(), concurrent.await.unwrap());
@@ -336,30 +468,52 @@ async fn shares_ping_loads_expires_them_after_completion_and_invalidates_them_on
     assert_eq!(
         &*first,
         [
-            ping("Artix", PingStatus::Ok { latency_ms: 10 }),
-            ping("Yorumi", PingStatus::Ok { latency_ms: 10 }),
+            ping("Artix", PingStatus::Ok { one_way_ms: 5 }),
+            ping("Yorumi", PingStatus::Ok { one_way_ms: 5 }),
         ]
     );
-    advance(Duration::from_millis(29_999)).await;
+    advance(Duration::from_secs(31)).await;
     assert_eq!(servers.pings().await.unwrap(), first);
     assert_eq!(fake.dialed(), 2);
-    advance(Duration::from_millis(1)).await;
-    let next = servers.pings();
-    until(|| fake.dialed() == 4).await;
-    fake.connect(2);
-    fake.connect(3);
-    next.await.unwrap();
     servers.refresh().await.unwrap();
     let refreshed = servers.pings();
-    until(|| fake.dialed() == 5).await;
+    until(|| fake.dialed() == 3).await;
     assert_eq!(fake.requests(), 2);
-    fake.connect(4);
+    fake.connect(2);
     assert_eq!(
-        refreshed.await.unwrap()[0],
-        ping("Artix", PingStatus::Offline)
+        &*refreshed.await.unwrap(),
+        [
+            ping("Artix", PingStatus::Offline),
+            ping("Yorumi", PingStatus::Ok { one_way_ms: 5 }),
+        ]
     );
     servers.refresh().await.unwrap();
     assert_eq!(fake.requests(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn pings_each_list_once_however_often_pings_are_asked_for() {
+    let fake = Fake::new(|request| match request {
+        1 | 2 => Ok(listing(json!([row("Artix", true)]))),
+        _ => Err(LoadError::Status(503)),
+    });
+    let (servers, _) = serving(&fake);
+    let mut dials = 0;
+    for refetches in 1..=3 {
+        let pending = servers.pings();
+        until(|| fake.dialed() == dials + 1).await;
+        fake.connect(dials);
+        dials += 1;
+        let measured = pending.await.unwrap();
+        for _ in 0..29 {
+            advance(Duration::from_secs(10)).await;
+            assert_eq!(servers.pings().await.unwrap(), measured);
+        }
+        advance(Duration::from_millis(9_999)).await;
+        assert_eq!(servers.pings().await.unwrap(), measured);
+        assert_eq!((fake.requests(), fake.dialed()), (refetches, dials));
+        advance(Duration::from_millis(1)).await;
+    }
 }
 
 #[tokio::test(start_paused = true)]
