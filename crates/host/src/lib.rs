@@ -4,12 +4,14 @@ pub mod automation;
 pub mod bridge;
 mod data;
 pub mod game;
+mod github;
 pub mod library;
 mod net;
 mod player;
 pub mod projection;
 pub mod reply;
 mod sessions;
+pub mod updates;
 
 pub use bridge::PendingRead;
 pub use player::frames::FrameLease;

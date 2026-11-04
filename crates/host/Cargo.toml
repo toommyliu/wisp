@@ -21,7 +21,9 @@ wgpu = { version = "30", features = ["noop"], optional = true }
 arboard = { version = "3.7", default-features = false, features = ["wayland-data-control"] }
 async-channel = "2.5"
 async-task = "4.7"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 encoding_rs = "0.8.35"
+fastrand = "2"
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 hyper = { version = "1", default-features = false, features = ["http1"] }
 reqwest = { version = "0.12", default-features = false, features = ["cookies", "native-tls", "stream"] }
@@ -32,6 +34,7 @@ url = "2.5"
 parking_lot = "0.12"
 indexmap = "2"
 regex = "1"
+semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "raw_value"] }
 dirs = "6"

@@ -68,6 +68,7 @@ struct Shared {
     files: Arc<crate::data::Files>,
     accounts: crate::accounts::Accounts,
     app_settings: crate::app_settings::AppSettingsStore,
+    updates: crate::updates::Updates,
     http: Arc<crate::scripting::http::Http>,
     net: tokio::runtime::Runtime,
     clipboard: Clipboard,
@@ -148,6 +149,7 @@ impl Host {
                     app_data: app_data.clone(),
                     servers: crate::accounts::LoginServers::start(net.handle()),
                 },
+                updates: crate::updates::Updates::start(net.handle(), app_data.clone()),
                 app_settings: crate::app_settings::AppSettingsStore { app_data },
                 http: crate::scripting::http::Http::new(net.handle().clone())
                     .map_err(HostError::Http)?,
@@ -599,6 +601,10 @@ impl Host {
 
     pub fn app_settings(&self) -> &crate::app_settings::AppSettingsStore {
         &self.shared.app_settings
+    }
+
+    pub fn updates(&self) -> &crate::updates::Updates {
+        &self.shared.updates
     }
 
     #[cfg(feature = "testing")]
