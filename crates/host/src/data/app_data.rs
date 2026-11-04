@@ -43,7 +43,11 @@ pub(crate) enum Request {
 }
 
 impl AppData {
-    pub(crate) fn start(root: PathBuf, real: PathBuf) -> io::Result<Self> {
+    pub(crate) fn start(
+        root: PathBuf,
+        real: PathBuf,
+        release: Option<PathBuf>,
+    ) -> io::Result<Self> {
         let (sender, requests) = mpsc::channel::<Request>();
         let account_changes = Arc::new(Changes::default());
         let settings_changes = Arc::new(Changes::default());
@@ -53,6 +57,7 @@ impl AppData {
             store: Store {
                 root,
                 real,
+                release,
                 #[cfg(feature = "testing")]
                 probe: probe.clone(),
             },
@@ -157,6 +162,7 @@ impl Worker {
             cold @ None => cold.insert(self.store.load(
                 Document::AppSettings,
                 app_settings::decode,
+                app_settings::encode,
                 diagnostics,
             )?),
         })
@@ -186,7 +192,8 @@ impl Worker {
     fn settings(&self, username: &str) -> Result<ScriptOptions, AccountsError> {
         let file = account_settings::file_name(username)?;
         let document = Document::Settings(&file);
-        Ok(self.store.load(document, account_settings::decode, true)?)
+        let (decode, encode) = (account_settings::decode, account_settings::encode);
+        Ok(self.store.load(document, decode, encode, true)?)
     }
 
     fn update_settings(
@@ -196,7 +203,8 @@ impl Worker {
     ) -> Result<ScriptOptions, AccountsError> {
         let file = account_settings::file_name(username)?;
         let document = Document::Settings(&file);
-        let current = self.store.load(document, account_settings::decode, false)?;
+        let (decode, encode) = (account_settings::decode, account_settings::encode);
+        let current = self.store.load(document, decode, encode, false)?;
         let next = account_settings::apply(current, patch);
         self.store
             .write(document, &account_settings::encode(&next))?;
@@ -209,6 +217,7 @@ impl Worker {
             cold @ None => cold.insert(self.store.load(
                 Document::Accounts,
                 accounts::decode,
+                accounts::encode,
                 diagnostics,
             )?),
         })
@@ -292,6 +301,7 @@ impl Document<'_> {
 struct Store {
     root: PathBuf,
     real: PathBuf,
+    release: Option<PathBuf>,
     #[cfg(feature = "testing")]
     probe: Arc<Mutex<Option<Probe>>>,
 }
@@ -301,10 +311,13 @@ impl Store {
         &self,
         document: Document,
         decode: fn(Option<&[u8]>) -> Loaded<T>,
+        encode: fn(&T) -> Vec<u8>,
         diagnostics: bool,
     ) -> Result<T, FileError> {
-        let bytes = self.read(document)?;
-        Ok(match decode(bytes.as_deref()) {
+        let Some(bytes) = self.read(document)? else {
+            return Ok(self.import(document, decode, encode));
+        };
+        Ok(match decode(Some(&bytes)) {
             Loaded::Missing => T::default(),
             Loaded::Unreadable(unreadable) => {
                 if diagnostics {
@@ -319,6 +332,67 @@ impl Store {
                 value
             }
         })
+    }
+
+    fn import<T: Default>(
+        &self,
+        document: Document,
+        decode: fn(Option<&[u8]>) -> Loaded<T>,
+        encode: fn(&T) -> Vec<u8>,
+    ) -> T {
+        let Some(bytes) = self.read_release(document) else {
+            return T::default();
+        };
+        let Loaded::Decoded(Decoded { value, .. }) = decode(Some(&bytes)) else {
+            return T::default();
+        };
+        match self.write(document, &encode(&value)) {
+            Ok(()) => tracing::info!(
+                component = document.component(),
+                path = document.log_path(),
+                from = self.release_name(),
+                "Imported {} from the old data folder",
+                document.kind(),
+            ),
+            Err(error) => tracing::warn!(
+                component = document.component(),
+                path = document.log_path(),
+                from = self.release_name(),
+                %error,
+                "Couldn't import {} from the old data folder",
+                document.kind(),
+            ),
+        }
+        value
+    }
+
+    fn read_release(&self, document: Document) -> Option<Vec<u8>> {
+        let release = self.release.as_deref()?;
+        let read = || -> Result<Option<Vec<u8>>, Failure> {
+            let Some(root) = fs::open_root(release, false)? else {
+                return Ok(None);
+            };
+            let dir = match document.directory() {
+                Some(name) => fs::directory(&root, name, false)?,
+                None => Some(root),
+            };
+            dir.map_or(Ok(None), |dir| fs::read(&dir, document.name()))
+        };
+        read().unwrap_or_else(|_| {
+            tracing::warn!(
+                component = document.component(),
+                path = document.log_path(),
+                from = self.release_name(),
+                "Couldn't read {} in the old data folder",
+                document.kind(),
+            );
+            None
+        })
+    }
+
+    fn release_name(&self) -> &str {
+        let name = self.release.as_deref().and_then(|path| path.file_name());
+        name.and_then(|name| name.to_str()).unwrap_or_default()
     }
 
     fn folder(&self, document: Document, create: bool) -> Result<Option<Dir>, Failure> {

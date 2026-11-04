@@ -34,12 +34,17 @@ pub(crate) fn scripts_root(
         })
 }
 
-pub(crate) fn app_data_root(
+pub(crate) struct AppDataRoots {
+    pub(crate) current: PathBuf,
+    pub(crate) release: PathBuf,
+}
+
+pub(crate) fn app_data_roots(
     platform: Platform,
     dev: bool,
     var: impl Fn(&str) -> Option<OsString>,
     home: impl FnOnce() -> Option<PathBuf>,
-) -> io::Result<PathBuf> {
+) -> io::Result<AppDataRoots> {
     let set = |name| {
         var(name)
             .filter(|value| !value.is_empty())
@@ -60,7 +65,15 @@ pub(crate) fn app_data_root(
             None => home()?.join(".local").join("share"),
         },
     };
-    Ok(base.join(if dev { "lucent-dev" } else { "lucent" }))
+    let (current, release) = if dev {
+        ("lucent-v2-dev", "lucent-dev")
+    } else {
+        ("lucent-v2", "lucent")
+    };
+    Ok(AppDataRoots {
+        current: base.join(current),
+        release: base.join(release),
+    })
 }
 
 pub(crate) fn create(path: &Path) -> io::Result<PathBuf> {
@@ -138,7 +151,7 @@ mod tests {
         vars: &[(&str, &str)],
         home: Option<&str>,
     ) -> io::Result<PathBuf> {
-        app_data_root(
+        app_data_roots(
             platform,
             dev,
             |name| {
@@ -148,10 +161,16 @@ mod tests {
             },
             || home.map(PathBuf::from),
         )
+        .map(|roots| {
+            assert_eq!(roots.current.parent(), roots.release.parent());
+            let release = roots.release.file_name().unwrap().to_str().unwrap();
+            assert_eq!(release, if dev { "lucent-dev" } else { "lucent" });
+            roots.current
+        })
     }
 
     #[test]
-    fn the_app_data_folder_matches_the_release_per_platform_and_channel() {
+    fn the_app_data_folder_sits_beside_the_release_folder_per_platform_and_channel() {
         let home = Path::new("home");
         let roaming = Path::new("roaming");
         let xdg = Path::new("xdg");
@@ -188,7 +207,7 @@ mod tests {
             ),
         ];
         for (platform, vars, base) in cases {
-            for (dev, folder) in [(false, "lucent"), (true, "lucent-dev")] {
+            for (dev, folder) in [(false, "lucent-v2"), (true, "lucent-v2-dev")] {
                 assert_eq!(
                     resolve(platform, dev, vars, Some("home")).unwrap(),
                     base.join(folder),
@@ -202,11 +221,11 @@ mod tests {
     fn a_missing_home_fails_only_when_the_folder_needs_it() {
         assert_eq!(
             resolve(Platform::Windows, false, &[("APPDATA", "roaming")], None).unwrap(),
-            Path::new("roaming").join("lucent")
+            Path::new("roaming").join("lucent-v2")
         );
         assert_eq!(
             resolve(Platform::Other, false, &[("XDG_DATA_HOME", "xdg")], None).unwrap(),
-            Path::new("xdg").join("lucent")
+            Path::new("xdg").join("lucent-v2")
         );
         for platform in [Platform::Windows, Platform::MacOs, Platform::Other] {
             assert_eq!(

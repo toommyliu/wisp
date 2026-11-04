@@ -108,14 +108,20 @@ impl Host {
         use crate::data::roots;
         let scripts =
             roots::scripts_root(dirs::document_dir, dirs::home_dir).map_err(HostError::Files)?;
-        let app_data = roots::app_data_root(
+        let app_data = roots::app_data_roots(
             roots::Platform::CURRENT,
             cfg!(debug_assertions),
             |name| std::env::var_os(name),
             dirs::home_dir,
         )
         .map_err(HostError::AppData)?;
-        Self::with_services_and_roots(clipboard, audio, scripts, app_data)
+        Self::with_services_and_roots(
+            clipboard,
+            audio,
+            scripts,
+            app_data.current,
+            Some(app_data.release),
+        )
     }
 
     pub(crate) fn with_services_and_roots(
@@ -123,6 +129,7 @@ impl Host {
         audio: Audio,
         scripts: std::path::PathBuf,
         app_data: std::path::PathBuf,
+        release: Option<std::path::PathBuf>,
     ) -> Result<Host, HostError> {
         use crate::data::roots;
         let real_scripts = roots::create(&scripts).map_err(HostError::Files)?;
@@ -133,7 +140,8 @@ impl Host {
             return Err(HostError::OverlappingRoots);
         }
         let app_data = Arc::new(
-            crate::data::AppData::start(app_data, real_app_data).map_err(HostError::AppData)?,
+            crate::data::AppData::start(app_data, real_app_data, release)
+                .map_err(HostError::AppData)?,
         );
         let net = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
