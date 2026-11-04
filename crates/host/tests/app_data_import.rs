@@ -64,6 +64,37 @@ fn imports_release_accounts_once_and_never_writes_the_release_folder() {
 }
 
 #[test]
+fn starting_the_host_imports_every_release_document_without_any_read() {
+    let workspace = Workspace::new();
+    workspace.write_release("accounts.json", ACCOUNTS);
+    workspace.write_release(
+        "settings.json",
+        r#"{"preferences":{"checkForUpdates":true}}"#,
+    );
+    workspace.write_release(
+        "account-settings/hero.json",
+        r#"{"scripts":{"restartAfterReconnect":true}}"#,
+    );
+    workspace.write_release(
+        "account-settings/sidekick.json",
+        r#"{"scripts":{"safeStartStop":true}}"#,
+    );
+    workspace.write_release("account-settings/notes.txt", "not a document");
+
+    drop(workspace.host());
+
+    for file in [
+        "accounts.json",
+        "settings.json",
+        "account-settings/hero.json",
+        "account-settings/sidekick.json",
+    ] {
+        assert!(workspace.path(file).is_file(), "{file} was not imported");
+    }
+    assert!(!workspace.path("account-settings/notes.txt").exists());
+}
+
+#[test]
 fn a_document_already_in_the_new_folder_wins_over_the_release() {
     let workspace = Workspace::new();
     workspace.write_release("accounts.json", ACCOUNTS);

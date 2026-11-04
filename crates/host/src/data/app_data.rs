@@ -71,6 +71,7 @@ impl AppData {
             .name("lucent-app-data".into())
             .spawn(move || {
                 let _dispatch = tracing::dispatcher::set_default(&dispatch);
+                worker.store.import_release();
                 for request in requests {
                     worker.handle(request);
                 }
@@ -162,7 +163,6 @@ impl Worker {
             cold @ None => cold.insert(self.store.load(
                 Document::AppSettings,
                 app_settings::decode,
-                app_settings::encode,
                 diagnostics,
             )?),
         })
@@ -192,8 +192,7 @@ impl Worker {
     fn settings(&self, username: &str) -> Result<ScriptOptions, AccountsError> {
         let file = account_settings::file_name(username)?;
         let document = Document::Settings(&file);
-        let (decode, encode) = (account_settings::decode, account_settings::encode);
-        Ok(self.store.load(document, decode, encode, true)?)
+        Ok(self.store.load(document, account_settings::decode, true)?)
     }
 
     fn update_settings(
@@ -203,8 +202,7 @@ impl Worker {
     ) -> Result<ScriptOptions, AccountsError> {
         let file = account_settings::file_name(username)?;
         let document = Document::Settings(&file);
-        let (decode, encode) = (account_settings::decode, account_settings::encode);
-        let current = self.store.load(document, decode, encode, false)?;
+        let current = self.store.load(document, account_settings::decode, false)?;
         let next = account_settings::apply(current, patch);
         self.store
             .write(document, &account_settings::encode(&next))?;
@@ -217,7 +215,6 @@ impl Worker {
             cold @ None => cold.insert(self.store.load(
                 Document::Accounts,
                 accounts::decode,
-                accounts::encode,
                 diagnostics,
             )?),
         })
@@ -311,13 +308,10 @@ impl Store {
         &self,
         document: Document,
         decode: fn(Option<&[u8]>) -> Loaded<T>,
-        encode: fn(&T) -> Vec<u8>,
         diagnostics: bool,
     ) -> Result<T, FileError> {
-        let Some(bytes) = self.read(document)? else {
-            return Ok(self.import(document, decode, encode));
-        };
-        Ok(match decode(Some(&bytes)) {
+        let bytes = self.read(document)?;
+        Ok(match decode(bytes.as_deref()) {
             Loaded::Missing => T::default(),
             Loaded::Unreadable(unreadable) => {
                 if diagnostics {
@@ -334,17 +328,39 @@ impl Store {
         })
     }
 
-    fn import<T: Default>(
+    fn import_release(&self) {
+        if self.release.is_none() {
+            return;
+        }
+        self.import(Document::Accounts, accounts::decode, accounts::encode);
+        self.import(
+            Document::AppSettings,
+            app_settings::decode,
+            app_settings::encode,
+        );
+        for file in self.release_files(Document::Settings("").directory()) {
+            self.import(
+                Document::Settings(&file),
+                account_settings::decode,
+                account_settings::encode,
+            );
+        }
+    }
+
+    fn import<T>(
         &self,
         document: Document,
         decode: fn(Option<&[u8]>) -> Loaded<T>,
         encode: fn(&T) -> Vec<u8>,
-    ) -> T {
+    ) {
+        if !matches!(self.read(document), Ok(None)) {
+            return;
+        }
         let Some(bytes) = self.read_release(document) else {
-            return T::default();
+            return;
         };
         let Loaded::Decoded(Decoded { value, .. }) = decode(Some(&bytes)) else {
-            return T::default();
+            return;
         };
         match self.write(document, &encode(&value)) {
             Ok(()) => tracing::info!(
@@ -363,22 +379,41 @@ impl Store {
                 document.kind(),
             ),
         }
-        value
+    }
+
+    fn release_dir(&self, name: Option<&str>) -> Result<Option<Dir>, Failure> {
+        let Some(release) = self.release.as_deref() else {
+            return Ok(None);
+        };
+        let Some(root) = fs::open_root(release, false)? else {
+            return Ok(None);
+        };
+        match name {
+            Some(name) => fs::directory(&root, name, false),
+            None => Ok(Some(root)),
+        }
+    }
+
+    fn release_files(&self, name: Option<&str>) -> Vec<String> {
+        let Ok(Some(dir)) = self.release_dir(name) else {
+            return Vec::new();
+        };
+        let Ok(entries) = dir.entries() else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|file| file.ends_with(".json") && !file.starts_with(super::path::TEMP_PREFIX))
+            .collect()
     }
 
     fn read_release(&self, document: Document) -> Option<Vec<u8>> {
-        let release = self.release.as_deref()?;
-        let read = || -> Result<Option<Vec<u8>>, Failure> {
-            let Some(root) = fs::open_root(release, false)? else {
-                return Ok(None);
-            };
-            let dir = match document.directory() {
-                Some(name) => fs::directory(&root, name, false)?,
-                None => Some(root),
-            };
-            dir.map_or(Ok(None), |dir| fs::read(&dir, document.name()))
-        };
-        read().unwrap_or_else(|_| {
+        let read = self
+            .release_dir(document.directory())
+            .and_then(|dir| dir.map_or(Ok(None), |dir| fs::read(&dir, document.name())));
+        read.unwrap_or_else(|_| {
             tracing::warn!(
                 component = document.component(),
                 path = document.log_path(),
