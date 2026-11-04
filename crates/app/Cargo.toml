@@ -15,7 +15,6 @@ anyhow = "1"
 async-channel = "2.5"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 overlay-check = []

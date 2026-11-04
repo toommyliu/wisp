@@ -9,20 +9,10 @@ use lucent_host::ScriptRequest;
 use gpui::App;
 use lucent_host::Host;
 use lucent_host::app_settings::LaunchMode;
-use tracing_subscriber::EnvFilter;
 
 fn main() -> anyhow::Result<()> {
     let args = cli::parse(std::env::args_os().skip(1))?;
-    let default_filter = if args.debug {
-        "info,lucent=debug,lucent_host=debug,lucent_ui=debug"
-    } else {
-        "info,lucent_host::scripting::script=debug"
-    };
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter)),
-        )
-        .init();
+    let logs = lucent_host::logs::init(args.debug);
 
     let cwd = std::env::current_dir()?;
     let script = args
@@ -35,6 +25,12 @@ fn main() -> anyhow::Result<()> {
     let reopen_host = host.clone();
     app.on_reopen(move |cx| open_launch_window(&reopen_host, None, None, false, cx));
     app.run(move |cx| {
+        let mut logs = Some(logs);
+        cx.on_app_quit(move |_| {
+            logs.take();
+            async {}
+        })
+        .detach();
         lucent_ui::text_field::init(cx);
         open_launch_window(&host, args.launch_mode, request, true, cx);
     });
