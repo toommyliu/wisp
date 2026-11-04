@@ -2,7 +2,9 @@ use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::fmt;
 
-use super::json::{self, JsMap, Json, Output};
+use serde_json::{Map, Value, json};
+
+use super::json::{self, JsMap};
 use super::{Decoded, Issues, Loaded, decode_document, trim};
 use crate::accounts::{Account, AccountsSnapshot, Group};
 
@@ -71,46 +73,44 @@ pub(in crate::data) fn encode(document: &AccountsDocument) -> Vec<u8> {
         groups.map(|(name, members)| (name, members.iter().map(String::as_str).collect())),
         &accounts,
     );
-    let accounts = accounts.iter().map(|account| {
-        Output::Object(vec![
-            ("label", Output::String(&account.label)),
-            ("username", Output::String(&account.username)),
-            ("password", Output::String(&account.password.0)),
-        ])
-    });
-    let groups = groups.iter().map(|(name, members)| {
-        let members = members.iter().map(|member| Output::String(member));
-        (name, Output::Array(members.collect()))
-    });
-    json::stringify(&Output::Object(vec![
-        ("accounts", Output::Array(accounts.collect())),
-        ("groups", Output::Object(groups.collect())),
-    ]))
+    let accounts: Vec<Value> = accounts
+        .iter()
+        .map(|account| {
+            json!({
+                "label": account.label,
+                "username": account.username,
+                "password": account.password.0,
+            })
+        })
+        .collect();
+    let groups: Map<String, Value> = groups
+        .iter()
+        .map(|(name, members)| (name.to_owned(), json!(members)))
+        .collect();
+    json::stringify(&json!({"accounts": accounts, "groups": groups}))
 }
 
-fn from_object(raw: &JsMap<Json>) -> Decoded<AccountsDocument> {
-    let no_groups = JsMap::default();
+fn from_object(raw: &Map<String, Value>) -> Decoded<AccountsDocument> {
     let raw_accounts = match raw.get("accounts") {
-        Some(Json::Array(accounts)) => accounts.as_slice(),
+        Some(Value::Array(accounts)) => accounts.as_slice(),
         _ => &[],
     };
-    let raw_groups = match raw.get("groups") {
-        Some(Json::Object(groups)) => groups,
-        _ => &no_groups,
+    let raw_groups: JsMap<&Value> = match raw.get("groups") {
+        Some(Value::Object(groups)) => groups
+            .iter()
+            .map(|(name, members)| (name.clone(), members))
+            .collect(),
+        _ => JsMap::default(),
     };
     let mut issues = Issues::default();
     if raw
         .get("accounts")
-        .is_some_and(|accounts| !matches!(accounts, Json::Array(_)))
+        .is_some_and(|accounts| !accounts.is_array())
     {
         issues.reset.push("accounts");
     }
-    if raw
-        .get("groups")
-        .is_some_and(|groups| !matches!(groups, Json::Object(_)))
-        || raw_groups
-            .iter()
-            .any(|(_, members)| !matches!(members, Json::Array(_)))
+    if raw.get("groups").is_some_and(|groups| !groups.is_object())
+        || raw_groups.iter().any(|(_, members)| !members.is_array())
     {
         issues.reset.push("groups");
     }
@@ -123,10 +123,9 @@ fn from_object(raw: &JsMap<Json>) -> Decoded<AccountsDocument> {
         &accounts,
     );
 
-    let raw_members = raw_groups.iter().map(|(_, members)| match members {
-        Json::Array(members) => members.len(),
-        _ => 0,
-    });
+    let raw_members = raw_groups
+        .iter()
+        .map(|(_, members)| members.as_array().map_or(0, Vec::len));
     let kept_members = groups.iter().map(|(_, members)| members.len());
     let ignored = [
         ("accounts", raw_accounts.len() - accounts.len()),
@@ -145,14 +144,8 @@ fn from_object(raw: &JsMap<Json>) -> Decoded<AccountsDocument> {
     }
 }
 
-fn account(entry: &Json) -> Option<Account> {
-    let Json::Object(fields) = entry else {
-        return None;
-    };
-    let text = |name| match fields.get(name) {
-        Some(Json::String(text)) => Some(text.clone()),
-        _ => None,
-    };
+fn account(entry: &Value) -> Option<Account> {
+    let text = |name| entry.as_object()?.get(name)?.as_str().map(str::to_owned);
     Some(Account {
         label: text("label")?,
         username: text("username")?,
@@ -160,15 +153,9 @@ fn account(entry: &Json) -> Option<Account> {
     })
 }
 
-fn strings(members: &Json) -> Vec<&str> {
-    let Json::Array(members) = members else {
-        return Vec::new();
-    };
-    let strings = members.iter().filter_map(|member| match member {
-        Json::String(member) => Some(member.as_str()),
-        _ => None,
-    });
-    strings.collect()
+fn strings(members: &Value) -> Vec<&str> {
+    let members = members.as_array().map(Vec::as_slice).unwrap_or_default();
+    members.iter().filter_map(Value::as_str).collect()
 }
 
 fn first_per_username<A: Borrow<Account>>(accounts: impl IntoIterator<Item = A>) -> Vec<A> {

@@ -5,7 +5,7 @@ mod json;
 #[cfg(test)]
 mod tests;
 
-use json::{JsMap, Json, ParseError};
+use serde_json::{Map, Value};
 
 pub(super) enum Loaded<T> {
     Missing,
@@ -14,7 +14,7 @@ pub(super) enum Loaded<T> {
 }
 
 pub(super) enum Unreadable {
-    Malformed(ParseError),
+    Malformed { line: usize, column: usize },
     NotAnObject,
 }
 
@@ -31,15 +31,18 @@ pub(super) struct Issues {
 
 fn decode_document<T>(
     file: Option<&[u8]>,
-    decode: impl FnOnce(&JsMap<Json>) -> Decoded<T>,
+    decode: impl FnOnce(&Map<String, Value>) -> Decoded<T>,
 ) -> Loaded<T> {
     let Some(bytes) = file else {
         return Loaded::Missing;
     };
     match &json::parse(bytes) {
-        Ok(Json::Object(document)) => Loaded::Decoded(decode(document)),
+        Ok(Value::Object(document)) => Loaded::Decoded(decode(document)),
         Ok(_) => Loaded::Unreadable(Unreadable::NotAnObject),
-        Err(error) => Loaded::Unreadable(Unreadable::Malformed(*error)),
+        Err(error) => Loaded::Unreadable(Unreadable::Malformed {
+            line: error.line(),
+            column: error.column(),
+        }),
     }
 }
 
