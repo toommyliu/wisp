@@ -1546,5 +1546,1195 @@
     "read": {
       "unreadable": "malformed"
     }
+  },
+  {
+    "name": "writes the default settings back byte for byte",
+    "document": "settings",
+    "input": "settings/canonical-defaults.in",
+    "output": "settings/canonical-defaults.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes customized settings back byte for byte",
+    "document": "settings",
+    "input": "settings/canonical-custom.in",
+    "output": "settings/canonical-custom.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads an empty object as defaults",
+    "document": "settings",
+    "input": "settings/empty-object.in",
+    "output": "settings/empty-object.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "fills a compact partial file with defaults",
+    "document": "settings",
+    "input": "settings/compact-partial.in",
+    "output": "settings/compact-partial.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads the release's {invalid secret file as malformed",
+    "document": "settings",
+    "input": "settings/release-not-json.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 2
+    }
+  },
+  {
+    "name": "reads the release's { file as malformed",
+    "document": "settings",
+    "input": "settings/release-open-brace.in",
+    "read": {
+      "unreadable": "malformed",
+      "line": 1,
+      "column": 2
+    }
+  },
+  {
+    "name": "reads the release's [] file as not an object",
+    "document": "settings",
+    "input": "settings/release-array.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "reads the release's null file as not an object",
+    "document": "settings",
+    "input": "settings/release-null.in",
+    "read": {
+      "unreadable": "not-an-object"
+    }
+  },
+  {
+    "name": "reads a byte order mark as malformed",
+    "document": "settings",
+    "input": "settings/byte-order-mark.in",
+    "read": {
+      "unreadable": "malformed"
+    }
+  },
+  {
+    "name": "resets the release's invalid launch mode and motion setting",
+    "document": "settings",
+    "input": "settings/release-invalid-enums.in",
+    "output": "settings/release-invalid-enums.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "preferences.launchMode",
+          "appearance.reduceMotion"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets enum strings with padding even when they fall back to the same value",
+    "document": "settings",
+    "input": "settings/release-padded-enums.in",
+    "output": "settings/release-padded-enums.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "preferences.launchMode",
+          "appearance.themeMode",
+          "appearance.reduceMotion"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets the release's invalid theme mode",
+    "document": "settings",
+    "input": "settings/release-invalid-theme-mode.in",
+    "output": "settings/release-invalid-theme-mode.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themeMode"
+        ]
+      }
+    }
+  },
+  {
+    "name": "discards every hotkey override when one binding has the wrong shape",
+    "document": "settings",
+    "input": "settings/release-discarded-hotkeys.in",
+    "output": "settings/release-discarded-hotkeys.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets invalid theme fields and unknown token names",
+    "document": "settings",
+    "input": "settings/release-invalid-theme-fields.in",
+    "output": "settings/release-invalid-theme-fields.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens",
+          "appearance.themes.dark.sansFont",
+          "appearance.themes.dark.sansFontSize",
+          "appearance.themes.dark.rounding"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads padded fonts, padded hex and lowercase hotkeys silently",
+    "document": "settings",
+    "input": "settings/release-valid-partial.in",
+    "output": "settings/release-valid-partial.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reports invalid entries of an older version",
+    "document": "settings",
+    "input": "settings/release-older-invalid.in",
+    "output": "settings/release-older-invalid.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads a newer version silently and drops its unknown fields on write",
+    "document": "settings",
+    "input": "settings/release-newer.in",
+    "output": "settings/release-newer.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads invalid fields of a newer version silently",
+    "document": "settings",
+    "input": "settings/newer-invalid.in",
+    "output": "settings/newer-invalid.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets a string version",
+    "document": "settings",
+    "input": "settings/version-string.in",
+    "output": "settings/version-string.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a negative version",
+    "document": "settings",
+    "input": "settings/version-negative.in",
+    "output": "settings/version-negative.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a fractional version",
+    "document": "settings",
+    "input": "settings/version-fraction.in",
+    "output": "settings/version-fraction.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a null version",
+    "document": "settings",
+    "input": "settings/version-null.in",
+    "output": "settings/version-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "version"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads 1.0 as the current version",
+    "document": "settings",
+    "input": "settings/version-one-point-zero.in",
+    "output": "settings/version-one-point-zero.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets sections that are not objects",
+    "document": "settings",
+    "input": "settings/sections-wrong-shape.in",
+    "output": "settings/sections-wrong-shape.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "preferences",
+          "appearance",
+          "hotkeys"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets themes that are not an object",
+    "document": "settings",
+    "input": "settings/themes-wrong-shape.in",
+    "output": "settings/themes-wrong-shape.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets each theme profile that is not an object",
+    "document": "settings",
+    "input": "settings/profiles-wrong-shape.in",
+    "output": "settings/profiles-wrong-shape.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.light",
+          "appearance.themes.dark"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets tokens that are not an object",
+    "document": "settings",
+    "input": "settings/tokens-wrong-shape.in",
+    "output": "settings/tokens-wrong-shape.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets hotkeys that are an array",
+    "document": "settings",
+    "input": "settings/hotkeys-array.in",
+    "output": "settings/hotkeys-array.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads hotkeys with no bindings key silently",
+    "document": "settings",
+    "input": "settings/hotkeys-without-bindings.in",
+    "output": "settings/hotkeys-without-bindings.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets null bindings",
+    "document": "settings",
+    "input": "settings/bindings-null.in",
+    "output": "settings/bindings-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets bindings that are not an array",
+    "document": "settings",
+    "input": "settings/bindings-object.in",
+    "output": "settings/bindings-object.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads empty bindings as defaults silently",
+    "document": "settings",
+    "input": "settings/bindings-empty.in",
+    "output": "settings/bindings-empty.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "discards every override for a binding that is not an object",
+    "document": "settings",
+    "input": "settings/binding-not-object.in",
+    "output": "settings/binding-not-object.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "discards every override for a binding without a value",
+    "document": "settings",
+    "input": "settings/binding-missing-value.in",
+    "output": "settings/binding-missing-value.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads bindings with extra fields silently",
+    "document": "settings",
+    "input": "settings/binding-extra-fields.in",
+    "output": "settings/binding-extra-fields.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets bindings with an unknown command and keeps the rest",
+    "document": "settings",
+    "input": "settings/binding-unknown-id.in",
+    "output": "settings/binding-unknown-id.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets duplicate bindings and keeps the last one",
+    "document": "settings",
+    "input": "settings/binding-duplicate-id.in",
+    "output": "settings/binding-duplicate-id.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a binding with only modifiers",
+    "document": "settings",
+    "input": "settings/binding-only-modifiers.in",
+    "output": "settings/binding-only-modifiers.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a binding with two keys",
+    "document": "settings",
+    "input": "settings/binding-two-keys.in",
+    "output": "settings/binding-two-keys.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a binding that repeats a modifier",
+    "document": "settings",
+    "input": "settings/binding-repeated-modifier.in",
+    "output": "settings/binding-repeated-modifier.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a binding that repeats a key in another case",
+    "document": "settings",
+    "input": "settings/binding-repeated-key-case.in",
+    "output": "settings/binding-repeated-key-case.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a binding of only plus signs",
+    "document": "settings",
+    "input": "settings/binding-plus-only.in",
+    "output": "settings/binding-plus-only.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads an empty binding as unbound silently",
+    "document": "settings",
+    "input": "settings/binding-empty.in",
+    "output": "settings/binding-empty.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets a blank binding to unbound",
+    "document": "settings",
+    "input": "settings/binding-blank.in",
+    "output": "settings/binding-blank.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets a space separated binding to its canonical form",
+    "document": "settings",
+    "input": "settings/binding-spaces.in",
+    "output": "settings/binding-spaces.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets modifier aliases to canonical names and order",
+    "document": "settings",
+    "input": "settings/binding-aliases.in",
+    "output": "settings/binding-aliases.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "orders every modifier canonically",
+    "document": "settings",
+    "input": "settings/binding-all-modifiers.in",
+    "output": "settings/binding-all-modifiers.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets padded parts",
+    "document": "settings",
+    "input": "settings/binding-padded-parts.in",
+    "output": "settings/binding-padded-parts.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "keeps named keys as written",
+    "document": "settings",
+    "input": "settings/binding-named-key.in",
+    "output": "settings/binding-named-key.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "keeps non-ASCII keys as written",
+    "document": "settings",
+    "input": "settings/binding-unicode-key.in",
+    "output": "settings/binding-unicode-key.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "keeps lowercase named keys as written",
+    "document": "settings",
+    "input": "settings/binding-lowercase-named-key.in",
+    "output": "settings/binding-lowercase-named-key.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads a canonical binding silently",
+    "document": "settings",
+    "input": "settings/binding-canonical.in",
+    "output": "settings/binding-canonical.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "splits on plus signs before spaces",
+    "document": "settings",
+    "input": "settings/binding-mixed-separators.in",
+    "output": "settings/binding-mixed-separators.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "splits on any whitespace",
+    "document": "settings",
+    "input": "settings/binding-tab-separated.in",
+    "output": "settings/binding-tab-separated.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "keeps a binding that repeats another command's hotkey",
+    "document": "settings",
+    "input": "settings/binding-takes-another-default.in",
+    "output": "settings/binding-takes-another-default.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads hex tokens in upper case, without a hash and padded",
+    "document": "settings",
+    "input": "settings/tokens-hex-forms.in",
+    "output": "settings/tokens-hex-forms.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets three digit hex tokens",
+    "document": "settings",
+    "input": "settings/tokens-short-hex.in",
+    "output": "settings/tokens-short-hex.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads integer arrays as tokens",
+    "document": "settings",
+    "input": "settings/tokens-arrays.in",
+    "output": "settings/tokens-arrays.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads a negative zero channel",
+    "document": "settings",
+    "input": "settings/tokens-negative-zero.in",
+    "output": "settings/tokens-negative-zero.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets channels out of range",
+    "document": "settings",
+    "input": "settings/tokens-out-of-range.in",
+    "output": "settings/tokens-out-of-range.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets fractional channels",
+    "document": "settings",
+    "input": "settings/tokens-fraction.in",
+    "output": "settings/tokens-fraction.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads integral float channels",
+    "document": "settings",
+    "input": "settings/tokens-integral-float.in",
+    "output": "settings/tokens-integral-float.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets arrays of the wrong length",
+    "document": "settings",
+    "input": "settings/tokens-length.in",
+    "output": "settings/tokens-length.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets arrays with string channels",
+    "document": "settings",
+    "input": "settings/tokens-string-channel.in",
+    "output": "settings/tokens-string-channel.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a number token",
+    "document": "settings",
+    "input": "settings/tokens-number.in",
+    "output": "settings/tokens-number.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a null token",
+    "document": "settings",
+    "input": "settings/tokens-null.in",
+    "output": "settings/tokens-null.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets an object token",
+    "document": "settings",
+    "input": "settings/tokens-object.in",
+    "output": "settings/tokens-object.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a token named __proto__",
+    "document": "settings",
+    "input": "settings/tokens-proto-name.in",
+    "output": "settings/tokens-proto-name.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a numeric token name",
+    "document": "settings",
+    "input": "settings/tokens-numeric-name.in",
+    "output": "settings/tokens-numeric-name.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads the last of duplicate token keys",
+    "document": "settings",
+    "input": "settings/tokens-duplicate-key.in",
+    "output": "settings/tokens-duplicate-key.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads light tokens separately from dark",
+    "document": "settings",
+    "input": "settings/tokens-light.in",
+    "output": "settings/tokens-light.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.light.tokens"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads every token name",
+    "document": "settings",
+    "input": "settings/tokens-every-name.in",
+    "output": "settings/tokens-every-name.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "reads padded fonts silently",
+    "document": "settings",
+    "input": "settings/fonts-padded.in",
+    "output": "settings/fonts-padded.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "keeps next line characters in fonts",
+    "document": "settings",
+    "input": "settings/fonts-next-line.in",
+    "output": "settings/fonts-next-line.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets empty fonts",
+    "document": "settings",
+    "input": "settings/fonts-empty.in",
+    "output": "settings/fonts-empty.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFont",
+          "appearance.themes.dark.monoFont"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads a 256 unit font",
+    "document": "settings",
+    "input": "settings/fonts-longest.in",
+    "output": "settings/fonts-longest.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets a 257 unit font",
+    "document": "settings",
+    "input": "settings/fonts-too-long.in",
+    "output": "settings/fonts-too-long.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFont"
+        ]
+      }
+    }
+  },
+  {
+    "name": "counts font length in UTF-16 units",
+    "document": "settings",
+    "input": "settings/fonts-astral-longest.in",
+    "output": "settings/fonts-astral-longest.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets an astral font longer than 256 units",
+    "document": "settings",
+    "input": "settings/fonts-astral-too-long.in",
+    "output": "settings/fonts-astral-too-long.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFont"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets fonts that are not strings",
+    "document": "settings",
+    "input": "settings/fonts-not-strings.in",
+    "output": "settings/fonts-not-strings.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFont",
+          "appearance.themes.dark.monoFont"
+        ]
+      }
+    }
+  },
+  {
+    "name": "rounds font sizes half up",
+    "document": "settings",
+    "input": "settings/font-sizes-rounded.in",
+    "output": "settings/font-sizes-rounded.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize",
+          "appearance.themes.dark.monoFontSize"
+        ]
+      }
+    }
+  },
+  {
+    "name": "rounds the largest number below one half down",
+    "document": "settings",
+    "input": "settings/font-sizes-almost-half.in",
+    "output": "settings/font-sizes-almost-half.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize",
+          "appearance.themes.dark.monoFontSize"
+        ]
+      }
+    }
+  },
+  {
+    "name": "clamps font sizes",
+    "document": "settings",
+    "input": "settings/font-sizes-clamped.in",
+    "output": "settings/font-sizes-clamped.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize",
+          "appearance.themes.dark.monoFontSize"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads font sizes at the bounds",
+    "document": "settings",
+    "input": "settings/font-sizes-bounds.in",
+    "output": "settings/font-sizes-bounds.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "rounds negative halves up",
+    "document": "settings",
+    "input": "settings/font-sizes-negative-half.in",
+    "output": "settings/font-sizes-negative-half.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets font sizes that are not numbers",
+    "document": "settings",
+    "input": "settings/font-sizes-wrong-type.in",
+    "output": "settings/font-sizes-wrong-type.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize",
+          "appearance.themes.dark.monoFontSize"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets an overflowing font size",
+    "document": "settings",
+    "input": "settings/font-sizes-infinite.in",
+    "output": "settings/font-sizes-infinite.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize",
+          "appearance.themes.dark.monoFontSize"
+        ]
+      }
+    },
+    "host": {
+      "reason": "serde_json rejects a number beyond the f64 range, which JSON.parse reads as Infinity, so the host reads the file as malformed. The release never writes such a number.",
+      "read": {
+        "unreadable": "malformed"
+      }
+    }
+  },
+  {
+    "name": "resets a negative zero font size",
+    "document": "settings",
+    "input": "settings/font-sizes-negative-zero.in",
+    "output": "settings/font-sizes-negative-zero.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.sansFontSize"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads rounding at the bounds",
+    "document": "settings",
+    "input": "settings/rounding-bounds.in",
+    "output": "settings/rounding-bounds.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "clamps rounding",
+    "document": "settings",
+    "input": "settings/rounding-clamped.in",
+    "output": "settings/rounding-clamped.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.light.rounding",
+          "appearance.themes.dark.rounding"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets a negative zero rounding",
+    "document": "settings",
+    "input": "settings/rounding-negative-zero.in",
+    "output": "settings/rounding-negative-zero.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.rounding"
+        ]
+      }
+    }
+  },
+  {
+    "name": "writes fractional rounding like JavaScript",
+    "document": "settings",
+    "input": "settings/rounding-fraction.in",
+    "output": "settings/rounding-fraction.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes tiny rounding in exponent form",
+    "document": "settings",
+    "input": "settings/rounding-tiny.in",
+    "output": "settings/rounding-tiny.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "writes small rounding without an exponent",
+    "document": "settings",
+    "input": "settings/rounding-small.in",
+    "output": "settings/rounding-small.out",
+    "read": {
+      "issues": {}
+    },
+    "host": {
+      "reason": "serde_json writes some small numbers, such as 0.000001, in exponent form, where JSON.stringify writes every digit. Both read back as the same number.",
+      "output": "settings/rounding-small.host.out"
+    }
+  },
+  {
+    "name": "writes rounding with seventeen digits",
+    "document": "settings",
+    "input": "settings/rounding-precise.in",
+    "output": "settings/rounding-precise.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets rounding that is not a number",
+    "document": "settings",
+    "input": "settings/rounding-wrong-type.in",
+    "output": "settings/rounding-wrong-type.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.light.rounding",
+          "appearance.themes.dark.rounding"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets an overflowing rounding",
+    "document": "settings",
+    "input": "settings/rounding-overflow.in",
+    "output": "settings/rounding-overflow.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themes.dark.rounding"
+        ]
+      }
+    },
+    "host": {
+      "reason": "serde_json rejects a number beyond the f64 range, which JSON.parse reads as Infinity, so the host reads the file as malformed. The release never writes such a number.",
+      "read": {
+        "unreadable": "malformed"
+      }
+    }
+  },
+  {
+    "name": "resets booleans that are not booleans",
+    "document": "settings",
+    "input": "settings/booleans-wrong-type.in",
+    "output": "settings/booleans-wrong-type.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "preferences.checkForUpdates",
+          "preferences.showGameUsernameInWindowTitle",
+          "preferences.useGameTabs",
+          "appearance.useCursorPointers"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets enums in the wrong case",
+    "document": "settings",
+    "input": "settings/enums-wrong-case.in",
+    "output": "settings/enums-wrong-case.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "preferences.launchMode",
+          "appearance.themeMode",
+          "appearance.reduceMotion"
+        ]
+      }
+    }
+  },
+  {
+    "name": "reads every enum value",
+    "document": "settings",
+    "input": "settings/enums-every-value.in",
+    "output": "settings/enums-every-value.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "drops unknown fields silently",
+    "document": "settings",
+    "input": "settings/unknown-fields.in",
+    "output": "settings/unknown-fields.out",
+    "read": {
+      "issues": {}
+    }
+  },
+  {
+    "name": "resets appearance fields without touching valid hotkeys",
+    "document": "settings",
+    "input": "settings/independent-sections.in",
+    "output": "settings/independent-sections.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "appearance.themeMode",
+          "appearance.themes.dark.rounding"
+        ]
+      }
+    }
+  },
+  {
+    "name": "resets hotkeys without touching valid appearance",
+    "document": "settings",
+    "input": "settings/independent-hotkeys.in",
+    "output": "settings/independent-hotkeys.out",
+    "read": {
+      "issues": {
+        "reset": [
+          "hotkeys.bindings"
+        ]
+      }
+    }
   }
 ]

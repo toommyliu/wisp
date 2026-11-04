@@ -9,9 +9,13 @@ use std::thread;
 use lucent_protocol::script_options::{ScriptOptions, ScriptOptionsPatch};
 
 use super::documents::accounts::{self, AccountsDocument};
-use super::documents::{Decoded, Issues, Loaded, Unreadable, account_edits, account_settings};
+use super::documents::{
+    Decoded, Issues, Loaded, Unreadable, account_edits, account_settings, app_settings,
+};
 use super::fs::{self, Failure, WriteFailure};
-use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, Answer, FileError};
+use crate::accounts::{AccountEdit, AccountsError, AccountsSnapshot, FileError};
+use crate::app_settings::{AppSettings, SettingsError, Update};
+use crate::reply::Answer;
 use crate::sessions::Changes;
 
 #[cfg(feature = "testing")]
@@ -20,7 +24,8 @@ type Probe = Arc<dyn Fn() + Send + Sync>;
 pub(crate) struct AppData {
     sender: Option<mpsc::Sender<Request>>,
     thread: Mutex<Option<thread::JoinHandle<()>>>,
-    pub(crate) changes: Arc<Changes>,
+    pub(crate) account_changes: Arc<Changes>,
+    pub(crate) settings_changes: Arc<Changes>,
     #[cfg(feature = "testing")]
     probe: Arc<Mutex<Option<Probe>>>,
 }
@@ -30,12 +35,15 @@ pub(crate) enum Request {
     Edit(AccountEdit, Answer<AccountsSnapshot>),
     Settings(String, Answer<ScriptOptions>),
     UpdateSettings(String, ScriptOptionsPatch, Answer<ScriptOptions>),
+    AppSettings(Answer<AppSettings, SettingsError>),
+    UpdateAppSettings(Update, Answer<AppSettings, SettingsError>),
 }
 
 impl AppData {
     pub(crate) fn start(root: PathBuf, real: PathBuf) -> io::Result<Self> {
         let (sender, requests) = mpsc::channel::<Request>();
-        let changes = Arc::new(Changes::default());
+        let account_changes = Arc::new(Changes::default());
+        let settings_changes = Arc::new(Changes::default());
         #[cfg(feature = "testing")]
         let probe: Arc<Mutex<Option<Probe>>> = Arc::default();
         let mut worker = Worker {
@@ -46,7 +54,9 @@ impl AppData {
                 probe: probe.clone(),
             },
             accounts: None,
-            changes: changes.clone(),
+            app_settings: None,
+            account_changes: account_changes.clone(),
+            settings_changes: settings_changes.clone(),
         };
         let dispatch = tracing::dispatcher::get_default(Clone::clone);
         let thread = thread::Builder::new()
@@ -60,7 +70,8 @@ impl AppData {
         Ok(Self {
             sender: Some(sender),
             thread: Mutex::new(Some(thread)),
-            changes,
+            account_changes,
+            settings_changes,
             #[cfg(feature = "testing")]
             probe,
         })
@@ -88,7 +99,9 @@ impl Drop for AppData {
 struct Worker {
     store: Store,
     accounts: Option<AccountsDocument>,
-    changes: Arc<Changes>,
+    app_settings: Option<AppSettings>,
+    account_changes: Arc<Changes>,
+    settings_changes: Arc<Changes>,
 }
 
 impl Worker {
@@ -102,13 +115,51 @@ impl Worker {
             Request::UpdateSettings(username, patch, answer) => {
                 answer.send(self.update_settings(&username, patch))
             }
+            Request::AppSettings(answer) => {
+                answer.send(self.app_settings(true).cloned().map_err(Into::into))
+            }
+            Request::UpdateAppSettings(update, answer) => {
+                answer.send(self.update_app_settings(update))
+            }
         }
+    }
+
+    fn app_settings(&mut self, diagnostics: bool) -> Result<&AppSettings, FileError> {
+        Ok(match &mut self.app_settings {
+            Some(settings) => settings,
+            cold @ None => cold.insert(self.store.load(
+                Document::AppSettings,
+                app_settings::decode,
+                diagnostics,
+            )?),
+        })
+    }
+
+    fn update_app_settings(&mut self, update: Update) -> Result<AppSettings, SettingsError> {
+        let cold = self.app_settings.is_none();
+        let committed = self.commit_app_settings(update);
+        if cold && committed.is_err() {
+            self.app_settings = None;
+        }
+        committed
+    }
+
+    fn commit_app_settings(&mut self, update: Update) -> Result<AppSettings, SettingsError> {
+        let current = self.app_settings(false)?;
+        let next = current.apply(update)?;
+        if *current != next {
+            self.store
+                .write(Document::AppSettings, &app_settings::encode(&next))?;
+            self.app_settings = Some(next.clone());
+            self.settings_changes.notify();
+        }
+        Ok(next)
     }
 
     fn settings(&self, username: &str) -> Result<ScriptOptions, AccountsError> {
         let file = account_settings::file_name(username)?;
         let document = Document::Settings(&file);
-        self.store.load(document, account_settings::decode, true)
+        Ok(self.store.load(document, account_settings::decode, true)?)
     }
 
     fn update_settings(
@@ -152,7 +203,7 @@ impl Worker {
             self.store
                 .write(Document::Accounts, &accounts::encode(&next))?;
             self.accounts = Some(next);
-            self.changes.notify();
+            self.account_changes.notify();
         }
         Ok(snapshot)
     }
@@ -162,12 +213,13 @@ impl Worker {
 enum Document<'a> {
     Accounts,
     Settings(&'a str),
+    AppSettings,
 }
 
 impl Document<'_> {
     fn directory(self) -> Option<&'static str> {
         match self {
-            Document::Accounts => None,
+            Document::Accounts | Document::AppSettings => None,
             Document::Settings(_) => Some("account-settings"),
         }
     }
@@ -176,6 +228,7 @@ impl Document<'_> {
         match self {
             Document::Accounts => "accounts.json",
             Document::Settings(file) => file,
+            Document::AppSettings => "settings.json",
         }
     }
 
@@ -183,6 +236,7 @@ impl Document<'_> {
         match self {
             Document::Accounts => "accounts",
             Document::Settings(_) => "account settings",
+            Document::AppSettings => "settings",
         }
     }
 
@@ -190,6 +244,7 @@ impl Document<'_> {
         match self {
             Document::Accounts => "accounts",
             Document::Settings(_) => "account-settings",
+            Document::AppSettings => "settings",
         }
     }
 
@@ -197,6 +252,7 @@ impl Document<'_> {
         match self {
             Document::Accounts => "accounts.json",
             Document::Settings(_) => "account-settings/[account].json",
+            Document::AppSettings => "settings.json",
         }
     }
 }
@@ -214,7 +270,7 @@ impl Store {
         document: Document,
         decode: fn(Option<&[u8]>) -> Loaded<T>,
         diagnostics: bool,
-    ) -> Result<T, AccountsError> {
+    ) -> Result<T, FileError> {
         let bytes = self.read(document)?;
         Ok(match decode(bytes.as_deref()) {
             Loaded::Missing => T::default(),
@@ -258,7 +314,7 @@ impl Store {
         }
     }
 
-    fn read(&self, document: Document) -> Result<Option<Vec<u8>>, AccountsError> {
+    fn read(&self, document: Document) -> Result<Option<Vec<u8>>, FileError> {
         let failed = |failure| self.failure("read", document, failure);
         match self.folder(document, false).map_err(failed)? {
             Some(dir) => fs::read(&dir, document.name()).map_err(failed),
@@ -266,7 +322,7 @@ impl Store {
         }
     }
 
-    fn write(&self, document: Document, contents: &[u8]) -> Result<(), AccountsError> {
+    fn write(&self, document: Document, contents: &[u8]) -> Result<(), FileError> {
         let failed = |operation| move |failure| self.failure(operation, document, failure);
         if contents.len() as u64 > fs::MAX_BYTES {
             return Err(failed("write")(Failure::TooLarge));
@@ -299,20 +355,15 @@ impl Store {
         Ok(())
     }
 
-    fn failure(
-        &self,
-        operation: &'static str,
-        document: Document,
-        failure: Failure,
-    ) -> AccountsError {
+    fn failure(&self, operation: &'static str, document: Document, failure: Failure) -> FileError {
         let mut path = self.root.clone();
         path.extend(document.directory());
         path.push(document.name());
-        AccountsError::File(FileError {
+        FileError {
             operation,
             path,
             too_large: matches!(failure, Failure::TooLarge),
-        })
+        }
     }
 }
 

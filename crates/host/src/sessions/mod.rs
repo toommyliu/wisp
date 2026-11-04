@@ -67,6 +67,7 @@ struct Shared {
     reapers: Arc<reaper::Reapers>,
     files: Arc<crate::data::Files>,
     accounts: crate::accounts::Accounts,
+    app_settings: crate::app_settings::AppSettingsStore,
     http: Arc<crate::scripting::http::Http>,
     net: tokio::runtime::Runtime,
     clipboard: Clipboard,
@@ -130,6 +131,9 @@ impl Host {
         if roots::overlap(&scripts_ancestry, &app_data_ancestry) {
             return Err(HostError::OverlappingRoots);
         }
+        let app_data = Arc::new(
+            crate::data::AppData::start(app_data, real_app_data).map_err(HostError::AppData)?,
+        );
         let net = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("lucent-net")
@@ -141,12 +145,10 @@ impl Host {
                 reapers: Arc::default(),
                 files: Arc::new(crate::data::Files::start(scripts).map_err(HostError::Files)?),
                 accounts: crate::accounts::Accounts {
-                    app_data: Arc::new(
-                        crate::data::AppData::start(app_data, real_app_data)
-                            .map_err(HostError::AppData)?,
-                    ),
+                    app_data: app_data.clone(),
                     servers: crate::accounts::LoginServers::start(net.handle()),
                 },
+                app_settings: crate::app_settings::AppSettingsStore { app_data },
                 http: crate::scripting::http::Http::new(net.handle().clone())
                     .map_err(HostError::Http)?,
                 net,
@@ -593,6 +595,10 @@ impl Host {
 
     pub fn accounts(&self) -> &crate::accounts::Accounts {
         &self.shared.accounts
+    }
+
+    pub fn app_settings(&self) -> &crate::app_settings::AppSettingsStore {
+        &self.shared.app_settings
     }
 
     #[cfg(feature = "testing")]

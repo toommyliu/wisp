@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::accounts::AccountsDocument;
 use super::json::JsMap;
-use super::{Issues, Loaded, Unreadable, account_settings, accounts};
+use super::{Issues, Loaded, Unreadable, account_settings, accounts, app_settings};
 use crate::accounts::{Account, Password};
 
 fn corpus(path: &str) -> Vec<u8> {
@@ -57,6 +57,7 @@ fn documents_read_and_write_like_the_release() {
                 account_settings::decode(Some(&input)),
                 account_settings::encode,
             ),
+            "settings" => outcome(app_settings::decode(Some(&input)), app_settings::encode),
             document => panic!("unknown document {document}"),
         };
         let host = &case["host"];
@@ -109,6 +110,7 @@ fn account_settings_file_names_match_the_release() {
 fn a_missing_file_reads_as_missing() {
     assert!(matches!(accounts::decode(None), Loaded::Missing));
     assert!(matches!(account_settings::decode(None), Loaded::Missing));
+    assert!(matches!(app_settings::decode(None), Loaded::Missing));
 }
 
 #[test]
