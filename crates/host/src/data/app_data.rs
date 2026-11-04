@@ -537,38 +537,25 @@ impl Store {
     }
 
     fn release_saved_objects(&self, partition: &str) -> Vec<(String, Vec<u8>)> {
-        let found = || -> Result<Vec<(String, Vec<u8>)>, Failure> {
-            let mut dir = match self.release_dir(Some("Partitions"))? {
-                Some(dir) => dir,
-                None => return Ok(Vec::new()),
-            };
-            let path = [
-                partition,
-                "Pepper Data",
-                "Shockwave Flash",
-                "WritableRoot",
-                "#SharedObjects",
-            ];
-            for name in path {
-                match fs::directory(&dir, name, false)? {
-                    Some(next) => dir = next,
-                    None => return Ok(Vec::new()),
-                }
-            }
-            for entry in dir.entries()?.filter_map(Result::ok) {
-                let Ok(install) = entry.file_name().into_string() else {
-                    continue;
-                };
-                let Ok(Some(install)) = fs::directory(&dir, &install, false) else {
-                    continue;
-                };
-                if let Some(game) = fs::directory(&install, "game.aq.com", false)? {
-                    return Ok(read_game_saves(&game));
-                }
-            }
-            Ok(Vec::new())
+        let Some(release) = &self.release else {
+            return Vec::new();
         };
-        found().unwrap_or_else(|_| {
+        let database = release
+            .join("Partitions")
+            .join(partition)
+            .join("Local Storage")
+            .join("leveldb");
+        if !database.is_dir() {
+            return Vec::new();
+        }
+        let copy = self.real.join(format!(
+            "{}local-storage-{}",
+            super::path::TEMP_PREFIX,
+            std::process::id()
+        ));
+        let saves = local_storage_saves(&database, &copy);
+        let _ = std::fs::remove_dir_all(&copy);
+        saves.unwrap_or_else(|_| {
             tracing::warn!(
                 component = "saved-objects",
                 from = self.release_name(),
@@ -750,18 +737,61 @@ fn read_saved_objects(dir: &Dir, prefix: &str, depth: usize, disk: &mut Disk) {
     }
 }
 
-fn read_game_saves(dir: &Dir) -> Vec<(String, Vec<u8>)> {
-    let Ok(listing) = dir.entries() else {
-        return Vec::new();
+fn local_storage_saves(
+    database: &std::path::Path,
+    copy: &std::path::Path,
+) -> io::Result<Vec<(String, Vec<u8>)>> {
+    let _ = std::fs::remove_dir_all(copy);
+    fs::create_root(copy)?;
+    for entry in std::fs::read_dir(database)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() && entry.file_name() != "LOCK" {
+            std::fs::copy(entry.path(), copy.join(entry.file_name()))?;
+        }
+    }
+    let options = rusty_leveldb::Options {
+        create_if_missing: false,
+        ..rusty_leveldb::Options::default()
     };
-    listing
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter_map(|name| {
-            let key = saved_objects::key(&format!("localhost/{}", name.strip_suffix(".sol")?))?;
-            let bytes = fs::read(dir, &name).ok()??;
-            Some((key, bytes))
-        })
-        .collect()
+    let mut db = rusty_leveldb::DB::open(copy, options).map_err(io::Error::other)?;
+    let mut entries = db.new_iter().map_err(io::Error::other)?;
+    let mut saves = Vec::new();
+    while let Some((key, value)) = rusty_leveldb::LdbIterator::next(&mut entries) {
+        saves.extend(ruffle_save(&key, &value));
+    }
+    Ok(saves)
+}
+
+fn ruffle_save(key: &[u8], value: &[u8]) -> Option<(String, Vec<u8>)> {
+    use base64::Engine;
+    let name = chromium_text(key.strip_prefix(b"_file://\0")?)?;
+    let (host, name) = name.split_once("//")?;
+    if host.is_empty() || host.contains('/') || name.contains('/') {
+        return None;
+    }
+    let key = saved_objects::key(&format!("localhost/{name}"))?;
+    let text = chromium_text(value)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(text)
+        .ok()?;
+    Some((key, bytes))
+}
+
+fn chromium_text(bytes: &[u8]) -> Option<String> {
+    match bytes.split_first()? {
+        (1, latin1) => Some(latin1.iter().map(|&byte| char::from(byte)).collect()),
+        (0, utf16) => {
+            let (units, []) = utf16.as_chunks::<2>() else {
+                return None;
+            };
+            String::from_utf16(
+                &units
+                    .iter()
+                    .map(|unit| u16::from_le_bytes(*unit))
+                    .collect::<Vec<_>>(),
+            )
+            .ok()
+        }
+        _ => None,
+    }
 }

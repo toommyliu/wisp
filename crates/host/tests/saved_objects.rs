@@ -50,19 +50,70 @@ fn saved_as(workspace: &Workspace, account: Option<&str>, name: &str, key: &str,
     drop((link, session, host));
 }
 
-fn release_saves(workspace: &Workspace, partition: &str) -> PathBuf {
-    [
-        "Partitions",
-        partition,
-        "Pepper Data",
-        "Shockwave Flash",
-        "WritableRoot",
-        "#SharedObjects",
-        "N9QSFT4S",
-        "game.aq.com",
-    ]
-    .iter()
-    .fold(workspace.release(), |path, part| path.join(part))
+fn local_storage(workspace: &Workspace, partition: &str) -> PathBuf {
+    ["Partitions", partition, "Local Storage", "leveldb"]
+        .iter()
+        .fold(workspace.release(), |path, part| path.join(part))
+}
+
+fn latin1(text: &str) -> Vec<u8> {
+    std::iter::once(1).chain(text.bytes()).collect()
+}
+
+fn utf16(text: &str) -> Vec<u8> {
+    std::iter::once(0)
+        .chain(text.encode_utf16().flat_map(u16::to_le_bytes))
+        .collect()
+}
+
+fn ruffle_web_saves(workspace: &Workspace, partition: &str, saves: &[(&str, &[u8])], wide: bool) {
+    use base64::Engine;
+    let path = local_storage(workspace, partition);
+    fs::create_dir_all(&path).unwrap();
+    let options = rusty_leveldb::Options {
+        create_if_missing: true,
+        ..rusty_leveldb::Options::default()
+    };
+    let mut db = rusty_leveldb::DB::open(&path, options).unwrap();
+    let encode = if wide { utf16 } else { latin1 };
+    for (name, bytes) in saves {
+        let mut key = b"_file://\0".to_vec();
+        key.extend(encode(&format!("assets//{name}")));
+        let value = encode(&base64::engine::general_purpose::STANDARD.encode(bytes));
+        db.put(&key, &value).unwrap();
+    }
+    let chromium_rows: [(&[u8], &[u8]); 5] = [
+        (b"VERSION", b"1"),
+        (b"META:file://", b"\x08\x01\x10\x02"),
+        (b"METAACCESS:file://", b"\x08\x01"),
+        (b"_devtools://devtools\0\x01consoleHistory", b"\x01[]"),
+        (b"_devtools://devtools\0\x01a//b", b"\x01QUJD"),
+    ];
+    for (key, value) in chromium_rows {
+        db.put(key, value).unwrap();
+    }
+    db.flush().unwrap();
+}
+
+fn produced(name: &str, key: &str, value: &str) -> Vec<u8> {
+    let source = Workspace::new();
+    saved_as(&source, Some("Hero"), name, key, value);
+    fs::read(source.path(&format!("saved-objects/accounts/hero/localhost/{name}.sol"))).unwrap()
+}
+
+fn snapshot(path: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<_> = fs::read_dir(path)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (
+                entry.file_name().into_string().unwrap(),
+                fs::read(entry.path()).unwrap(),
+            )
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 #[test]
@@ -116,16 +167,13 @@ fn sessions_of_one_account_share_saves() {
 }
 
 #[test]
-fn imports_the_release_saves_of_the_launched_account_once() {
-    let source = Workspace::new();
-    saved_as(&source, Some("Hero"), "AQWUserPref", "quality", "LOW");
-    let written =
-        fs::read(source.path("saved-objects/accounts/hero/localhost/AQWUserPref.sol")).unwrap();
+fn imports_the_release_ruffle_web_saves_of_the_launched_account_once() {
+    let written = produced("AQWUserPref", "quality", "LOW");
+    let options = produced("AQLite_Data", "bHidePlayers", "yes");
     let workspace = Workspace::new();
-    let release = release_saves(&workspace, HERO);
-    fs::create_dir_all(&release).unwrap();
-    fs::write(release.join("AQWUserPref.sol"), &written).unwrap();
-    fs::write(release.join("notes.txt"), "not a save").unwrap();
+    ruffle_web_saves(&workspace, HERO, &[("AQWUserPref", &written)], false);
+    ruffle_web_saves(&workspace, HERO, &[("AQLite_Data", &options)], true);
+    let before = snapshot(&local_storage(&workspace, HERO));
 
     let host = workspace.host();
     assert_eq!(
@@ -133,15 +181,21 @@ fn imports_the_release_saves_of_the_launched_account_once() {
         text("LOW")
     );
     assert_eq!(
+        read_as(&host, Some("Hero"), "AQLite_Data", "bHidePlayers"),
+        text("yes")
+    );
+    assert_eq!(
         fs::read(workspace.path("saved-objects/accounts/hero/localhost/AQWUserPref.sol")).unwrap(),
         written
     );
-    assert!(
-        !workspace
-            .path("saved-objects/accounts/hero/localhost/notes")
-            .exists()
+    assert_eq!(
+        snapshot(&workspace.path("saved-objects/accounts/hero/localhost"))
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        ["AQLite_Data.sol", "AQWUserPref.sol"]
     );
-    assert_eq!(fs::read(release.join("AQWUserPref.sol")).unwrap(), written);
+    assert_eq!(snapshot(&local_storage(&workspace, HERO)), before);
 
     let (session, link) = testing::start_account_probe(&host, ProbeMovie::new(), "Hero");
     save(&link, "AQWUserPref", "quality", "HIGH");
@@ -153,9 +207,33 @@ fn imports_the_release_saves_of_the_launched_account_once() {
 }
 
 #[test]
+fn flash_era_saves_are_not_imported() {
+    let written = produced("AQWUserPref", "quality", "LOW");
+    let workspace = Workspace::new();
+    let pepper = [
+        "Partitions",
+        HERO,
+        "Pepper Data",
+        "Shockwave Flash",
+        "WritableRoot",
+        "#SharedObjects",
+        "N9QSFT4S",
+        "game.aq.com",
+    ]
+    .iter()
+    .fold(workspace.release(), |path, part| path.join(part));
+    fs::create_dir_all(&pepper).unwrap();
+    fs::write(pepper.join("AQWUserPref.sol"), &written).unwrap();
+
+    assert_ne!(
+        read_as(&workspace.host(), Some("Hero"), "AQWUserPref", "quality"),
+        text("LOW")
+    );
+}
+
+#[test]
 fn saves_already_in_the_new_folder_are_not_replaced_by_the_release() {
-    let source = Workspace::new();
-    saved_as(&source, Some("Hero"), "AQWUserPref", "quality", "LOW");
+    let written = produced("AQWUserPref", "quality", "LOW");
     let workspace = Workspace::new();
     saved_as(
         &workspace,
@@ -164,13 +242,7 @@ fn saves_already_in_the_new_folder_are_not_replaced_by_the_release() {
         "bHidePlayers",
         "yes",
     );
-    let release = release_saves(&workspace, HERO);
-    fs::create_dir_all(&release).unwrap();
-    fs::copy(
-        source.path("saved-objects/accounts/hero/localhost/AQWUserPref.sol"),
-        release.join("AQWUserPref.sol"),
-    )
-    .unwrap();
+    ruffle_web_saves(&workspace, HERO, &[("AQWUserPref", &written)], false);
 
     let host = workspace.host();
     assert_ne!(
