@@ -327,16 +327,16 @@ fn owner_only(document: Document, dir: &Dir) {
 }
 
 fn warn_unreadable(document: Document, unreadable: &Unreadable) {
-    let at = match unreadable {
-        Unreadable::Malformed(error) => error.at,
+    let at = match *unreadable {
+        Unreadable::Malformed { line, column } => Some((line, column)),
         Unreadable::NotAnObject => None,
     };
     tracing::warn!(
         component = document.component(),
         path = document.log_path(),
         ignored = %json!({"file": 1}),
-        line = at.map(|at| at.line),
-        column = at.map(|at| at.column),
+        line = at.map(|(line, _)| line),
+        column = at.map(|(_, column)| column),
         "Saved {} could not be read; using defaults until the next save",
         document.kind(),
     );

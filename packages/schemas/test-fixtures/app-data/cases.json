@@ -455,6 +455,27 @@
           "groupMembers": 1
         }
       }
+    },
+    "host": {
+      "reason": "serde_json rejects a number beyond the f64 range, which JSON.parse reads as Infinity, so the host reads the file as malformed. The release never writes such a number.",
+      "read": {
+        "unreadable": "malformed"
+      }
+    }
+  },
+  {
+    "name": "parses every in-range JSON number like JSON.parse",
+    "document": "accounts",
+    "input": "accounts/numbers-in-range.in",
+    "output": "accounts/numbers.out",
+    "read": {
+      "issues": {
+        "ignored": {
+          "accounts": 0,
+          "groups": 0,
+          "groupMembers": 1
+        }
+      }
     }
   },
   {
@@ -464,6 +485,12 @@
     "output": "accounts/deep-nesting.out",
     "read": {
       "issues": {}
+    },
+    "host": {
+      "reason": "serde_json stops at 128 levels of nesting, so the host reads the file as malformed. The release's documents nest a few levels deep.",
+      "read": {
+        "unreadable": "malformed"
+      }
     }
   },
   {
@@ -527,8 +554,10 @@
       "issues": {}
     },
     "host": {
-      "reason": "The host keeps text as Rust strings, which cannot hold a lone surrogate, so it reads each one as U+FFFD.",
-      "output": "accounts/lone-surrogates.host.out"
+      "reason": "serde_json rejects an escaped lone surrogate, so the host reads the file as malformed. The release's account forms cannot produce one.",
+      "read": {
+        "unreadable": "malformed"
+      }
     }
   },
   {
@@ -1192,6 +1221,12 @@
           "version"
         ]
       }
+    },
+    "host": {
+      "reason": "serde_json rejects a number beyond the f64 range, which JSON.parse reads as Infinity, so the host reads the file as malformed. The release never writes such a number.",
+      "read": {
+        "unreadable": "malformed"
+      }
     }
   },
   {
@@ -1362,6 +1397,12 @@
         "reset": [
           "scripts.roomPolicy"
         ]
+      }
+    },
+    "host": {
+      "reason": "serde_json rejects a number beyond the f64 range, which JSON.parse reads as Infinity, so the host reads the file as malformed. The release never writes such a number.",
+      "read": {
+        "unreadable": "malformed"
       }
     }
   },
