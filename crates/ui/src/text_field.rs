@@ -11,6 +11,8 @@ use gpui::{
 };
 use unicode_segmentation::*;
 
+const MASK: char = '•';
+
 actions!(
     text_input,
     [
@@ -36,6 +38,7 @@ pub struct TextField {
     label: SharedString,
     committed: SharedString,
     numeric: bool,
+    masked: bool,
     focus_handle: FocusHandle,
     content: SharedString,
     placeholder: SharedString,
@@ -150,14 +153,14 @@ impl TextField {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.masked && !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
         }
     }
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.masked && !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
@@ -193,7 +196,33 @@ impl TextField {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.closest_index_for_x(position.x - bounds.left())
+        self.content_offset(line.closest_index_for_x(position.x - bounds.left()))
+    }
+
+    fn display_text(&self) -> SharedString {
+        if self.masked {
+            MASK.to_string().repeat(self.content.chars().count()).into()
+        } else {
+            self.content.clone()
+        }
+    }
+
+    fn display_offset(&self, offset: usize) -> usize {
+        if self.masked {
+            self.content[..offset].chars().count() * MASK.len_utf8()
+        } else {
+            offset
+        }
+    }
+
+    fn content_offset(&self, display_offset: usize) -> usize {
+        if !self.masked {
+            return display_offset;
+        }
+        self.content
+            .char_indices()
+            .nth(display_offset / MASK.len_utf8())
+            .map_or(self.content.len(), |(offset, _)| offset)
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -271,6 +300,9 @@ impl EntityInputHandler for TextField {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
+        if self.masked {
+            return None;
+        }
         let range = self.range_from_utf16(&range_utf16);
         actual_range.replace(self.range_to_utf16(&range));
         Some(self.content[range].to_string())
@@ -365,11 +397,11 @@ impl EntityInputHandler for TextField {
         let range = self.range_from_utf16(&range_utf16);
         Some(Bounds::from_corners(
             point(
-                bounds.left() + last_layout.x_for_index(range.start),
+                bounds.left() + last_layout.x_for_index(self.display_offset(range.start)),
                 bounds.top(),
             ),
             point(
-                bounds.left() + last_layout.x_for_index(range.end),
+                bounds.left() + last_layout.x_for_index(self.display_offset(range.end)),
                 bounds.bottom(),
             ),
         ))
@@ -385,11 +417,11 @@ impl EntityInputHandler for TextField {
         bounds.localize(&point)?;
         let last_layout = self.last_layout.as_ref()?;
 
-        if last_layout.text != self.content {
+        if last_layout.text != self.display_text() {
             return None;
         }
-        let utf8_index = last_layout.index_for_x(point.x - bounds.left())?;
-        Some(self.offset_to_utf16(utf8_index))
+        let display_index = last_layout.index_for_x(point.x - bounds.left())?;
+        Some(self.offset_to_utf16(self.content_offset(display_index)))
     }
 }
 
@@ -446,15 +478,19 @@ impl Element for TextElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let input = self.input.read(cx);
-        let content = input.content.clone();
-        let selected_range = input.selected_range.clone();
-        let cursor = input.cursor_offset();
+        let selected_range = input.display_offset(input.selected_range.start)
+            ..input.display_offset(input.selected_range.end);
+        let marked_range = input
+            .marked_range
+            .as_ref()
+            .map(|range| input.display_offset(range.start)..input.display_offset(range.end));
+        let cursor = input.display_offset(input.cursor_offset());
         let style = window.text_style();
 
-        let (display_text, text_color) = if content.is_empty() {
+        let (display_text, text_color) = if input.content.is_empty() {
             (input.placeholder.clone(), theme::disabled())
         } else {
-            (content, style.color)
+            (input.display_text(), style.color)
         };
 
         let run = TextRun {
@@ -465,7 +501,7 @@ impl Element for TextElement {
             underline: None,
             strikethrough: None,
         };
-        let runs = if let Some(marked_range) = input.marked_range.as_ref() {
+        let runs = if let Some(marked_range) = marked_range.as_ref() {
             vec![
                 TextRun {
                     len: marked_range.start,
@@ -582,9 +618,13 @@ impl Render for TextField {
         div()
             .id(self.id.clone())
             .debug_selector(|| self.id.to_string())
-            .role(gpui::accesskit::Role::TextInput)
+            .role(if self.masked {
+                gpui::accesskit::Role::PasswordInput
+            } else {
+                gpui::accesskit::Role::TextInput
+            })
             .aria_label(self.label.clone())
-            .aria_value(self.content.clone())
+            .aria_value(self.display_text())
             .tab_stop(true)
             .overflow_hidden()
             .flex()
@@ -667,6 +707,7 @@ impl TextField {
             label: label.to_owned().into(),
             committed: value.clone().into(),
             numeric,
+            masked: false,
             focus_handle,
             content: value.into(),
             placeholder: "".into(),
@@ -685,6 +726,11 @@ impl TextField {
 
     pub fn is_composing(&self) -> bool {
         self.marked_range.is_some()
+    }
+
+    pub fn set_masked(&mut self, masked: bool, cx: &mut Context<Self>) {
+        self.masked = masked;
+        cx.notify();
     }
 
     pub fn set_placeholder(&mut self, placeholder: String, cx: &mut Context<Self>) {
@@ -771,5 +817,52 @@ mod tests {
                 Some("éX".into())
             );
         });
+    }
+
+    #[gpui::test]
+    fn masked_text_stays_out_of_the_clipboard_and_edits_at_the_click(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(init);
+        let (field, cx) = cx.add_window_view(|window, cx| {
+            let mut field =
+                TextField::new("password", "Password", "pässwörd".into(), false, window, cx);
+            field.set_masked(true, cx);
+            field
+        });
+        cx.update(|window, cx| window.focus(&field.focus_handle(cx), cx));
+        cx.run_until_parked();
+        cx.write_to_clipboard(ClipboardItem::new_string("before".into()));
+        cx.simulate_keystrokes("cmd-a cmd-c");
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("before".into())
+        );
+        cx.simulate_keystrokes("cmd-x");
+        assert_eq!(
+            field.read_with(cx, |field, _| field.value().to_owned()),
+            "pässwörd"
+        );
+        field.update_in(cx, |field, window, cx| {
+            assert_eq!(field.text_for_range(0..3, &mut None, window, cx), None);
+        });
+
+        let bounds = cx.debug_bounds("password").expect("the field is drawn");
+        cx.simulate_click(
+            point(bounds.right() - px(2.), bounds.top() + px(14.)),
+            Default::default(),
+        );
+        cx.simulate_input("!");
+        assert_eq!(
+            field.read_with(cx, |field, _| field.value().to_owned()),
+            "pässwörd!"
+        );
+
+        field.update(cx, |field, cx| field.set_masked(false, cx));
+        cx.simulate_keystrokes("cmd-a cmd-c");
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|item| item.text()),
+            Some("pässwörd!".into())
+        );
     }
 }

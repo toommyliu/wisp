@@ -22,6 +22,7 @@ const TAB_STRIP_HEIGHT: f32 = 30.;
 pub fn open(
     host: &Host,
     script: Option<ScriptRequest>,
+    account: Option<String>,
     cx: &mut App,
 ) -> anyhow::Result<WindowHandle<GameWindow>> {
     let options = WindowOptions {
@@ -39,7 +40,7 @@ pub fn open(
         ..Default::default()
     };
     cx.open_window(options, |window, cx| {
-        cx.new(|cx| GameWindow::new(host, script, window, cx))
+        cx.new(|cx| GameWindow::new(host, script, account.as_deref(), window, cx))
     })
 }
 
@@ -56,10 +57,11 @@ impl GameWindow {
     fn new(
         host: &Host,
         script: Option<ScriptRequest>,
+        account: Option<&str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> GameWindow {
-        let player = PlayerView::new(host, script, window, cx);
+        let player = PlayerView::new(host, script, account, window, cx);
         match &player {
             Ok(view) => window.focus(&view.focus_handle(cx), cx),
             Err(error) => tracing::error!(%error, "no player view"),
@@ -100,12 +102,8 @@ impl GameWindow {
                     this.bar_action(action.clone(), window, cx)
                 },
             ));
-            let (sender, receiver) = async_channel::bounded(1);
-            view.read(cx)
-                .session()
-                .watch(std::task::Waker::from(std::sync::Arc::new(
-                    controls::BarWake(sender),
-                )));
+            let (waker, receiver) = crate::wake::channel();
+            view.read(cx).session().watch(waker);
             game_bar.update(cx, |bar, cx| {
                 bar.state.read(view.read(cx).session());
                 bar.refresh(window, cx);

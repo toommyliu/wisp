@@ -1,10 +1,14 @@
+mod account_manager;
 mod game_window;
 mod terminal;
+mod wake;
 
 use lucent_host::ScriptRequest;
 use std::ffi::OsString;
 
+use gpui::App;
 use lucent_host::Host;
+use lucent_host::app_settings::LaunchMode;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> anyhow::Result<()> {
@@ -23,21 +27,46 @@ fn main() -> anyhow::Result<()> {
     let host = Host::new()?;
     let app = gpui_platform::application();
     let reopen_host = host.clone();
-    app.on_reopen(move |cx| {
-        if let Err(error) = game_window::open(&reopen_host, None, cx) {
-            tracing::error!(%error, "couldn't reopen a game window");
-        }
-    });
+    app.on_reopen(move |cx| open_launch_window(&reopen_host, None, false, cx));
     app.run(move |cx| {
         lucent_ui::text_field::init(cx);
-        if let Err(error) = game_window::open(&host, request, cx) {
-            tracing::error!(%error, "couldn't open a game window");
-            cx.quit();
-            return;
-        }
-        cx.activate(true);
+        open_launch_window(&host, request, true, cx);
     });
     Ok(())
+}
+
+fn open_launch_window(host: &Host, script: Option<ScriptRequest>, starting: bool, cx: &mut App) {
+    let host = host.clone();
+    let settings = host.app_settings().get();
+    cx.spawn(async move |cx| {
+        let mode = if script.is_some() {
+            LaunchMode::Game
+        } else {
+            match settings.await {
+                Ok(settings) => settings.preferences.launch_mode,
+                Err(error) => {
+                    tracing::warn!(%error, "couldn't read the launch mode; opening a game window");
+                    LaunchMode::Game
+                }
+            }
+        };
+        cx.update(|cx| {
+            let opened = match mode {
+                LaunchMode::AccountManager => account_manager::show(&host, cx).map(drop),
+                LaunchMode::Game => game_window::open(&host, script, None, cx).map(drop),
+            };
+            match opened {
+                Ok(()) => cx.activate(true),
+                Err(error) => {
+                    tracing::error!(%error, "couldn't open a window");
+                    if starting {
+                        cx.quit();
+                    }
+                }
+            }
+        })
+    })
+    .detach();
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]

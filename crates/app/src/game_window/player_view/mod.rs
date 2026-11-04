@@ -52,12 +52,16 @@ impl PlayerView {
     pub fn new(
         host: &Host,
         script: Option<ScriptRequest>,
+        account: Option<&str>,
         window: &mut Window,
         cx: &mut App,
     ) -> Result<Entity<PlayerView>, PlayerViewError> {
         let (wake, woken) = async_channel::bounded(1);
         let native = NativeView::attach(window, wake)?;
-        let mut session = host.start_session(native.surface())?;
+        let mut session = match account {
+            Some(username) => host.start_account_session(native.surface(), username)?,
+            None => host.start_session(native.surface())?,
+        };
         let terminal = if script.is_some() {
             let (sender, receiver) = async_channel::bounded(16);
             if let Err(error) = crate::terminal::spawn(sender) {
