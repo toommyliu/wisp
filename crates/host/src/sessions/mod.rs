@@ -110,13 +110,7 @@ impl Host {
         use crate::data::roots;
         let scripts =
             roots::scripts_root(dirs::document_dir, dirs::home_dir).map_err(HostError::Files)?;
-        let app_data = roots::app_data_roots(
-            roots::Platform::CURRENT,
-            cfg!(debug_assertions),
-            |name| std::env::var_os(name),
-            dirs::home_dir,
-        )
-        .map_err(HostError::AppData)?;
+        let app_data = roots::system_app_data_roots().map_err(HostError::AppData)?;
         Self::with_services_and_roots(
             clipboard,
             audio,

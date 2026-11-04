@@ -76,6 +76,15 @@ pub(crate) fn app_data_roots(
     })
 }
 
+pub(crate) fn system_app_data_roots() -> io::Result<AppDataRoots> {
+    app_data_roots(
+        Platform::CURRENT,
+        cfg!(debug_assertions),
+        |name| std::env::var_os(name),
+        dirs::home_dir,
+    )
+}
+
 pub(crate) fn create(path: &Path) -> io::Result<PathBuf> {
     match std::fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => super::fs::create_root(path)?,

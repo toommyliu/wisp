@@ -31,6 +31,8 @@ reqwest = { version = "0.12", default-features = false, features = ["cookies", "
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "io-util", "sync", "macros"] }
 tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "json", "registry", "std"] }
 url = "2.5"
 parking_lot = "0.12"
 indexmap = "2"
@@ -56,7 +58,6 @@ lucent-host = { path = ".", features = ["testing"] }
 base64 = "0.22"
 rusty-leveldb = "3"
 tokio = { version = "1", features = ["test-util"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
 wgpu = { version = "30", features = ["noop"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]

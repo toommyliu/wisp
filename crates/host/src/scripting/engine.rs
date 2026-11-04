@@ -848,12 +848,12 @@ fn host_log(
     _reply: v8::ReturnValue<v8::Value>,
 ) {
     const TARGET: &str = "lucent_host::scripting::script";
-    let text = args.get(1);
+    let text = crate::logs::script_line(args.get(1).to_rust_string_lossy(scope));
     match args.get(0).to_rust_string_lossy(scope).as_str() {
-        "debug" => tracing::debug!(target: TARGET, "{}", text.to_rust_string_lossy(scope)),
-        "warn" => tracing::warn!(target: TARGET, "{}", text.to_rust_string_lossy(scope)),
-        "error" => tracing::error!(target: TARGET, "{}", text.to_rust_string_lossy(scope)),
-        _ => tracing::info!(target: TARGET, "{}", text.to_rust_string_lossy(scope)),
+        "debug" => tracing::debug!(target: TARGET, "{text}"),
+        "warn" => tracing::warn!(target: TARGET, "{text}"),
+        "error" => tracing::error!(target: TARGET, "{text}"),
+        _ => tracing::info!(target: TARGET, "{text}"),
     }
 }
 

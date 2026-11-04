@@ -6,6 +6,7 @@ mod data;
 pub mod game;
 mod github;
 pub mod library;
+pub mod logs;
 mod net;
 mod player;
 pub mod projection;
