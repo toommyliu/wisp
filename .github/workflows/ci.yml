@@ -61,8 +61,33 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Find the V8 version
+        id: v8
+        run: echo "version=$(awk '/^name = "v8"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_OUTPUT"
+
+      # rust-cache keeps only build, .fingerprint and deps under target/debug.
+      # v8 links its static library from target/debug/gn_out whenever it recompiles.
+      - name: Restore the V8 static library
+        id: v8-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/gn_out
+          key: rusty-v8-${{ runner.os }}-${{ runner.arch }}-${{ steps.v8.outputs.version }}
+
+      - name: Rerun the v8 build script to download its static library
+        if: steps.v8-cache.outputs.cache-hit != 'true'
+        run: cargo clean -p v8
+
       - run: cargo run -p lucent-protocol --bin export-types -- --check
       - run: cargo build --workspace
+
+      - name: Save the V8 static library
+        if: steps.v8-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: target/debug/gn_out
+          key: ${{ steps.v8-cache.outputs.cache-primary-key }}
+
       - run: cargo test --workspace
       - run: cargo test -p lucent-host --features testing
       - run: cargo clippy --workspace -- -D warnings
