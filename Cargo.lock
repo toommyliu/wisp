@@ -4171,6 +4171,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "swf 0.3.0 (git+https://github.com/toommyliu/ruffle?rev=b22a3560baeddbfb92001f54b47561997563a032)",
  "thiserror 2.0.18",
  "tokio",

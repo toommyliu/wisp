@@ -58,6 +58,7 @@ pub(crate) struct Options {
     pub(crate) settings: Arc<RwLock<GameSettings>>,
     pub(crate) auto_zone: Arc<RwLock<AutoZoneConfig>>,
     pub(crate) changes: Arc<crate::sessions::Changes>,
+    pub(crate) saved_objects: Arc<crate::data::saved_objects::Profile>,
 }
 
 pub(crate) struct Handle {
@@ -531,6 +532,9 @@ impl Running {
             .with_navigator(Navigator::new(net, inbox, tasks.clone()))
             .with_boxed_audio((options.audio)())
             .with_ui(Ui::new(options.clipboard))
+            .with_storage(Box::new(crate::data::saved_objects::Storage::new(
+                options.saved_objects,
+            )))
             .with_external_interface(Box::new(provider))
             .with_viewport_dimensions(viewport.width(), viewport.height(), viewport.scale())
             .with_autoplay(true)
