@@ -7,7 +7,6 @@ use lucent_host::app_settings::{
     PreferencesPatch, Rounding, SettingsError, ThemeMode, ThemePatch, ThemeToken,
 };
 use serde_json::{Value, json};
-use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::task::Waker;
@@ -495,21 +494,19 @@ fn reads_newer_settings_silently_and_writes_the_current_version_on_update() {
     assert_eq!(file.get("futureOnly"), None);
 }
 
+#[cfg(unix)]
 #[test]
 fn settings_files_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
     if !permissions_apply() {
         return;
     }
     let workspace = Workspace::new();
     let host = workspace.host();
     wait(host.app_settings().update_appearance(light())).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(workspace.path("settings.json"))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
-    }
+    let mode = std::fs::metadata(workspace.path("settings.json"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
 }
