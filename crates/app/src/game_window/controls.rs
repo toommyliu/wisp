@@ -207,13 +207,3 @@ pub(super) fn sync_script_dialog(
         }
     });
 }
-
-pub(super) struct BarWake(pub async_channel::Sender<()>);
-impl std::task::Wake for BarWake {
-    fn wake(self: std::sync::Arc<Self>) {
-        let _ = self.0.try_send(());
-    }
-    fn wake_by_ref(self: &std::sync::Arc<Self>) {
-        let _ = self.0.try_send(());
-    }
-}
