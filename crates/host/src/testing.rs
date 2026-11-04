@@ -36,11 +36,28 @@ pub fn headless_host_with_roots(
     scripts: impl Into<std::path::PathBuf>,
     app_data: impl Into<std::path::PathBuf>,
 ) -> Result<Host, crate::HostError> {
+    start_headless(scripts.into(), app_data.into(), None)
+}
+
+pub fn headless_host_importing(
+    scripts: impl Into<std::path::PathBuf>,
+    app_data: impl Into<std::path::PathBuf>,
+    release: impl Into<std::path::PathBuf>,
+) -> Result<Host, crate::HostError> {
+    start_headless(scripts.into(), app_data.into(), Some(release.into()))
+}
+
+fn start_headless(
+    scripts: std::path::PathBuf,
+    app_data: std::path::PathBuf,
+    release: Option<std::path::PathBuf>,
+) -> Result<Host, crate::HostError> {
     Host::with_services_and_roots(
         Clipboard::memory().expect("couldn't start the in-memory clipboard"),
         || Box::new(NullAudioBackend::new()),
-        scripts.into(),
-        app_data.into(),
+        scripts,
+        app_data,
+        release,
     )
 }
 

@@ -39,6 +39,25 @@ impl Workspace {
         self.0.join("app-data")
     }
 
+    pub fn release(&self) -> PathBuf {
+        self.0.join("release-app-data")
+    }
+
+    pub fn write_release(&self, relative: &str, contents: impl AsRef<[u8]>) {
+        let path = relative
+            .split('/')
+            .fold(self.release(), |path, segment| path.join(segment));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+
+    pub fn read_release(&self, relative: &str) -> String {
+        let path = relative
+            .split('/')
+            .fold(self.release(), |path, segment| path.join(segment));
+        fs::read_to_string(path).unwrap()
+    }
+
     pub fn path(&self, relative: &str) -> PathBuf {
         relative
             .split('/')
@@ -46,7 +65,7 @@ impl Workspace {
     }
 
     pub fn host(&self) -> Host {
-        testing::headless_host_with_roots(self.scripts(), self.app_data()).unwrap()
+        testing::headless_host_importing(self.scripts(), self.app_data(), self.release()).unwrap()
     }
 
     pub fn write(&self, relative: &str, contents: impl AsRef<[u8]>) {
@@ -139,6 +158,10 @@ impl<S: tracing::Subscriber> Layer<S> for Capture {
 
 impl Capture {
     pub fn start() -> (Self, tracing::dispatcher::DefaultGuard) {
+        static GLOBAL: std::sync::Once = std::sync::Once::new();
+        GLOBAL.call_once(|| {
+            let _ = tracing::subscriber::set_global_default(Registry::default());
+        });
         let capture = Self::default();
         let dispatch = tracing::Dispatch::new(Registry::default().with(capture.clone()));
         (capture, tracing::dispatcher::set_default(&dispatch))

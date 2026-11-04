@@ -82,7 +82,7 @@ async fn harness_on(runtime: &Handle, options: Options) -> Harness {
     if let Some(cache) = &options.cache {
         std::fs::write(folder.cache_path(), cache.to_string()).unwrap();
     }
-    let app_data = Arc::new(AppData::start(folder.0.clone(), folder.0.clone()).unwrap());
+    let app_data = Arc::new(AppData::start(folder.0.clone(), folder.0.clone(), None).unwrap());
     let settings = AppSettingsStore {
         app_data: app_data.clone(),
     };

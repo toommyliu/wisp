@@ -43,7 +43,11 @@ pub(crate) enum Request {
 }
 
 impl AppData {
-    pub(crate) fn start(root: PathBuf, real: PathBuf) -> io::Result<Self> {
+    pub(crate) fn start(
+        root: PathBuf,
+        real: PathBuf,
+        release: Option<PathBuf>,
+    ) -> io::Result<Self> {
         let (sender, requests) = mpsc::channel::<Request>();
         let account_changes = Arc::new(Changes::default());
         let settings_changes = Arc::new(Changes::default());
@@ -53,6 +57,7 @@ impl AppData {
             store: Store {
                 root,
                 real,
+                release,
                 #[cfg(feature = "testing")]
                 probe: probe.clone(),
             },
@@ -66,6 +71,7 @@ impl AppData {
             .name("lucent-app-data".into())
             .spawn(move || {
                 let _dispatch = tracing::dispatcher::set_default(&dispatch);
+                worker.store.import_release();
                 for request in requests {
                     worker.handle(request);
                 }
@@ -292,6 +298,7 @@ impl Document<'_> {
 struct Store {
     root: PathBuf,
     real: PathBuf,
+    release: Option<PathBuf>,
     #[cfg(feature = "testing")]
     probe: Arc<Mutex<Option<Probe>>>,
 }
@@ -319,6 +326,108 @@ impl Store {
                 value
             }
         })
+    }
+
+    fn import_release(&self) {
+        if self.release.is_none() {
+            return;
+        }
+        self.import(Document::Accounts, accounts::decode, accounts::encode);
+        self.import(
+            Document::AppSettings,
+            app_settings::decode,
+            app_settings::encode,
+        );
+        for file in self.release_files(Document::Settings("").directory()) {
+            self.import(
+                Document::Settings(&file),
+                account_settings::decode,
+                account_settings::encode,
+            );
+        }
+    }
+
+    fn import<T>(
+        &self,
+        document: Document,
+        decode: fn(Option<&[u8]>) -> Loaded<T>,
+        encode: fn(&T) -> Vec<u8>,
+    ) {
+        if !matches!(self.read(document), Ok(None)) {
+            return;
+        }
+        let Some(bytes) = self.read_release(document) else {
+            return;
+        };
+        let Loaded::Decoded(Decoded { value, .. }) = decode(Some(&bytes)) else {
+            return;
+        };
+        match self.write(document, &encode(&value)) {
+            Ok(()) => tracing::info!(
+                component = document.component(),
+                path = document.log_path(),
+                from = self.release_name(),
+                "Imported {} from the old data folder",
+                document.kind(),
+            ),
+            Err(error) => tracing::warn!(
+                component = document.component(),
+                path = document.log_path(),
+                from = self.release_name(),
+                %error,
+                "Couldn't import {} from the old data folder",
+                document.kind(),
+            ),
+        }
+    }
+
+    fn release_dir(&self, name: Option<&str>) -> Result<Option<Dir>, Failure> {
+        let Some(release) = self.release.as_deref() else {
+            return Ok(None);
+        };
+        let Some(root) = fs::open_root(release, false)? else {
+            return Ok(None);
+        };
+        match name {
+            Some(name) => fs::directory(&root, name, false),
+            None => Ok(Some(root)),
+        }
+    }
+
+    fn release_files(&self, name: Option<&str>) -> Vec<String> {
+        let Ok(Some(dir)) = self.release_dir(name) else {
+            return Vec::new();
+        };
+        let Ok(entries) = dir.entries() else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|file| file.ends_with(".json") && !file.starts_with(super::path::TEMP_PREFIX))
+            .collect()
+    }
+
+    fn read_release(&self, document: Document) -> Option<Vec<u8>> {
+        let read = self
+            .release_dir(document.directory())
+            .and_then(|dir| dir.map_or(Ok(None), |dir| fs::read(&dir, document.name())));
+        read.unwrap_or_else(|_| {
+            tracing::warn!(
+                component = document.component(),
+                path = document.log_path(),
+                from = self.release_name(),
+                "Couldn't read {} in the old data folder",
+                document.kind(),
+            );
+            None
+        })
+    }
+
+    fn release_name(&self) -> &str {
+        let name = self.release.as_deref().and_then(|path| path.file_name());
+        name.and_then(|name| name.to_str()).unwrap_or_default()
     }
 
     fn folder(&self, document: Document, create: bool) -> Result<Option<Dir>, Failure> {
